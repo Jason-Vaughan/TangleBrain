@@ -135,6 +135,10 @@ class Router:
         self.state_path = Path(state_path) if state_path is not None else default_state_path()
         self._adapter_factory = adapter_factory
         self.inject_delegate = inject_delegate
+        # The entry that served the most recent successful route(), or None before any success.
+        # Surfaced so the CLI's measurement seam (C4) can record which tier/model handled a task
+        # without changing route()'s str return type.
+        self.last_served: RosterEntry | None = None
 
     def route(
         self,
@@ -188,6 +192,7 @@ class Router:
                 continue
             served_pos = next(i for i, e in enumerate(orchestrators) if e.id == entry.id)
             _write_cursor(self.state_path, (served_pos + 1) % n)
+            self.last_served = entry
             return text
 
         detail = "; ".join(

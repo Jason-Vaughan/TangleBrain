@@ -18,6 +18,13 @@ import argparse
 import sys
 
 from tanglebrain.adapters import AdapterError
+from tanglebrain.measurement import (
+    format_rollup,
+    load_pricing,
+    read_records,
+    record_task,
+    rollup,
+)
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.router import Router, RouterError
 from tanglebrain.selector import SelectionError, build_adapter, select_by_id, select_local
@@ -31,9 +38,17 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="tanglebrain",
-        description="Route one request to the free local tier (C1).",
+        description=(
+            "Route one request to the cheapest capable tier (frontier-first by default), or "
+            "print the 'spend avoided' rollup with --stats."
+        ),
     )
-    parser.add_argument("prompt", help="The prompt to route.")
+    parser.add_argument(
+        "prompt",
+        nargs="?",
+        default=None,
+        help="The prompt to route. Optional only when --stats is given.",
+    )
     parser.add_argument(
         "--roster",
         default=None,
@@ -70,6 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Override the completion token cap (defaults to the adapter's 2048).",
+    )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help=(
+            "Print the 'spend avoided' rollup (cloud-equivalent cost of every routed task so far) "
+            "and exit. No prompt needed."
+        ),
     )
     return parser
 
@@ -114,10 +137,19 @@ def run_once(
     opts = {"max_tokens": max_tokens} if max_tokens is not None else None
 
     if model is not None:
-        return build_adapter(select_by_id(roster, model)).run(prompt, opts)
+        entry = select_by_id(roster, model)
+        text = build_adapter(entry).run(prompt, opts)
+        record_task(path="model", entry=entry, prompt=prompt, response=text)
+        return text
     if local:
-        return build_adapter(select_local(roster)).run(prompt, opts)
-    return Router(roster).route(prompt, task=task, opts=opts)
+        entry = select_local(roster)
+        text = build_adapter(entry).run(prompt, opts)
+        record_task(path="local", entry=entry, prompt=prompt, response=text)
+        return text
+    router = Router(roster)
+    text = router.route(prompt, task=task, opts=opts)
+    record_task(path="router", entry=router.last_served, prompt=prompt, response=text)
+    return text
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -129,7 +161,16 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code: ``0`` on success, ``1`` on a known TangleBrain error.
     """
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.stats:
+        print(format_rollup(rollup(read_records()), load_pricing()))
+        return 0
+
+    if args.prompt is None:
+        parser.error("prompt is required (unless --stats is given)")
+
     try:
         text = run_once(
             args.prompt,
