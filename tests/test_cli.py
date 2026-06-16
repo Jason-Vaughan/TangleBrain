@@ -55,6 +55,29 @@ class RunOnceTest(unittest.TestCase):
         with self.assertRaises(SelectionError):
             run_once("hello", model="no-such-model")
 
+    def test_route_uses_router(self):
+        # --route builds a Router and calls .route (instead of the local-first / --model paths).
+        fake_router = MagicMock()
+        fake_router.route.return_value = "routed by orchestrator"
+        with patch("tanglebrain.cli.load_roster"), patch(
+            "tanglebrain.cli.Router", return_value=fake_router
+        ) as RouterCls:
+            self.assertEqual(run_once("hello", route=True, task="code"), "routed by orchestrator")
+        RouterCls.assert_called_once()
+        self.assertEqual(fake_router.route.call_args.kwargs.get("task"), "code")
+
+    def test_model_takes_precedence_over_route(self):
+        # model is an explicit override and wins even if --route is also passed.
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "from-model"
+        with patch("tanglebrain.cli.load_roster"), patch(
+            "tanglebrain.cli.select_by_id"
+        ), patch("tanglebrain.cli.build_adapter", return_value=fake_adapter), patch(
+            "tanglebrain.cli.Router"
+        ) as RouterCls:
+            self.assertEqual(run_once("hi", model="claude", route=True), "from-model")
+        RouterCls.assert_not_called()
+
 
 class MainTest(unittest.TestCase):
     def test_success_prints_and_returns_zero(self):
@@ -73,6 +96,24 @@ class MainTest(unittest.TestCase):
                 code = main(["--model", "gemini", "hello"])
         self.assertEqual(code, 0)
         self.assertEqual(run.call_args.kwargs["model"], "gemini")
+
+    def test_route_and_task_flags_threaded_to_run_once(self):
+        with patch("tanglebrain.cli.run_once", return_value="ok") as run:
+            with redirect_stdout(io.StringIO()):
+                code = main(["--route", "--task", "code", "hello"])
+        self.assertEqual(code, 0)
+        self.assertTrue(run.call_args.kwargs["route"])
+        self.assertEqual(run.call_args.kwargs["task"], "code")
+
+    def test_router_error_returns_one_and_writes_stderr(self):
+        from tanglebrain.router import RouterError
+
+        with patch("tanglebrain.cli.run_once", side_effect=RouterError("all orchestrators failed")):
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(["--route", "hello"])
+        self.assertEqual(code, 1)
+        self.assertIn("all orchestrators failed", err.getvalue())
 
     def test_adapter_error_returns_one_and_writes_stderr(self):
         fake_adapter = MagicMock()
