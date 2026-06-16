@@ -84,17 +84,34 @@ truth — read these, don't re-derive from this file):
     cancels the tool call headless), gemini (needs one-time `gemini mcp add tanglebrain-delegate
     -- <py> -m tanglebrain.mcp_server`, then `--allowed-mcp-server-names`+`--approval-mode yolo`).
 
-## Next chunk = C4 — measurement / "spend avoided" rollup (§8) — issue #10
+- ✅ **C4** *(this session — 5th chunk)* — **measurement / "spend avoided" rollup (§8)**. **Merged
+  (PR #11); issue #10 CLOSED.** No default-behavior change. Key facts:
+  - `tanglebrain/measurement.py`: each routed task is logged as one JSON line in an append-only
+    `~/.cache/tanglebrain/usage.jsonl` (honors `TANGLEBRAIN_STATE_DIR`, same dir as router-state);
+    `tanglebrain --stats` reads + rolls up a spend-avoided figure. `Router.last_served` surfaces the
+    served entry so the CLI metering seam (`run_once`, all 3 paths) tags tier/model without changing
+    `route()`'s `str` return. **All I/O fault-tolerant** — logging never breaks routing, corrupt log
+    lines never break the rollup.
+  - **Tokens are ESTIMATED**, not measured: uniform `chars/4` heuristic over visible prompt+response
+    across ALL tiers (CLI subs expose no usable counts; local `usage` is inflated by dropped gpt-oss
+    reasoning tokens). One consistent approximate methodology; no adapter changes.
+  - **Pricing** = `tanglebrain/config/pricing.yaml`, mirrors monad-stats `costSaved` anchor
+    **verbatim: Claude Sonnet $3/$15 per MTok** (Monad-1 `tools/monad-stats/publish.py` +
+    `models.json`, methodology ratified 2026-06-13). `placeholder:false`; rollup shows a PLACEHOLDER
+    caveat only if the anchor is forked. C5's knob GUI will tune this config.
+  - **Scope**: top-level routed tasks only. Delegate sub-calls (`run_local_delegate`) intentionally
+    NOT metered (they run inside an already-counted sub task → would double-count).
+  - Plan-hygiene: shipped C2/C2b/C3/C3b plans archived to `.claude/plans/archive/` (commit fab2eea).
+    NB: plans are git-TRACKED in this clone (the old "plans are gitignored on TC" note is wrong here).
 
-Tracked as **issue #10** (filed 2026-06-16) — close via `Closes #10` on the C4 PR. Plan-hygiene
-done same day: the shipped C2/C2b/C3/C3b plans were moved to `.claude/plans/archive/` (commit
-fab2eea), leaving `tanglebrain.md` as the only active plan. NB: plans are git-TRACKED in this
-clone (the old "plans are gitignored on TC" note does not apply here).
+## Next chunk = C5 — knob GUI + TangleClaw integration (§10)
 
-Now that delegation is live there are real savings to quantify. **C4** = log each routed task
-(tier chosen, tokens, estimated cloud-equivalent cost avoided) and roll up a "spend avoided"
-figure (same methodology family as monad-stats' `costSaved`, §8). Greenfield logging layer; no
-default-behavior change → lighter than C3b. Plan-first still good practice. (C5 = knob GUI.)
+**C5** = a thin web panel over the §5 config (roster, task-fit, thresholds, **and now C4's
+`pricing.yaml`**), TangleClaw web-UI style — the "editable parameters" surface (plan §9.2; logic in
+code, knobs in config+GUI). Plus TangleClaw entry integration (prompt in → final out) + a runbook.
+Needs a **port** → register via the TangleClaw PortHub API (3200–3999 range) before binding. File a
+`[feature] C5` issue first (no issue exists yet). Bigger than C4 — plan-first, likely splittable.
+(Still open & deferred: **issue #2** paid-API tier + contract §2/§6 reconciliation, a later chunk.)
 
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
