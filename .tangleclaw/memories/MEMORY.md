@@ -124,15 +124,34 @@ truth — read these, don't re-derive from this file):
     documented best-effort, single-user race under threading (two concurrent runs could swap). Proper
     fix = have `run_once` return the served entry; folded into C5b.
 
-## Next chunk = C5b — editable knobs (§10 C5, issue #13)
+- ✅ **C5b** *(this session — 7th chunk)* — **editable pricing knob + served-entry fix (§10 C5)**.
+  **Merged (PR #15); issue #13 CLOSED.** Released **v0.5.0**. **Scope = PRICING ONLY** (PM decision —
+  roster editing deferred; its dense inline comments need a comment-preserving editor). Key facts:
+  - `measurement.validate_pricing()` (strict: rejects non-numeric/negative/NaN/inf rates,
+    bool-as-rate, empty model, non-bool placeholder) + `save_pricing()`: **atomic** (temp +
+    `os.replace`), **backup** to `<state_dir>/backups/` (sub-second stamp), and **preserves the
+    target file's existing leading comment block VERBATIM** (`_leading_comment_block`) — fallback
+    `PRICING_HEADER` only when the file is absent. `_render_pricing` uses `json.dumps` for the model
+    string (valid YAML; round-trips colons/quotes/unicode/newline/backslash).
+  - **`cli.run_once(return_served=True)` → `(text, served={path,tier,model})`** (default still bare
+    `str`, callers unchanged). Panel uses it → no usage-log re-read → **C5a `_last_served` race gone**
+    (`_last_served` deleted). `gui` POST `/api/pricing` → `save_pricing_view`.
+  - GUI edits write the **tracked** `tanglebrain/config/pricing.yaml` (git-visible; operator commits).
+  - Critic caught + fixed: a real **self-XSS** (editable field put `reference_model` in an HTML
+    `value="…"` attr but `esc()` only escaped `&<>` — now full 5-char escape incl quotes); header
+    constant had drifted (now preserve-existing-verbatim); adversarial round-trip test added.
 
-**C5b** (issue **#13**) = make the C5a panel **edit** config and persist: write-back to `roster.yaml`
-/ `pricing.yaml` (new `save_roster`/`save_pricing` — no round-trip serializer exists yet),
-**re-validate on save** (reuse `_parse_entry`/`_parse_invoke` checks), file-write safety
-(atomic/backup) + a confirm UI, and **never** accept/echo resolved `key_ref` secrets. Also fold in
-the `_last_served` race fix (run_once returns served entry). Builds on `tanglebrain/gui/`. Stays
-localhost-only. Plan-first. (Still open & deferred after C5b: **issue #2** paid-API tier + contract
-§2/§6 reconciliation — the final build chunk.)
+## Next chunk = #2 — paid-API tier (the FINAL build chunk; heaviest/most architectural)
+
+**Issue #2** = the paid-API tier: explicit `api_billing_enabled` global flag **default OFF** (when off,
+`tier: api` entries parse but never route); when on, each paid key is a `tier: api` roster entry with
+per-key `enabled` toggle + budget cap; paid API stays LAST resort (§6). **Bundled with the contract
+§2/§6 reconciliation** (Monad-embedded→Mac, profile-model→cost-tier — PM, see below). Custody:
+**LiteLLM-fronted virtual key preferred** (`key_ref`), raw keys not foreclosed but gated by the flag
+(invariant #3 softened — durable rule: *no paid billing without the explicit toggle*). Needs a new
+`api` adapter (only `openai-compat`+`cli` exist; `build_adapter` has an api-tier gap test). **Plan-
+first, likely splittable, START IN A CLEAN SESSION** — it's the most architectural chunk. Also still
+open/non-build: **roster editing in the GUI** (deferred from C5; needs comment-preserving YAML).
 
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
