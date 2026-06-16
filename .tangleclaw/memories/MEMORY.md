@@ -27,22 +27,37 @@ truth — read these, don't re-derive from this file):
 - ✅ **C0** — frontier-first decompose spike. Shipped as Monad-1 PR #65 (merged). Verdict KEEP.
   Carry-forward: budget local/grunt calls generously (≥2048 tokens) — gpt-oss spends budget on
   internal reasoning; chain-of-thought returns in `reasoning_content` and is dropped.
-- ✅ **C1** *(this repo, this session)* — package skeleton + roster loader (§5) + openai-compat
-  adapter to local gpt-oss + one request end-to-end. **PR #1 open** on
-  `feat/c1-skeleton-roster-adapter`; 50 hermetic tests green; live E2E passing; Independent
-  Critic review done + findings addressed. **Repo is PRIVATE on a Free plan → auto-merge is
-  Pro-gated; merge PRs MANUALLY** (`gh pr merge <N> --squash --delete-branch`), never `--auto`.
-  Migrated plan + contract into this repo; re-pointed the TANGLEBRAIN / TANGLEBRAIN-PLAN
-  shared-doc registrations to the in-repo copies (LITELLM stays on Monad-1).
+- ✅ **C1** — package skeleton + roster loader (§5) + openai-compat adapter to local gpt-oss +
+  one request end-to-end. **Merged (PR #1); released v0.1.0.** **Repo is PRIVATE on a Free plan →
+  auto-merge is Pro-gated; merge PRs MANUALLY** (`gh pr merge <N> --squash --delete-branch`),
+  never `--auto`. (No CI checks configured on the repo, so no gates to wait on.) Migrated plan +
+  contract into this repo; re-pointed TANGLEBRAIN / TANGLEBRAIN-PLAN shared-doc registrations to
+  the in-repo copies (LITELLM stays on Monad-1).
+- ✅ **C2** *(this session)* — CLI adapters for the three subs (claude/codex/gemini) with
+  **env-scrub** (§7). **PR #5 open** on `feat/c2-cli-adapters`; 99 hermetic + 6 gated live tests
+  green; Independent Critic review done + findings addressed. **Merge manually after review**
+  (feature PR → not `--auto`). Key facts for future sessions:
+  - `CliAdapter` (`tanglebrain/adapters/cli.py`): subprocess, **no shell, ever**. Prompt injected
+    via a `{prompt}` token in the roster `cmd` (substituted) else appended as the final arg.
+  - **Verified CLI shapes** (probed live 2026-06-16): claude `-p --output-format json` →
+    `{"result":...,"is_error":...}`; gemini `-p {prompt} --output-format json` → `{"response":...}`;
+    codex `exec` → plain text on stdout (metadata on stderr). New roster field `invoke.parse` ∈
+    {`claude-json`, `gemini-json`, `plain`} picks the parser. claude `cmd` is now `json`, NOT
+    `stream-json`.
+  - Env-scrub proven: a live test has claude run `printenv ANTHROPIC_API_KEY` → reports UNSET.
+  - `AdapterError` now lives in `adapters/base.py` (re-exported from `openai_compat`).
+  - `tanglebrain --model <id>` / `selector.select_by_id` drive a named entry end-to-end — an
+    explicit override, NOT the router.
 
-## Next chunk = C2
+## Next chunk = C3 (with C2b folded in)
 
-CLI adapters for the three subs (claude / codex / gemini) with **env-scrub** (§7): `claude -p`
-must run with **`ANTHROPIC_API_KEY` scrubbed** from the subprocess env (108-char paid key is
-set on this Mac — we want the flat Max sub, not per-token billing). `scrub_env` is already a
-first-class field on the roster `Invoke` object, ready to be honored by the CLI adapter.
-Plus the gpt-oss MCP tool from C0 as each orchestrator's local delegate. (C3 = the real
-router/rotation/failover — NOT C2.)
+- **C2b (issue #4)** — port the C0 gpt-oss **MCP local-delegate** here as each orchestrator's
+  local delegate. Split out of C2 (one-chunk rule); only has value once an orchestrator
+  decomposes+delegates, so fold it in **near/with C3**.
+- **C3** — the real **frontier-first router (§6)**: task-fit orchestrator selection + rotation
+  across the `can_orchestrate` subs, 429/limit failover, and the decompose→delegate→review loop.
+  The selector today is deliberately minimal (`select_local` / `select_by_id`) — build the router
+  as its own module; do not grow the selector into it.
 
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 

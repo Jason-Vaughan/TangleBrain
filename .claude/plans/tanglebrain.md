@@ -218,8 +218,13 @@ building any router. Repo created at C1 if the spike says "keep."
   gate on the whole approach. (Can use Codex too — `openclaw-monad-mcp` was built for Codex.)
 - **C1 — Repo + skeleton + roster config loader (§5)** + the openai-compat adapter (→ local gpt-oss).
   One request routes to local end-to-end.
-- **C2 — CLI adapters for the three subs** (claude/codex/gemini) with env-scrub (§7), plus the
-  generalized gpt-oss MCP tool from C0 as each orchestrator's local delegate.
+- **C2 — CLI adapters for the three subs** (claude/codex/gemini) with env-scrub (§7). **SHIPPED
+  2026-06-16** (`CliAdapter`, config-driven prompt injection + `invoke.parse` output parsers;
+  env-scrub proven live — claude sees `ANTHROPIC_API_KEY` as UNSET). Split per the one-chunk rule:
+  the gpt-oss MCP local-delegate (the other half of this line) became **C2b → issue #4**, deferred
+  to land near C3 where an orchestrator actually consumes it.
+- **C2b — gpt-oss MCP local-delegate** (issue #4): port the generalized C0 MCP tool here as each
+  orchestrator's local delegate. Folds in near C3.
 - **C3 — Frontier-first router (§6):** orchestrator selection (task-fit + rotation), 429/limit
   failover to the next sub, and the decompose → delegate → review loop.
 - **C4 — Measurement/logging (§8)** + the savings rollup (so rate-limit pressure becomes visible).

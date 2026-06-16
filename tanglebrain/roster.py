@@ -4,9 +4,10 @@ The roster is a simple, editable YAML list of routable models — *not* a regist
 (we are explicitly not rebuilding FleetHub). Adding, removing, or reorganizing a model is an
 entry edit, never a code change; this modifiability is a first-class requirement.
 
-This module parses that YAML into typed objects. It parses *every* entry — including the
-subscription-CLI entries whose adapters do not exist until C2 — so the full roster is
-inspectable now; whether a given entry is *invocable* depends on which adapters are built.
+This module parses that YAML into typed objects. It parses *every* entry regardless of which
+adapters are built, so the full roster is always inspectable; whether a given entry is
+*invocable* depends on which adapters exist (``openai-compat`` + ``cli`` today; the paid-API
+adapter is gated behind ``api_billing_enabled`` and lands later — issue #2).
 
 Each entry (plan §5)::
 
@@ -51,8 +52,13 @@ class Invoke:
             ``openai-compat``; ``None`` otherwise.
         model: Model id/alias to request. Required for ``openai-compat``; ``None`` otherwise.
         cmd: Argv for a subprocess CLI invocation. Required for ``cli``; ``None`` otherwise.
+            A literal ``{prompt}`` token in the argv is replaced with the prompt by the CLI
+            adapter; if no token is present the prompt is appended as the final argument.
         scrub_env: Env var names to remove from a subprocess's environment before launch
             (e.g. ``ANTHROPIC_API_KEY``, so ``claude -p`` rides the flat sub, not a billed key).
+        parse: Name of the output parser the ``cli`` adapter uses to extract the final text
+            from the subprocess stdout (e.g. ``claude-json``, ``gemini-json``, ``plain``).
+            ``None`` lets the adapter pick its default. Informational for non-``cli`` kinds.
         key_ref: Credential reference — ``file:PATH`` | ``env:NAME`` | ``none`` — never a raw
             secret. ``None`` means no credential is configured for this entry.
     """
@@ -62,6 +68,7 @@ class Invoke:
     model: str | None = None
     cmd: list[str] | None = None
     scrub_env: list[str] = field(default_factory=list)
+    parse: str | None = None
     key_ref: str | None = None
 
 
@@ -183,6 +190,7 @@ def _parse_invoke(raw: object, entry_id: str) -> Invoke:
     model = raw.get("model")
     cmd = raw.get("cmd")
     scrub_env = raw.get("scrub_env", []) or []
+    parse = raw.get("parse")
     key_ref = raw.get("key_ref")
 
     if kind == "openai-compat":
@@ -197,12 +205,16 @@ def _parse_invoke(raw: object, entry_id: str) -> Invoke:
     if not isinstance(scrub_env, list):
         raise RosterError(f"entry {entry_id!r}: invoke.scrub_env must be a list")
 
+    if parse is not None and not isinstance(parse, str):
+        raise RosterError(f"entry {entry_id!r}: invoke.parse must be a string")
+
     return Invoke(
         kind=kind,
         base_url=base_url,
         model=model,
         cmd=list(cmd) if cmd else None,
         scrub_env=list(scrub_env),
+        parse=parse,
         key_ref=key_ref,
     )
 
