@@ -104,14 +104,35 @@ truth — read these, don't re-derive from this file):
   - Plan-hygiene: shipped C2/C2b/C3/C3b plans archived to `.claude/plans/archive/` (commit fab2eea).
     NB: plans are git-TRACKED in this clone (the old "plans are gitignored on TC" note is wrong here).
 
-## Next chunk = C5 — knob GUI + TangleClaw integration (§10)
+- ✅ **C5a** *(this session — 6th chunk)* — **knob GUI, read-only slice (§10 C5)**. **Merged
+  (PR #14); issue #12 CLOSED.** Split C5 into read-only (C5a, shipped) + editable (C5b, deferred).
+  Key facts:
+  - New `tanglebrain/gui/` package + `tanglebrain-gui` console script. **Stdlib `http.server` + one
+    vanilla HTML/CSS/JS file (`gui/static/index.html`), ZERO new runtime deps** (no `[gui]` extra),
+    TangleClaw dark/lime aesthetic. Binds **127.0.0.1 ONLY, not configurable** (no `--host` — panel
+    is unauthenticated, runs prompts = real sub quota, reads roster → must not be exposed).
+  - `gui/views.py` = pure testable functions (`view_roster/pricing/stats`, `run_prompt`) reusing
+    `load_roster`/`load_pricing`/`read_records`+`rollup`/`run_once`. `gui/server.py` = pure
+    `dispatch(method,path,body)->(status,ctype,body)` (socket-free tests) + `ThreadingHTTPServer`.
+  - **Secret-safety (tested)**: roster view emits `key_ref` as the reference string only — never
+    resolved, no key file opened (a test patches `open` to fail if touched). Read-view errors → clean
+    JSON 500, not tracebacks. XSS-escaped output in the page.
+  - **Port 3250** leased PERMANENT in PortHub for project TangleBrain. NB: live PortHub API is the
+    CLAUDE.md-documented `/api/ports/lease` on `https://localhost:3102` (`-k`); the `/api/leases`
+    shape in the PortHub *source* is NOT what the running daemon serves — use `/api/ports*`.
+  - `run_prompt` shows the served tier by reading the last C4 usage record (`_last_served`) — a
+    documented best-effort, single-user race under threading (two concurrent runs could swap). Proper
+    fix = have `run_once` return the served entry; folded into C5b.
 
-**C5** = a thin web panel over the §5 config (roster, task-fit, thresholds, **and now C4's
-`pricing.yaml`**), TangleClaw web-UI style — the "editable parameters" surface (plan §9.2; logic in
-code, knobs in config+GUI). Plus TangleClaw entry integration (prompt in → final out) + a runbook.
-Needs a **port** → register via the TangleClaw PortHub API (3200–3999 range) before binding. File a
-`[feature] C5` issue first (no issue exists yet). Bigger than C4 — plan-first, likely splittable.
-(Still open & deferred: **issue #2** paid-API tier + contract §2/§6 reconciliation, a later chunk.)
+## Next chunk = C5b — editable knobs (§10 C5, issue #13)
+
+**C5b** (issue **#13**) = make the C5a panel **edit** config and persist: write-back to `roster.yaml`
+/ `pricing.yaml` (new `save_roster`/`save_pricing` — no round-trip serializer exists yet),
+**re-validate on save** (reuse `_parse_entry`/`_parse_invoke` checks), file-write safety
+(atomic/backup) + a confirm UI, and **never** accept/echo resolved `key_ref` secrets. Also fold in
+the `_last_served` race fix (run_once returns served entry). Builds on `tanglebrain/gui/`. Stays
+localhost-only. Plan-first. (Still open & deferred after C5b: **issue #2** paid-API tier + contract
+§2/§6 reconciliation — the final build chunk.)
 
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
