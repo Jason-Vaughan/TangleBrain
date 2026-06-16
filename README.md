@@ -85,10 +85,11 @@ figure, the way the north star (drive ongoing compute cost *down*) becomes visib
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 subscription CLIs expose no usable token counts, so one consistent (if approximate) methodology is
 applied to every tier. The reference frontier price lives in
-[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) (same methodology family as
-Monad-1's `monad-stats` `costSaved`); while it ships flagged `placeholder: true`, the rollup renders
-a PLACEHOLDER caveat so no figure is mistaken for authoritative. Logging is best-effort and never
-affects the returned answer.
+[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) and mirrors Monad-1's
+`monad-stats` `costSaved` anchor — Claude Sonnet at $3/$15 per MTok (methodology ratified
+2026-06-13) — so both projects value avoided spend identically. A `placeholder` flag makes the
+rollup render a PLACEHOLDER caveat if the anchor is ever forked before re-ratifying. Logging is
+best-effort and never affects the returned answer.
 
 The router gives each orchestrator the `delegate_local` tool, so a frontier sub decomposes the
 task and offloads grunt to free local gpt-oss at $0, then reviews — the cost lever behind

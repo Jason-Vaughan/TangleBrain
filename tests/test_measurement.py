@@ -164,11 +164,12 @@ class RollupTest(unittest.TestCase):
 
 class LoadPricingTest(unittest.TestCase):
     def test_loads_packaged_pricing(self):
-        # The packaged config/pricing.yaml ships as a placeholder until monad-stats constants land.
+        # The packaged config/pricing.yaml carries the canonical monad-stats anchor ($3/$15).
         p = load_pricing()
         self.assertIsInstance(p, Pricing)
-        self.assertTrue(p.is_placeholder)
-        self.assertGreater(p.output_per_mtok, 0)
+        self.assertFalse(p.is_placeholder)
+        self.assertEqual(p.input_per_mtok, 3.0)
+        self.assertEqual(p.output_per_mtok, 15.0)
 
     def test_missing_file_falls_back_to_placeholder(self):
         self.assertIs(load_pricing("/nonexistent/pricing.yaml"), PLACEHOLDER_PRICING)
