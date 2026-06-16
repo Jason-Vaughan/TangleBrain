@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **C2 — CLI adapters for the three subscription tools (claude / codex / gemini), with
+  env-scrub.** The subscription tier is now invocable end-to-end through the uniform
+  `run(prompt, opts) -> text` interface.
+  - `CliAdapter` (`tanglebrain/adapters/cli.py`): runs a sub CLI as a subprocess (never via a
+    shell) and returns its final text. Prompt injection is config-driven — a `{prompt}` token
+    in the roster `cmd` is substituted (gemini's `-p {prompt}`), otherwise the prompt is
+    appended as the final argument (claude, codex).
+  - **Env-scrub (§7), the safety-critical piece:** `invoke.scrub_env` strips named vars from a
+    *copy* of the environment handed to the subprocess (the parent `os.environ` is never
+    mutated), so `claude -p` rides the flat Max subscription instead of the per-token
+    `ANTHROPIC_API_KEY`. Proven by a live test: claude reports the key as `UNSET`.
+  - Output parsers selected per entry via a new `invoke.parse` roster field: `claude-json`
+    (single `{"result": ...}` object), `gemini-json` (`{"response": ...}`), and `plain`
+    (stripped stdout, for codex `exec`). Parsers were written against real captured CLI output.
+  - `AdapterError` promoted to `tanglebrain/adapters/base.py` so the openai-compat and CLI
+    adapters and the routing layer share one error type (re-exported from `openai_compat` for
+    backwards-compatible imports).
+  - `selector.build_adapter` now builds the `cli` adapter; `selector.select_by_id` plus a new
+    `tanglebrain --model <id>` flag let a named sub be driven end-to-end. This is an explicit
+    override, **not** the §6 cost-tiered router (still C3).
+  - Roster `cmd` for claude switched from `stream-json` to `--output-format json` (a single
+    parseable object). The gpt-oss MCP local-delegate (the other half of plan §10's C2 line)
+    was split out to issue #4 (C2b), to land near C3 where it has a consumer.
+
 ## [0.1.0] - 2026-06-16
 
 ### Added

@@ -21,14 +21,15 @@ from typing import Mapping
 
 import httpx
 
+from tanglebrain.adapters.base import AdapterError
 from tanglebrain.roster import RosterEntry
+
+# Re-exported for backwards-compatible imports; the canonical definition lives in
+# ``tanglebrain.adapters.base`` so the CLI adapter and the routing layer share one error type.
+__all__ = ["AdapterError", "OpenAICompatAdapter", "resolve_key_ref"]
 
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAX_TOKENS = 2048
-
-
-class AdapterError(RuntimeError):
-    """Raised when an adapter cannot produce text (bad config, transport error, bad shape)."""
 
 
 def resolve_key_ref(key_ref: str | None) -> str | None:

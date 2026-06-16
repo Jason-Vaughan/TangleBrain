@@ -7,9 +7,12 @@
 # invoke.kind ∈ {openai-compat, cli, api}.  key_ref ∈ {file:PATH, env:NAME, none} — a
 # credential *reference*, never a raw secret (see the contract's key-ref convention).
 #
-# C1 status: only the `openai-compat` local entry is invocable today. The three sub entries
-# below parse into typed objects (the roster is complete and inspectable now) but their CLI
-# adapters land in C2 — they are intentionally not yet routable.
+# For `cli` entries: a literal `{prompt}` token in `cmd` is replaced with the prompt; with no
+# token the prompt is appended as the final argument. `parse` names the output parser
+# (claude-json | gemini-json | plain). `scrub_env` strips env vars from the subprocess (§7).
+#
+# Status (C2): the `openai-compat` local entry and all three `cli` subs are invocable. The
+# paid-API tier (kind: api) is gated behind `api_billing_enabled` and lands later (issue #2).
 
 - id: gpt-oss-120b
   tier: local
@@ -28,7 +31,9 @@
   tier: sub
   invoke:
     kind: cli
-    cmd: ["claude", "-p", "--output-format", "stream-json"]
+    # --output-format json => one JSON object {"result": ..., "is_error": ...}; prompt appended.
+    cmd: ["claude", "-p", "--output-format", "json"]
+    parse: claude-json
     scrub_env: ["ANTHROPIC_API_KEY"]   # ride the Max sub (flat), not the per-token API key (§7)
   cost: flat-rate                       # rate-limit bound
   good_at: [reasoning, decomposition, review]
@@ -38,7 +43,9 @@
   tier: sub
   invoke:
     kind: cli
+    # codex exec prints the answer to stdout (metadata to stderr); prompt appended.
     cmd: ["codex", "exec"]
+    parse: plain
   cost: flat-rate
   good_at: [code, agentic-code]
   can_orchestrate: true
@@ -47,7 +54,9 @@
   tier: sub
   invoke:
     kind: cli
-    cmd: ["gemini", "-p", "--output-format", "json"]
+    # -p requires the prompt as its value, so {prompt} marks the injection point.
+    cmd: ["gemini", "-p", "{prompt}", "--output-format", "json"]
+    parse: gemini-json
   cost: flat-rate
   good_at: [long-context, structured-json]
   can_orchestrate: true
