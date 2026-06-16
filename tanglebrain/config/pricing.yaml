@@ -1,0 +1,14 @@
+# Cloud-equivalent reference pricing for the C4 "spend avoided" rollup (plan §8).
+#
+# Methodology mirrors Monad-1's monad-stats `costSaved`: for each routed task, estimate what it
+# WOULD have cost on a paid frontier API, using a single reference model's per-token price. The
+# rollup multiplies estimated tokens (a chars/4 heuristic over the visible prompt + response) by
+# these rates. Values are US dollars per 1,000,000 tokens.
+#
+# `placeholder: true` means these numbers are NOT yet the canonical monad-stats constants — the
+# `tanglebrain --stats` rollup flags every figure as PLACEHOLDER until the PM supplies the real
+# costSaved reference (model label + input/output $/Mtok) and flips this to false.
+placeholder: true
+reference_model: "frontier-reference (PLACEHOLDER — pending monad-stats costSaved constants)"
+input_per_mtok: 3.00
+output_per_mtok: 15.00
