@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-16
+
 ### Added
 
 - **C5b — editable pricing in the knob panel.** The panel's pricing card is now editable: change the
