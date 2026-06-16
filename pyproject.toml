@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tanglebrain"
+version = "0.1.0"
+description = "A cost-tiered LLM router: free local first, flat-rate subscriptions next, paid API last."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Jason Vaughan" }]
+keywords = ["llm", "router", "litellm", "tanglebrain", "local", "cost-tiered"]
+
+dependencies = [
+    "httpx >= 0.27",
+    "PyYAML >= 6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Jason-Vaughan/TangleBrain"
+
+[project.scripts]
+tanglebrain = "tanglebrain.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tanglebrain*"]
+
+[tool.setuptools.package-data]
+tanglebrain = ["config/*.yaml"]
