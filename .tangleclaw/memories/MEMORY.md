@@ -34,9 +34,8 @@ truth — read these, don't re-derive from this file):
   contract into this repo; re-pointed TANGLEBRAIN / TANGLEBRAIN-PLAN shared-doc registrations to
   the in-repo copies (LITELLM stays on Monad-1).
 - ✅ **C2** *(this session)* — CLI adapters for the three subs (claude/codex/gemini) with
-  **env-scrub** (§7). **PR #5 open** on `feat/c2-cli-adapters`; 99 hermetic + 6 gated live tests
-  green; Independent Critic review done + findings addressed. **Merge manually after review**
-  (feature PR → not `--auto`). Key facts for future sessions:
+  **env-scrub** (§7). **Merged (PR #5).** 99 hermetic + 6 gated live tests; Critic review done.
+  Key facts for future sessions:
   - `CliAdapter` (`tanglebrain/adapters/cli.py`): subprocess, **no shell, ever**. Prompt injected
     via a `{prompt}` token in the roster `cmd` (substituted) else appended as the final arg.
   - **Verified CLI shapes** (probed live 2026-06-16): claude `-p --output-format json` →
@@ -48,14 +47,29 @@ truth — read these, don't re-derive from this file):
   - `AdapterError` now lives in `adapters/base.py` (re-exported from `openai_compat`).
   - `tanglebrain --model <id>` / `selector.select_by_id` drive a named entry end-to-end — an
     explicit override, NOT the router.
+- ✅ **C2b** *(this session — built right after C2, protocol break for momentum)* — gpt-oss
+  **MCP local-delegate**. **Merged (PR #6); issue #4 CLOSED.** Key facts:
+  - `tanglebrain-delegate` console script → `tanglebrain/mcp_server.py` (`FastMCP`, **sync** tool
+    `delegate_local(prompt, max_tokens?)`). Routing logic is `tanglebrain/delegate.py`
+    `run_local_delegate(...)`, which **reuses** `select_local` + `OpenAICompatAdapter` (no
+    duplicated endpoint/key — generalizes C0, which hardcoded them).
+  - `mcp` is an **optional extra**: `pip install "tanglebrain[delegate]"` (Makefile `venv` now
+    installs `.[delegate]`). No core module imports `mcp` (verified). `TANGLEBRAIN_ROSTER` env
+    points the server at a non-default roster.
+  - Proven end-to-end over **real MCP stdio**: client spawns server, calls `delegate_local`, gets
+    gpt-oss text. README documents per-CLI registration (`claude/gemini mcp add ...`).
 
-## Next chunk = C3 (with C2b folded in)
+## Next chunk = C3 (the router — the heart)
 
-- **C2b (issue #4)** — port the C0 gpt-oss **MCP local-delegate** here as each orchestrator's
-  local delegate. Split out of C2 (one-chunk rule); only has value once an orchestrator
-  decomposes+delegates, so fold it in **near/with C3**.
-- **C3** — the real **frontier-first router (§6)**: task-fit orchestrator selection + rotation
-  across the `can_orchestrate` subs, 429/limit failover, and the decompose→delegate→review loop.
+The delegate (C2b) now exists for the router to call. **C3** = the real **frontier-first router
+(§6)**, build as its own module (NOT in the minimal selector):
+- task-fit orchestrator selection (codex→code, claude→reasoning, gemini→long-context) +
+  round-robin **rotation** across the `can_orchestrate` subs (needs cross-process state — a small
+  persisted cursor — for load-spread to be real);
+- **429/limit failover** to the next orchestrator on error;
+- the **decompose→delegate→review loop**: orchestrator decomposes, calls `delegate_local` (C2b)
+  for grunt, reviews, finalizes. (§9 deferred LangGraph — revisit when the loop justifies it.)
+Substantial → plan-first. One chunk per session (we broke that this session by user request).
   The selector today is deliberately minimal (`select_local` / `select_by_id`) — build the router
   as its own module; do not grow the selector into it.
 
