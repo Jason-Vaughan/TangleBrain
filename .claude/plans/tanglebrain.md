@@ -229,7 +229,14 @@ building any router. Repo created at C1 if the spike says "keep."
   before C3 (not "near" it) because it's the prerequisite that makes frontier-first actually
   offload grunt — the router consumes this tool in C3's decompose→delegate→review loop.
 - **C3 — Frontier-first router (§6):** orchestrator selection (task-fit + rotation), 429/limit
-  failover to the next sub, and the decompose → delegate → review loop.
+  failover to the next sub. **Control plane SHIPPED 2026-06-16** (`tanglebrain/router.py`,
+  `tanglebrain --route [--task]`; persisted rotation cursor; failover with rate-limit annotation;
+  rotation/failover proven hermetically, a live route confirmed end-to-end). CLI default kept
+  local-first on purpose.
+- **C3b (issue #7)** — inject the C2b `delegate_local` tool into orchestrator invocations (so the
+  sub offloads grunt to local mid-task) and **flip the CLI default to frontier-first**. This is the
+  decompose → delegate → review enablement; split from C3 so the router stayed deterministic and we
+  don't burn sub rate limits before delegation makes frontier-first worthwhile.
 - **C4 — Measurement/logging (§8)** + the savings rollup (so rate-limit pressure becomes visible).
 - **C5 — Knob GUI** (thin web panel over the §5 config, TangleClaw-style) + TangleClaw entry
   integration (prompt in → final out) + runbook.
