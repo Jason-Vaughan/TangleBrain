@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from tanglebrain.adapters.cli import CliAdapter, scrubbed_env
 from tanglebrain.cli import run_once
 from tanglebrain.delegate import run_local_delegate
+from tanglebrain.roster import load_roster
+from tanglebrain.router import Router
 
 LIVE = os.environ.get("TANGLEBRAIN_LIVE") == "1"
 
@@ -64,6 +67,18 @@ class LiveCliTest(unittest.TestCase):
 
     def test_gemini_returns_text(self):
         self._route("gemini")
+
+
+@unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live router test")
+class LiveRouterTest(unittest.TestCase):
+    """C3: the frontier-first router selects an orchestrator and returns its text."""
+
+    def test_router_routes_to_an_orchestrator(self):
+        # Uses the real subs; rotation state goes to a temp dir so the test is self-contained.
+        with patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": tempfile.mkdtemp()}, clear=False):
+            text = Router(load_roster()).route("Reply with exactly: PONG")
+        self.assertIsInstance(text, str)
+        self.assertTrue(text.strip(), "expected non-empty text from an orchestrator")
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the env-scrub safety proof")

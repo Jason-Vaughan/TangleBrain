@@ -32,8 +32,10 @@ router itself (orchestrator selection, rotation, failover) arrives in later chun
 - ✅ **C2** — CLI adapters for the three subs (claude/codex/gemini) with `ANTHROPIC_API_KEY` scrub.
 - ✅ **C2b** — gpt-oss MCP local-delegate: a `delegate_local` MCP tool an orchestrator calls to
   offload grunt to free local gpt-oss.
-- ⬜ **C3** — frontier-first router: orchestrator selection, rotation, 429 failover, and the
-  decompose → delegate → review loop.
+- ✅ **C3** — frontier-first router (control plane): task-fit orchestrator selection + rotation +
+  429 failover across the subs (`tanglebrain --route`). Default stays local-first until C3b.
+- ⬜ **C3b** ([#7](https://github.com/Jason-Vaughan/TangleBrain/issues/7)) — inject the delegate
+  into orchestrator runs and flip the default to frontier-first.
 - ⬜ **C4** — measurement / "spend avoided" rollup.
 - ⬜ **C5** — knob GUI (thin web panel over the roster config).
 
@@ -57,7 +59,18 @@ model is a config edit, not a code change.
 ```sh
 # Run one request through the free local tier (gpt-oss-120b on local):
 .venv/bin/tanglebrain "Write a haiku about local inference."
+
+# Route through the frontier-first router — task-fit + rotation + failover across the subs:
+.venv/bin/tanglebrain --route --task code "Refactor this function for clarity."
+
+# Force a specific roster entry (explicit override):
+.venv/bin/tanglebrain --model gemini "Summarize this long document."
 ```
+
+`--route` rotates the orchestrator across the subscription subs (claude/codex/gemini) for ~3×
+the rate-limit runway and fails over on a 429. It stays opt-in until C3b
+([#7](https://github.com/Jason-Vaughan/TangleBrain/issues/7)) wires in local delegation and makes
+frontier-first the default.
 
 The adapter calls the local LiteLLM endpoint directly. It needs the scoped LiteLLM key; by
 default it reads `~/.config/tanglebrain/tanglebrain-spike.key` (referenced from the roster entry —
