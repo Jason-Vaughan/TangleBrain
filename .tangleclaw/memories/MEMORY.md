@@ -68,21 +68,28 @@ truth — read these, don't re-derive from this file):
     (override `TANGLEBRAIN_STATE_DIR`); tracks the served orchestrator's position in the FULL
     list (not the task-filtered sublist); only advances on success; missing/corrupt/negative → 0.
     Writes are non-atomic on purpose (cursor is a load-spread hint).
-  - Exposed via `tanglebrain --route [--task]`. **CLI default is still local-first** (precedence:
-    `--model` > `--route` > local). Live-observed rotation: claude→codex→gemini→claude.
+  - Live-observed rotation: claude→codex→gemini→claude. (Default flipped to router in C3b below.)
+- ✅ **C3b** *(this session — 4th chunk)* — **delegate-injection + default flip**. **Merged
+  (PR #9); issue #7 CLOSED.** The frontier-first system is now complete end-to-end. Key facts:
+  - **CLI default is now the frontier-first router**: `tanglebrain "…"` routes; `--local` forces
+    the direct gpt-oss tier; `--model <id>` pins an entry. Precedence in `run_once`: `model` >
+    `local` > router. `--route` is now a no-op (back-compat).
+  - **Config-driven delegate injection**: roster field `invoke.delegate_args` per orchestrator;
+    `CliAdapter` appends them (substituting `{delegate_mcp_json}` / `{delegate_mcp_command}` via
+    `delegate.delegate_substitutions()`) when `inject_delegate=True`; `Router` sets that for
+    orchestrators. Delegate runs as `python -m tanglebrain.mcp_server` (no PATH assumptions).
+    env-scrub unaffected (claude still strips `ANTHROPIC_API_KEY` while delegating).
+  - **All three verified live delegating to gpt-oss**: claude (`--mcp-config`+`--allowedTools`),
+    codex (`-c mcp_servers…` + `--dangerously-bypass-approvals-and-sandbox` — needed or codex
+    cancels the tool call headless), gemini (needs one-time `gemini mcp add tanglebrain-delegate
+    -- <py> -m tanglebrain.mcp_server`, then `--allowed-mcp-server-names`+`--approval-mode yolo`).
 
-## Next chunk = C3b (issue #7) — make frontier-first the default
+## Next chunk = C4 — measurement / "spend avoided" rollup (§8)
 
-The router (C3) and the delegate (C2b) both exist; C3b connects them and flips the default:
-- **Inject `delegate_local` into orchestrator invocations** so a sub offloads grunt to local
-  mid-task: pass the MCP server per-invocation (claude `--mcp-config`, codex/gemini equivalents)
-  or rely on documented pre-registration. This is the per-CLI MCP-config plumbing — verify each
-  CLI's actual flag (varies by version).
-- **Flip the CLI default** from local-first to `--route` (keep `--local`/`--model` overrides).
-- Then the decompose→delegate→review behavior is largely emergent from the orchestrator having
-  the tool (§6); verify live. (§9 deferred LangGraph — revisit only if the loop justifies it.)
-- Changes default behavior + touches MCP-config mechanics → **plan-first**; a fresh session is
-  reasonable. Selector stays minimal; don't grow it into the router.
+Now that delegation is live there are real savings to quantify. **C4** = log each routed task
+(tier chosen, tokens, estimated cloud-equivalent cost avoided) and roll up a "spend avoided"
+figure (same methodology family as monad-stats' `costSaved`, §8). Greenfield logging layer; no
+default-behavior change → lighter than C3b. Plan-first still good practice. (C5 = knob GUI.)
 
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
