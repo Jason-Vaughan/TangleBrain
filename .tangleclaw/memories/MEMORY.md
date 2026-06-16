@@ -84,7 +84,12 @@ truth — read these, don't re-derive from this file):
     cancels the tool call headless), gemini (needs one-time `gemini mcp add tanglebrain-delegate
     -- <py> -m tanglebrain.mcp_server`, then `--allowed-mcp-server-names`+`--approval-mode yolo`).
 
-## Next chunk = C4 — measurement / "spend avoided" rollup (§8)
+## Next chunk = C4 — measurement / "spend avoided" rollup (§8) — issue #10
+
+Tracked as **issue #10** (filed 2026-06-16) — close via `Closes #10` on the C4 PR. Plan-hygiene
+done same day: the shipped C2/C2b/C3/C3b plans were moved to `.claude/plans/archive/` (commit
+fab2eea), leaving `tanglebrain.md` as the only active plan. NB: plans are git-TRACKED in this
+clone (the old "plans are gitignored on TC" note does not apply here).
 
 Now that delegation is live there are real savings to quantify. **C4** = log each routed task
 (tier chosen, tokens, estimated cloud-equivalent cost avoided) and roll up a "spend avoided"
