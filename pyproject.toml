@@ -29,9 +29,11 @@ Homepage = "https://github.com/Jason-Vaughan/TangleBrain"
 [project.scripts]
 tanglebrain = "tanglebrain.cli:main"
 tanglebrain-delegate = "tanglebrain.mcp_server:main"
+tanglebrain-gui = "tanglebrain.gui.server:main"
 
 [tool.setuptools.packages.find]
 include = ["tanglebrain*"]
 
 [tool.setuptools.package-data]
 tanglebrain = ["config/*.yaml"]
+"tanglebrain.gui" = ["static/*.html"]
