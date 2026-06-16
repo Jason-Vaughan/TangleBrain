@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import main, run_once
+from tanglebrain.selector import SelectionError
 
 
 class RunOnceTest(unittest.TestCase):
@@ -40,6 +41,20 @@ class RunOnceTest(unittest.TestCase):
             run_once("hello")
         self.assertIsNone(fake_adapter.run.call_args.args[1])
 
+    def test_model_routes_to_named_entry(self):
+        # --model selects a specific roster entry (here, a sub) instead of local-first.
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "claude reply"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter) as build:
+            self.assertEqual(run_once("hello", model="claude"), "claude reply")
+        selected = build.call_args.args[0]
+        self.assertEqual(selected.id, "claude")
+        self.assertEqual(selected.tier, "sub")
+
+    def test_unknown_model_raises_selection_error(self):
+        with self.assertRaises(SelectionError):
+            run_once("hello", model="no-such-model")
+
 
 class MainTest(unittest.TestCase):
     def test_success_prints_and_returns_zero(self):
@@ -51,6 +66,13 @@ class MainTest(unittest.TestCase):
                 code = main(["what is 2+2?"])
         self.assertEqual(code, 0)
         self.assertIn("the answer", out.getvalue())
+
+    def test_model_flag_threaded_to_run_once(self):
+        with patch("tanglebrain.cli.run_once", return_value="ok") as run:
+            with redirect_stdout(io.StringIO()):
+                code = main(["--model", "gemini", "hello"])
+        self.assertEqual(code, 0)
+        self.assertEqual(run.call_args.kwargs["model"], "gemini")
 
     def test_adapter_error_returns_one_and_writes_stderr(self):
         fake_adapter = MagicMock()
