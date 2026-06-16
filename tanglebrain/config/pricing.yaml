@@ -1,0 +1,15 @@
+# Cloud-equivalent reference pricing for the C4 "spend avoided" rollup (plan §8).
+#
+# Methodology mirrors coordinator's usage-stats `costSaved` (ratified 2026-06-13): for each routed
+# task, estimate what it WOULD have cost on a paid frontier API, valued at the Claude Sonnet
+# cost anchor — $3/MTok input, $15/MTok output (usage-stats COST_BASIS). The rollup multiplies
+# estimated tokens (a chars/4 heuristic over the visible prompt + response) by these rates.
+# Values are US dollars per 1,000,000 tokens.
+#
+# These are the canonical usage-stats anchor rates, so `placeholder` is false. Set it true if you
+# fork the anchor before re-ratifying with the PM — the `tanglebrain --stats` rollup then flags
+# every figure as PLACEHOLDER so no number is mistaken for the agreed methodology.
+placeholder: false
+reference_model: "Claude Sonnet ($3/$15 per MTok) — usage-stats costSaved anchor (ratified 2026-06-13)"
+input_per_mtok: 3.00
+output_per_mtok: 15.00

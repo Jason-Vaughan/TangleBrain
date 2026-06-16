@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **C4 — measurement / "spend avoided" rollup (plan §8).** Every routed task is now logged as one
+  JSON line in an append-only usage log (`~/.cache/tanglebrain/usage.jsonl`, honoring
+  `TANGLEBRAIN_STATE_DIR`): the execution path, tier, model, estimated tokens, and the
+  cloud-equivalent cost it avoided. `tanglebrain --stats` rolls those records up into a
+  "spend avoided" figure — what the work would have cost on a paid frontier API. Closes #10.
+  - **Uniform token estimation**: CLI subs expose no usable token counts, so tokens are estimated
+    with a single `chars/4` heuristic over the visible prompt + response, applied identically to
+    every tier — one consistent (if approximate) methodology. No adapter or routing behavior change.
+  - **Config-driven pricing** (`tanglebrain/config/pricing.yaml`) carrying coordinator's `usage-stats`
+    `costSaved` anchor — Claude Sonnet at $3/$15 per MTok (methodology ratified 2026-06-13) — so the
+    two projects value avoided spend identically. A `placeholder` flag (false by default) makes the
+    rollup render a PLACEHOLDER caveat if the anchor is ever forked before re-ratifying.
+  - **New module** `tanglebrain/measurement.py`; the router now exposes `Router.last_served` so the
+    CLI metering seam can record which tier handled each task. All measurement I/O is
+    fault-tolerant — a logging failure never affects the returned answer, and a corrupt log line
+    never breaks the rollup.
+  - **Scope**: meters top-level routed tasks only (the three `run_once` paths). The gpt-oss MCP
+    delegate's sub-calls are intentionally not metered (they run inside an already-counted sub task).
+
 ## [0.2.0] - 2026-06-16
 
 ### Changed
