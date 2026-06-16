@@ -233,10 +233,13 @@ building any router. Repo created at C1 if the spike says "keep."
   `tanglebrain --route [--task]`; persisted rotation cursor; failover with rate-limit annotation;
   rotation/failover proven hermetically, a live route confirmed end-to-end). CLI default kept
   local-first on purpose.
-- **C3b (issue #7)** — inject the C2b `delegate_local` tool into orchestrator invocations (so the
-  sub offloads grunt to local mid-task) and **flip the CLI default to frontier-first**. This is the
-  decompose → delegate → review enablement; split from C3 so the router stayed deterministic and we
-  don't burn sub rate limits before delegation makes frontier-first worthwhile.
+- **C3b (issue #7)** — inject the C2b `delegate_local` tool into orchestrator invocations and flip
+  the CLI default to frontier-first. **SHIPPED 2026-06-16.** Config-driven `invoke.delegate_args`
+  per orchestrator (`{delegate_mcp_json}`/`{delegate_mcp_command}` tokens); `tanglebrain "…"` now
+  routes by default (`--local` forces the direct tier). **All three orchestrators verified live
+  delegating to gpt-oss**: claude (`--mcp-config`, key scrubbed), codex (`-c` + approval bypass),
+  gemini (one-time `gemini mcp add` + `--approval-mode yolo`). The decompose→delegate→review loop
+  is emergent from the orchestrator having the tool (no LangGraph needed — §9 stays deferred).
 - **C4 — Measurement/logging (§8)** + the savings rollup (so rate-limit pressure becomes visible).
 - **C5 — Knob GUI** (thin web panel over the §5 config, TangleClaw-style) + TangleClaw entry
   integration (prompt in → final out) + runbook.
