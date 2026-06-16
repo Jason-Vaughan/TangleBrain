@@ -115,7 +115,8 @@ class Router:
         self,
         roster: Roster,
         state_path: str | os.PathLike[str] | None = None,
-        adapter_factory: Callable[[RosterEntry], Adapter] = build_adapter,
+        adapter_factory: Callable[..., Adapter] = build_adapter,
+        inject_delegate: bool = True,
     ) -> None:
         """Configure the router.
 
@@ -124,11 +125,16 @@ class Router:
             state_path: Path to the rotation-state file. Defaults to :func:`default_state_path`.
                 Inject a temp path in tests so they never touch the real cache.
             adapter_factory: Builds an adapter for an entry. Defaults to the C2 selector's
-                ``build_adapter``; injectable for tests.
+                ``build_adapter``; injectable for tests. Called as
+                ``adapter_factory(entry, inject_delegate=...)``.
+            inject_delegate: Make the gpt-oss MCP delegate available to each orchestrator (C3b), so
+                it offloads grunt to free local — the frontier-first cost lever. On by default; set
+                false to route to bare orchestrators (e.g. for debugging).
         """
         self.roster = roster
         self.state_path = Path(state_path) if state_path is not None else default_state_path()
         self._adapter_factory = adapter_factory
+        self.inject_delegate = inject_delegate
 
     def route(
         self,
@@ -174,7 +180,7 @@ class Router:
 
         failures: list[tuple[str, str]] = []
         for entry in candidates:
-            adapter = self._adapter_factory(entry)
+            adapter = self._adapter_factory(entry, inject_delegate=self.inject_delegate)
             try:
                 text = adapter.run(prompt, opts)
             except AdapterError as exc:

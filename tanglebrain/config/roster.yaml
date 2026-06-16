@@ -35,6 +35,9 @@
     cmd: ["claude", "-p", "--output-format", "json"]
     parse: claude-json
     scrub_env: ["ANTHROPIC_API_KEY"]   # ride the Max sub (flat), not the per-token API key (§7)
+    # C3b: per-invocation delegate injection (proven live). {delegate_mcp_json} is substituted
+    # with the gpt-oss MCP server config; the tool is mcp__tanglebrain-delegate__delegate_local.
+    delegate_args: ["--mcp-config", "{delegate_mcp_json}", "--allowedTools", "mcp__tanglebrain-delegate__delegate_local", "--strict-mcp-config"]
   cost: flat-rate                       # rate-limit bound
   good_at: [reasoning, decomposition, review]
   can_orchestrate: true                 # joins the frontier-first rotation (§6)
@@ -46,6 +49,10 @@
     # codex exec prints the answer to stdout (metadata to stderr); prompt appended.
     cmd: ["codex", "exec"]
     parse: plain
+    # C3b: register the delegate via -c TOML overrides (codex has no per-invocation --mcp-config),
+    # plus the approval/sandbox bypass codex exec needs to auto-run a tool call headless (verified:
+    # without it codex cancels the MCP call; the orchestrator runs autonomously anyway).
+    delegate_args: ["-c", "mcp_servers.tanglebrain_delegate.command={delegate_mcp_command}", "-c", "mcp_servers.tanglebrain_delegate.args=[\"-m\",\"tanglebrain.mcp_server\"]", "--dangerously-bypass-approvals-and-sandbox"]
   cost: flat-rate
   good_at: [code, agentic-code]
   can_orchestrate: true
@@ -57,6 +64,10 @@
     # -p requires the prompt as its value, so {prompt} marks the injection point.
     cmd: ["gemini", "-p", "{prompt}", "--output-format", "json"]
     parse: gemini-json
+    # C3b: gemini has no per-invocation MCP-server config — it needs a one-time
+    #   gemini mcp add tanglebrain-delegate -- <python> -m tanglebrain.mcp_server
+    # (see README); these per-invocation flags then allow + auto-approve the tool.
+    delegate_args: ["--allowed-mcp-server-names", "tanglebrain-delegate", "--approval-mode", "yolo"]
   cost: flat-rate
   good_at: [long-context, structured-json]
   can_orchestrate: true

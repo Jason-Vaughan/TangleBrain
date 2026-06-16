@@ -9,13 +9,35 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+import json
+
 from tanglebrain.adapters import AdapterError
 from tanglebrain.delegate import (
     DEFAULT_DELEGATE_MAX_TOKENS,
+    DELEGATE_SERVER_NAME,
     ROSTER_ENV_VAR,
+    delegate_mcp_config_json,
+    delegate_substitutions,
     run_local_delegate,
 )
 from tanglebrain.selector import SelectionError
+
+
+class DelegateMcpConfigTest(unittest.TestCase):
+    def test_config_json_is_valid_and_names_server(self):
+        cfg = json.loads(delegate_mcp_config_json())
+        self.assertIn(DELEGATE_SERVER_NAME, cfg["mcpServers"])
+        server = cfg["mcpServers"][DELEGATE_SERVER_NAME]
+        # Launches via `python -m tanglebrain.mcp_server` so it resolves without PATH assumptions.
+        self.assertEqual(server["args"], ["-m", "tanglebrain.mcp_server"])
+        self.assertTrue(server["command"])
+
+    def test_substitutions_cover_both_tokens(self):
+        subs = delegate_substitutions()
+        self.assertIn("{delegate_mcp_json}", subs)
+        self.assertIn("{delegate_mcp_command}", subs)
+        # The command token is the interpreter path (non-empty).
+        self.assertTrue(subs["{delegate_mcp_command}"])
 
 
 class RunLocalDelegateTest(unittest.TestCase):
