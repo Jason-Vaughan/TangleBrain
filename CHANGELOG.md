@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **C3b — frontier-first is now the default, and orchestrators offload grunt to free local
+  (BEHAVIOR CHANGE).** `tanglebrain "prompt"` (no flags) now routes through the frontier-first
+  router instead of going straight to the local tier; pass `--local` for the old direct-to-gpt-oss
+  behavior, or `--model <id>` to pin an entry. Each orchestrator is now invoked with the C2b
+  `delegate_local` tool available, so it decomposes the task and offloads grunt to free local
+  gpt-oss at $0 — this is what makes frontier-first cost-effective (plan §6). Closes #7.
+  - **Config-driven injection**: a new `invoke.delegate_args` roster field carries the per-CLI
+    flags that register + allow the delegate, with `{delegate_mcp_json}` / `{delegate_mcp_command}`
+    tokens substituted at runtime (the delegate runs as `python -m tanglebrain.mcp_server`, so it
+    resolves without PATH assumptions). Adding/adjusting a CLI is a config edit (§5).
+  - **Verified live, all three orchestrators delegate to gpt-oss**: claude (`--mcp-config` +
+    `--allowedTools`, API key scrubbed), codex (`-c mcp_servers…` + approval bypass), gemini
+    (after a one-time `gemini mcp add` + `--approval-mode yolo`). See the README for gemini's setup.
+
 ### Added
 
 - **C3 — frontier-first router (control plane).** `tanglebrain/router.py` routes a task to a

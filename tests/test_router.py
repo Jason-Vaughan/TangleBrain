@@ -42,9 +42,12 @@ def worker(entry_id: str) -> RosterEntry:
 
 
 def factory(outcomes: dict[str, tuple[str, str]]):
-    """Build an adapter_factory from {id: ('ok', text) | ('err', message)}."""
+    """Build an adapter_factory from {id: ('ok', text) | ('err', message)}.
 
-    def make(entry: RosterEntry):
+    Accepts the ``inject_delegate`` kwarg the Router passes (C3b), ignored here.
+    """
+
+    def make(entry: RosterEntry, inject_delegate: bool = False):
         adapter = MagicMock()
         kind, value = outcomes[entry.id]
         if kind == "ok":
@@ -187,7 +190,7 @@ class FailoverTest(RouterTestBase):
     def test_opts_passed_through_to_adapter(self):
         captured = {}
 
-        def fac(entry):
+        def fac(entry, inject_delegate=False):
             adapter = MagicMock()
             adapter.run.side_effect = lambda p, o: captured.update(prompt=p, opts=o) or "ok"
             return adapter
@@ -196,6 +199,30 @@ class FailoverTest(RouterTestBase):
             "q", opts={"max_tokens": 99}
         )
         self.assertEqual(captured["opts"], {"max_tokens": 99})
+
+    def test_router_enables_delegate_injection_by_default(self):
+        seen = {}
+
+        def fac(entry, inject_delegate=False):
+            seen[entry.id] = inject_delegate
+            adapter = MagicMock()
+            adapter.run.return_value = "ok"
+            return adapter
+
+        Router(self.roster, state_path=self.state, adapter_factory=fac).route("q")
+        self.assertTrue(all(seen.values()), "router should build orchestrator adapters with the delegate")
+
+    def test_inject_delegate_false_propagates(self):
+        seen = {}
+
+        def fac(entry, inject_delegate=False):
+            seen[entry.id] = inject_delegate
+            adapter = MagicMock()
+            adapter.run.return_value = "ok"
+            return adapter
+
+        Router(self.roster, state_path=self.state, adapter_factory=fac, inject_delegate=False).route("q")
+        self.assertFalse(any(seen.values()))
 
 
 class RateLimitClassifierTest(unittest.TestCase):

@@ -59,6 +59,11 @@ class Invoke:
         parse: Name of the output parser the ``cli`` adapter uses to extract the final text
             from the subprocess stdout (e.g. ``claude-json``, ``gemini-json``, ``plain``).
             ``None`` lets the adapter pick its default. Informational for non-``cli`` kinds.
+        delegate_args: Extra argv appended to ``cmd`` when the router invokes this entry as an
+            orchestrator with local delegation enabled (C3b) — the per-CLI flags that register the
+            gpt-oss MCP delegate and allow its tool. A ``{delegate_mcp_json}`` token is substituted
+            with the delegate's MCP-server JSON at runtime. Empty = the CLI cannot be handed the
+            delegate per-invocation (or doesn't need it).
         key_ref: Credential reference — ``file:PATH`` | ``env:NAME`` | ``none`` — never a raw
             secret. ``None`` means no credential is configured for this entry.
     """
@@ -69,6 +74,7 @@ class Invoke:
     cmd: list[str] | None = None
     scrub_env: list[str] = field(default_factory=list)
     parse: str | None = None
+    delegate_args: list[str] = field(default_factory=list)
     key_ref: str | None = None
 
 
@@ -191,6 +197,7 @@ def _parse_invoke(raw: object, entry_id: str) -> Invoke:
     cmd = raw.get("cmd")
     scrub_env = raw.get("scrub_env", []) or []
     parse = raw.get("parse")
+    delegate_args = raw.get("delegate_args", []) or []
     key_ref = raw.get("key_ref")
 
     if kind == "openai-compat":
@@ -208,6 +215,9 @@ def _parse_invoke(raw: object, entry_id: str) -> Invoke:
     if parse is not None and not isinstance(parse, str):
         raise RosterError(f"entry {entry_id!r}: invoke.parse must be a string")
 
+    if not isinstance(delegate_args, list):
+        raise RosterError(f"entry {entry_id!r}: invoke.delegate_args must be a list")
+
     return Invoke(
         kind=kind,
         base_url=base_url,
@@ -215,6 +225,7 @@ def _parse_invoke(raw: object, entry_id: str) -> Invoke:
         cmd=list(cmd) if cmd else None,
         scrub_env=list(scrub_env),
         parse=parse,
+        delegate_args=list(delegate_args),
         key_ref=key_ref,
     )
 
