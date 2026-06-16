@@ -143,15 +143,32 @@ truth — read these, don't re-derive from this file):
 
 ## Next chunk = #2 — paid-API tier (the FINAL build chunk; heaviest/most architectural)
 
+**PLANNED 2026-06-16 (this session, no code) → split into C6a/C6b/C6c.** Canonical build plan:
+`/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md` (read it before
+building; verify #2 still OPEN first). **START THE BUILD IN A CLEAN SESSION** — C6a only.
+
 **Issue #2** = the paid-API tier: explicit `api_billing_enabled` global flag **default OFF** (when off,
 `tier: api` entries parse but never route); when on, each paid key is a `tier: api` roster entry with
 per-key `enabled` toggle + budget cap; paid API stays LAST resort (§6). **Bundled with the contract
 §2/§6 reconciliation** (Monad-embedded→Mac, profile-model→cost-tier — PM, see below). Custody:
 **LiteLLM-fronted virtual key preferred** (`key_ref`), raw keys not foreclosed but gated by the flag
-(invariant #3 softened — durable rule: *no paid billing without the explicit toggle*). Needs a new
-`api` adapter (only `openai-compat`+`cli` exist; `build_adapter` has an api-tier gap test). **Plan-
-first, likely splittable, START IN A CLEAN SESSION** — it's the most architectural chunk. Also still
-open/non-build: **roster editing in the GUI** (deferred from C5; needs comment-preserving YAML).
+(invariant #3 softened — durable rule: *no paid billing without the explicit toggle*).
+
+**Two PM decisions ratified 2026-06-16 (in the plan):**
+1. **Budget enforcement = LiteLLM-only for v1.** TB stores/displays `budget_usd_month` but does NOT
+   meter+block on it; the budget-scoped LiteLLM virtual key is the hard cap. → C6c is a thin
+   docs+display step, not TB-side spend metering.
+2. **C6a (next build session) = gate + `api` adapter + inert parse ONLY** — never routable.
+
+**Discovery facts (seams already cut):** `api` is in `VALID_KINDS`/`VALID_TIERS` and `tier: api` already
+parses; `build_adapter` has the explicit api-tier gap (`AdapterError ... issue #2`) +
+`test_api_entry_has_no_adapter_yet` asserts it (flips when built); `measurement.record_task` already sets
+`spend_avoided=0` for `tier=="api"`; `resolve_key_ref` is the custody primitive. **Insight:** LiteLLM is
+OpenAI-compat → `api` adapter reuses the openai-compat transport (don't duplicate httpx). **No global-config
+concept exists** → plan adds `tanglebrain/settings.py` + `config/settings.yaml` for the flag (roster stays a
+bare list; folding the flag into roster would be a breaking list→mapping parse change).
+
+Also still open/non-build: **roster editing in the GUI** (deferred from C5; needs comment-preserving YAML).
 
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
