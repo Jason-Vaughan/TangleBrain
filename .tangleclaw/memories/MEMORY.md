@@ -58,20 +58,31 @@ truth — read these, don't re-derive from this file):
     points the server at a non-default roster.
   - Proven end-to-end over **real MCP stdio**: client spawns server, calls `delegate_local`, gets
     gpt-oss text. README documents per-CLI registration (`claude/gemini mcp add ...`).
+- ✅ **C3** *(this session — 3rd chunk, protocol break for momentum)* — **frontier-first router
+  control plane**. **Merged (PR #8).** Key facts:
+  - `tanglebrain/router.py` `Router.route(prompt, task=None, opts=None)`: task-fit selection
+    (prefer orchestrators whose `good_at` has `task`, else all), round-robin **rotation** across
+    `can_orchestrate` subs, **failover** on `AdapterError` → `RouterError` if all fail (rate-limit
+    ones annotated `[rate-limit]`). Reuses `build_adapter`; the selector stayed minimal.
+  - Rotation cursor **persisted across processes** at `~/.cache/tanglebrain/router-state.json`
+    (override `TANGLEBRAIN_STATE_DIR`); tracks the served orchestrator's position in the FULL
+    list (not the task-filtered sublist); only advances on success; missing/corrupt/negative → 0.
+    Writes are non-atomic on purpose (cursor is a load-spread hint).
+  - Exposed via `tanglebrain --route [--task]`. **CLI default is still local-first** (precedence:
+    `--model` > `--route` > local). Live-observed rotation: claude→codex→gemini→claude.
 
-## Next chunk = C3 (the router — the heart)
+## Next chunk = C3b (issue #7) — make frontier-first the default
 
-The delegate (C2b) now exists for the router to call. **C3** = the real **frontier-first router
-(§6)**, build as its own module (NOT in the minimal selector):
-- task-fit orchestrator selection (codex→code, claude→reasoning, gemini→long-context) +
-  round-robin **rotation** across the `can_orchestrate` subs (needs cross-process state — a small
-  persisted cursor — for load-spread to be real);
-- **429/limit failover** to the next orchestrator on error;
-- the **decompose→delegate→review loop**: orchestrator decomposes, calls `delegate_local` (C2b)
-  for grunt, reviews, finalizes. (§9 deferred LangGraph — revisit when the loop justifies it.)
-Substantial → plan-first. One chunk per session (we broke that this session by user request).
-  The selector today is deliberately minimal (`select_local` / `select_by_id`) — build the router
-  as its own module; do not grow the selector into it.
+The router (C3) and the delegate (C2b) both exist; C3b connects them and flips the default:
+- **Inject `delegate_local` into orchestrator invocations** so a sub offloads grunt to local
+  mid-task: pass the MCP server per-invocation (claude `--mcp-config`, codex/gemini equivalents)
+  or rely on documented pre-registration. This is the per-CLI MCP-config plumbing — verify each
+  CLI's actual flag (varies by version).
+- **Flip the CLI default** from local-first to `--route` (keep `--local`/`--model` overrides).
+- Then the decompose→delegate→review behavior is largely emergent from the orchestrator having
+  the tool (§6); verify live. (§9 deferred LangGraph — revisit only if the loop justifies it.)
+- Changes default behavior + touches MCP-config mechanics → **plan-first**; a fresh session is
+  reasonable. Selector stays minimal; don't grow it into the router.
 
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
