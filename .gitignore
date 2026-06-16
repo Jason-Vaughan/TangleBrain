@@ -1,0 +1,34 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor swap / backup files
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Local-only notes (use these suffixes for anything you want to keep out of git)
+*.local.md
+*.private.md
+
+# In-session uploads (screenshots, images dropped into chat) — local-only
+.uploads/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Test/dev venvs — created by the Makefile; never committed
+.test-venv/
+.venv/
+venv/
+
+# Secrets — scoped keys live outside the repo (~/.config/tanglebrain/), never in git
+*.key
