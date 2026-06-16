@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import run_once
-from tanglebrain.measurement import load_pricing, read_records, rollup
+from tanglebrain.measurement import load_pricing, read_records, rollup, save_pricing, validate_pricing
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.router import RouterError
 from tanglebrain.selector import SelectionError
@@ -86,19 +86,6 @@ def view_stats() -> dict:
     }
 
 
-def _last_served() -> dict | None:
-    """Return the tier/model that served the most recent routed task, from the C4 usage log.
-
-    Best-effort and single-user: the panel reads the last usage record right after a run to show
-    which tier handled it. Returns ``None`` if no record is available (e.g. logging was dropped).
-    """
-    records = read_records()
-    if not records:
-        return None
-    last = records[-1]
-    return {"path": last.get("path"), "tier": last.get("tier"), "model": last.get("model")}
-
-
 def run_prompt(payload: dict) -> dict:
     """Run one prompt through the router and report the result + which tier served it.
 
@@ -118,8 +105,27 @@ def run_prompt(payload: dict) -> dict:
     local = bool(payload.get("local", False))
 
     try:
-        text = run_once(str(prompt), model=model, local=local, task=task)
+        # return_served gives us the served tier/model directly — no usage-log re-read, no race.
+        text, served = run_once(str(prompt), model=model, local=local, task=task, return_served=True)
     except _RUN_ERRORS as exc:
         return {"ok": False, "error": str(exc)}
 
-    return {"ok": True, "text": text, "served": _last_served()}
+    return {"ok": True, "text": text, "served": served}
+
+
+def save_pricing_view(payload: dict) -> dict:
+    """Validate and persist edited pricing from the panel.
+
+    Args:
+        payload: ``{reference_model, input_per_mtok, output_per_mtok, placeholder}``.
+
+    Returns:
+        ``{"ok": True, "pricing": {...}}`` with the re-read pricing on success, or
+        ``{"ok": False, "error": ...}`` if validation fails (nothing is written on failure).
+    """
+    try:
+        pricing = validate_pricing(payload or {})
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    save_pricing(pricing)
+    return {"ok": True, "pricing": view_pricing()}
