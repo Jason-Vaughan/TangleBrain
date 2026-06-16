@@ -25,3 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Migrated the canonical plan (`.claude/plans/tanglebrain.md`) and the orchestration
     contract (`TANGLEBRAIN.md`, with a SUPERSEDED banner) into this repo.
   - Baseline hygiene files: `README`, `LICENSE`, `CHANGELOG`, `.gitignore`.
+
+### Internal
+
+- Resolved the two parked design decisions (PM, 2026-06-16; see issue #2 and plan §9.6–9.7):
+  paid-API billing will be gated by an explicit `api_billing_enabled` flag (**default off**),
+  with each paid key a `tier: api` roster entry carrying a per-key enable toggle + budget cap,
+  **fronted through LiteLLM** (TangleBrain references a scoped virtual key — preferred over a raw
+  provider key, which is not foreclosed but stays behind the toggle). Reconciled contract invariant
+  #3 accordingly — it now *softens, not reverses* (the durable rule is *no paid billing without the
+  explicit toggle*). No code behavior change yet; the paid-API tier itself is a later chunk (#2).
