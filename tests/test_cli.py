@@ -1,0 +1,67 @@
+"""Tests for the CLI end-to-end wiring (tanglebrain/cli.py).
+
+The adapter is mocked, so these tests verify the roster → select → build → run → print path
+without touching the network.
+"""
+from __future__ import annotations
+
+import io
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest.mock import MagicMock, patch
+
+from tanglebrain.adapters import AdapterError
+from tanglebrain.cli import main, run_once
+
+
+class RunOnceTest(unittest.TestCase):
+    def test_routes_through_local_and_returns_text(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "routed reply"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter) as build:
+            self.assertEqual(run_once("hello"), "routed reply")
+        fake_adapter.run.assert_called_once()
+        # Assert the entry handed to build_adapter is the local one (not just that run ran).
+        selected = build.call_args.args[0]
+        self.assertEqual(selected.tier, "local")
+        self.assertEqual(selected.id, "gpt-oss-120b")
+
+    def test_max_tokens_threaded_through(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "x"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            run_once("hello", max_tokens=256)
+        self.assertEqual(fake_adapter.run.call_args.args[1], {"max_tokens": 256})
+
+    def test_no_max_tokens_passes_none_opts(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "x"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            run_once("hello")
+        self.assertIsNone(fake_adapter.run.call_args.args[1])
+
+
+class MainTest(unittest.TestCase):
+    def test_success_prints_and_returns_zero(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "the answer"
+        out = io.StringIO()
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            with redirect_stdout(out):
+                code = main(["what is 2+2?"])
+        self.assertEqual(code, 0)
+        self.assertIn("the answer", out.getvalue())
+
+    def test_adapter_error_returns_one_and_writes_stderr(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.side_effect = AdapterError("endpoint down")
+        err = io.StringIO()
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            with redirect_stderr(err):
+                code = main(["hello"])
+        self.assertEqual(code, 1)
+        self.assertIn("endpoint down", err.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
