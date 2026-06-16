@@ -9,7 +9,7 @@ router — that belongs in its own module so the two don't get conflated.
 """
 from __future__ import annotations
 
-from tanglebrain.adapters import AdapterError, OpenAICompatAdapter
+from tanglebrain.adapters import AdapterError, CliAdapter, OpenAICompatAdapter
 from tanglebrain.adapters.base import Adapter
 from tanglebrain.roster import Roster, RosterEntry
 
@@ -41,12 +41,35 @@ def select_local(roster: Roster) -> RosterEntry:
     )
 
 
+def select_by_id(roster: Roster, entry_id: str) -> RosterEntry:
+    """Select a roster entry by id (lets the CLI drive a named sub end-to-end).
+
+    This is **not** the §6 router — it makes no routing decision, it just resolves an explicit
+    id the caller named. The cost-tiered orchestrator selection / rotation / failover is C3.
+
+    Args:
+        roster: The loaded roster.
+        entry_id: The id to select.
+
+    Returns:
+        The matching :class:`~tanglebrain.roster.RosterEntry`.
+
+    Raises:
+        SelectionError: If no entry has that id.
+    """
+    try:
+        return roster.by_id(entry_id)
+    except KeyError:
+        known = ", ".join(e.id for e in roster) or "(empty roster)"
+        raise SelectionError(f"no roster entry with id {entry_id!r}; known ids: {known}")
+
+
 def build_adapter(entry: RosterEntry) -> Adapter:
     """Build the adapter for a roster entry.
 
-    C1 supports only the ``openai-compat`` (free local) adapter. The subscription-CLI and
-    paid-API adapters land in C2; selecting an entry that needs one raises clearly rather than
-    pretending it is routable.
+    C2 supports the ``openai-compat`` (free local) and ``cli`` (subscription) adapters. The
+    paid-API adapter is gated behind ``api_billing_enabled`` and lands later (issue #2);
+    selecting an ``api`` entry raises clearly rather than pretending it is routable.
 
     Args:
         entry: The roster entry to build an adapter for.
@@ -55,11 +78,13 @@ def build_adapter(entry: RosterEntry) -> Adapter:
         An :class:`~tanglebrain.adapters.base.Adapter` for the entry.
 
     Raises:
-        AdapterError: If the entry's invoke kind has no adapter yet (``cli`` / ``api`` → C2).
+        AdapterError: If the entry's invoke kind has no adapter yet (``api`` → issue #2).
     """
     if entry.invoke.kind == "openai-compat":
         return OpenAICompatAdapter.from_entry(entry)
+    if entry.invoke.kind == "cli":
+        return CliAdapter.from_entry(entry)
     raise AdapterError(
         f"no adapter for invoke.kind {entry.invoke.kind!r} yet "
-        f"(entry {entry.id!r}); CLI/API adapters land in C2"
+        f"(entry {entry.id!r}); the paid-API tier lands later (issue #2)"
     )
