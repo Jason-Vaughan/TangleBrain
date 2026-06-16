@@ -44,6 +44,11 @@ first-class field on the roster `Invoke` object, ready to be honored by the CLI 
 Plus the gpt-oss MCP tool from C0 as each orchestrator's local delegate. (C3 = the real
 router/rotation/failover — NOT C2.)
 
+**Also fold into C2 (PM, 2026-06-16):** the full contract `TANGLEBRAIN.md` §2/§6 reconciliation —
+rewrite the Monad-embedded framing (§2 → runs on the Mac) and the `direct/smart-fallback/
+semantic-route` profile model (§6 → cost-tiered frontier-first). Invariant #3 is already reconciled
+(this session); §2/§6 are what remain frozen.
+
 ## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
 Both parked decisions are now ratified (plan §9.6–9.7, contract invariant #3, **issue #2**):
@@ -51,12 +56,15 @@ Both parked decisions are now ratified (plan §9.6–9.7, contract invariant #3,
 1. **Paid-API billing gate** → explicit `api_billing_enabled` flag, **default off**. When off,
    `tier: api` entries parse but never route. When on, each paid key is a `tier: api` roster entry
    with a per-key `enabled` toggle + budget cap; paid API stays last-resort (§6).
-2. **Paid-key custody** → paid APIs are **fronted through LiteLLM**: TangleBrain references a
-   scoped LiteLLM virtual key (existing `key_ref`), raw provider key lives in LiteLLM on Monad.
-   Invariant #3 **softened, not reversed** — the router never holds a raw cloud key.
+2. **Paid-key custody** → **LiteLLM-fronting preferred**: TangleBrain references a scoped LiteLLM
+   virtual key (existing `key_ref`), raw provider key lives in LiteLLM on Monad. Holding raw keys
+   directly is **not foreclosed** (the PM wants the feature available — cheap keys later, or other
+   operators) but stays behind the toggle. Invariant #3 **softened, not reversed** — the durable
+   rule is *no paid billing without the explicit `api_billing_enabled` toggle*.
 
 The paid-API tier itself is unbuilt (issue #2, a later chunk). The broader contract §2/§6
-architecture reconciliation (Monad-embedded → Mac; profile model → cost-tier) is still pending.
+architecture reconciliation (Monad-embedded → Mac; profile model → cost-tier) is **deferred to C2**
+(PM, 2026-06-16) — fold it into the next chunk's work.
 
 ## Key facts (don't re-derive)
 
