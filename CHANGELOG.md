@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **C5a — knob GUI (read-only panel), TangleClaw-style.** A new `tanglebrain-gui` console script
+  serves a thin, **localhost-only** web panel (stdlib `http.server` + a single vanilla HTML/CSS/JS
+  page — zero new runtime dependencies) on port 3250 (registered in TangleClaw PortHub). The panel:
+  views the live roster (§5), the pricing reference, and the local C4 spend-avoided rollup, and runs
+  a prompt through the router (prompt in → final out), showing which tier/model served it (read from
+  the C4 usage log; panel runs are metered automatically). First slice of plan §10's "C5 — Knob GUI".
+  - **Read-only this chunk** — config editing (write-back to YAML) is deferred to C5b (#13).
+  - **Secret-safety**: the roster view emits `key_ref` as the stored reference string only; it is
+    never resolved and no key file is read, so no secret material reaches the browser.
+  - Binds `127.0.0.1` only — the panel spends real sub rate-limit quota when it runs prompts and
+    reads the roster, so it must not be network-exposed. New `tanglebrain/gui/` package; HTTP routing
+    is a pure `dispatch()` over testable view functions (`tanglebrain/gui/views.py`).
+
 ## [0.3.0] - 2026-06-16
 
 ### Added
