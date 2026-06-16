@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 from tanglebrain.adapters.cli import CliAdapter, scrubbed_env
 from tanglebrain.cli import run_once
+from tanglebrain.delegate import run_local_delegate
 
 LIVE = os.environ.get("TANGLEBRAIN_LIVE") == "1"
 
@@ -31,6 +32,16 @@ class LiveEndToEndTest(unittest.TestCase):
         text = run_once("Reply with exactly the word: pong", max_tokens=2048)
         self.assertIsInstance(text, str)
         self.assertTrue(text.strip(), "expected non-empty text from gpt-oss-120b")
+
+
+@unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live delegate test")
+class LiveDelegateTest(unittest.TestCase):
+    """C2b: the MCP delegate's routing logic offloads to real gpt-oss and returns text."""
+
+    def test_delegate_offloads_to_local_and_returns_text(self):
+        text = run_local_delegate("Reply with exactly the word: pong")
+        self.assertIsInstance(text, str)
+        self.assertTrue(text.strip(), "expected non-empty text from the local delegate")
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live CLI tests")
