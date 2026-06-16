@@ -22,9 +22,10 @@ subscriptions instead of paying per-token."*
 
 ## Status
 
-**C1 — repo + skeleton + roster loader + the openai-compat adapter to free local gpt-oss.**
-One request routes to the local tier end-to-end. This is the foundation; the cost-tiered
-router itself (orchestrator selection, rotation, failover) arrives in later chunks.
+**Frontier-first routing is live end-to-end, and routed tasks now report their "spend avoided."**
+`tanglebrain "…"` rotates an orchestrator sub, fails over on rate limits, and offloads grunt to
+free local gpt-oss; `tanglebrain --stats` rolls up the cloud-equivalent cost avoided. Remaining:
+the knob GUI (C5) and the gated paid-API tier (issue #2).
 
 - ✅ **C0** — frontier-first decompose spike (shipped in Monad-1, verdict KEEP).
 - ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
@@ -36,7 +37,8 @@ router itself (orchestrator selection, rotation, failover) arrives in later chun
   429 failover across the subs.
 - ✅ **C3b** — orchestrators offload grunt to free local via the delegate; **frontier-first is now
   the default** (`tanglebrain "…"`); `--local` forces the direct local tier.
-- ⬜ **C4** — measurement / "spend avoided" rollup.
+- ✅ **C4** — measurement / "spend avoided" rollup: every routed task logged, `tanglebrain --stats`
+  reports cloud-equivalent cost avoided.
 - ⬜ **C5** — knob GUI (thin web panel over the roster config).
 
 Full plan: [`.claude/plans/tanglebrain.md`](.claude/plans/tanglebrain.md). The historical
@@ -67,7 +69,27 @@ model is a config edit, not a code change.
 
 # Force a specific roster entry (explicit override):
 .venv/bin/tanglebrain --model gemini "Summarize this long document."
+
+# Show the "spend avoided" rollup across every routed task so far:
+.venv/bin/tanglebrain --stats
 ```
+
+### Spend avoided (measurement)
+
+Every routed task is logged as one JSON line in an append-only usage log
+(`~/.cache/tanglebrain/usage.jsonl`, or under `TANGLEBRAIN_STATE_DIR`): path, tier, model,
+estimated tokens, and the **cloud-equivalent cost it avoided** — what the work would have cost on a
+paid frontier API. `tanglebrain --stats` rolls those records up into a single "spend avoided"
+figure, the way the north star (drive ongoing compute cost *down*) becomes visible.
+
+Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
+subscription CLIs expose no usable token counts, so one consistent (if approximate) methodology is
+applied to every tier. The reference frontier price lives in
+[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) and mirrors Monad-1's
+`monad-stats` `costSaved` anchor — Claude Sonnet at $3/$15 per MTok (methodology ratified
+2026-06-13) — so both projects value avoided spend identically. A `placeholder` flag makes the
+rollup render a PLACEHOLDER caveat if the anchor is ever forked before re-ratifying. Logging is
+best-effort and never affects the returned answer.
 
 The router gives each orchestrator the `delegate_local` tool, so a frontier sub decomposes the
 task and offloads grunt to free local gpt-oss at $0, then reviews — the cost lever behind

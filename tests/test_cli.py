@@ -6,16 +6,31 @@ without touching the network.
 from __future__ import annotations
 
 import io
+import os
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import main, run_once
+from tanglebrain.measurement import read_records
 from tanglebrain.selector import SelectionError
 
 
 class RunOnceTest(unittest.TestCase):
+    def setUp(self):
+        # Redirect the C4 usage log into a temp dir so metering side-effects stay hermetic
+        # (run_once now records each routed task) and never touch the real ~/.cache.
+        self.tmp = tempfile.mkdtemp()
+        self._env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.tmp}, clear=False)
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def _records(self):
+        return read_records(Path(self.tmp) / "usage.jsonl")
+
     def test_default_routes_through_router(self):
         # C3b flipped the default: no flags -> frontier-first Router (not local-first).
         fake_router = MagicMock()
@@ -97,6 +112,48 @@ class RunOnceTest(unittest.TestCase):
             self.assertEqual(run_once("hi", local=True), "from-local")
         RouterCls.assert_not_called()
 
+    def test_local_path_records_a_task(self):
+        # Metering seam: the --local path writes one usage record tagged tier=local.
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "local reply"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            run_once("hello there", local=True)
+        records = self._records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["path"], "local")
+        self.assertEqual(records[0]["tier"], "local")
+        self.assertGreater(records[0]["spend_avoided_usd"], 0.0)
+
+    def test_model_path_records_a_task(self):
+        # The --model override path also meters, tagged path=model with the pinned entry's tier.
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "claude reply"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            run_once("summarize this", model="claude")
+        records = self._records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["path"], "model")
+        self.assertEqual(records[0]["tier"], "sub")
+        self.assertEqual(records[0]["model"], "claude")
+
+    def test_router_path_records_served_entry(self):
+        # The router surfaces last_served; run_once records that tier/model.
+        served = MagicMock()
+        served.tier = "sub"
+        served.id = "claude"
+        fake_router = MagicMock()
+        fake_router.route.return_value = "routed reply"
+        fake_router.last_served = served
+        with patch("tanglebrain.cli.load_roster"), patch(
+            "tanglebrain.cli.Router", return_value=fake_router
+        ):
+            run_once("hello")
+        records = self._records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["path"], "router")
+        self.assertEqual(records[0]["tier"], "sub")
+        self.assertEqual(records[0]["model"], "claude")
+
 
 class MainTest(unittest.TestCase):
     def test_success_prints_and_returns_zero(self):
@@ -148,6 +205,26 @@ class MainTest(unittest.TestCase):
                 code = main(["--local", "hello"])
         self.assertEqual(code, 1)
         self.assertIn("endpoint down", err.getvalue())
+
+    def test_stats_prints_rollup_without_prompt(self):
+        summary = {"tasks": 2, "by_tier": {"local": 2}, "in_tokens_est": 10,
+                   "out_tokens_est": 20, "cloud_equiv_usd": 1.0, "spend_avoided_usd": 1.0}
+        with patch("tanglebrain.cli.read_records", return_value=[]), patch(
+            "tanglebrain.cli.rollup", return_value=summary
+        ), patch("tanglebrain.cli.run_once") as run:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main(["--stats"])
+        self.assertEqual(code, 0)
+        self.assertIn("Tasks routed:", out.getvalue())
+        run.assert_not_called()  # --stats short-circuits before routing
+
+    def test_missing_prompt_without_stats_errors(self):
+        # argparse parser.error exits with code 2.
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                main([])
+        self.assertEqual(ctx.exception.code, 2)
 
 
 if __name__ == "__main__":
