@@ -223,8 +223,11 @@ building any router. Repo created at C1 if the spike says "keep."
   env-scrub proven live — claude sees `ANTHROPIC_API_KEY` as UNSET). Split per the one-chunk rule:
   the gpt-oss MCP local-delegate (the other half of this line) became **C2b → issue #4**, deferred
   to land near C3 where an orchestrator actually consumes it.
-- **C2b — gpt-oss MCP local-delegate** (issue #4): port the generalized C0 MCP tool here as each
-  orchestrator's local delegate. Folds in near C3.
+- **C2b — gpt-oss MCP local-delegate** (issue #4). **SHIPPED 2026-06-16** — `tanglebrain-delegate`
+  MCP server exposes `delegate_local(prompt, max_tokens?)` → free local gpt-oss, reusing the C1
+  roster + adapter; `mcp` is an optional extra. Verified end-to-end over real MCP stdio. Built
+  before C3 (not "near" it) because it's the prerequisite that makes frontier-first actually
+  offload grunt — the router consumes this tool in C3's decompose→delegate→review loop.
 - **C3 — Frontier-first router (§6):** orchestrator selection (task-fit + rotation), 429/limit
   failover to the next sub, and the decompose → delegate → review loop.
 - **C4 — Measurement/logging (§8)** + the savings rollup (so rate-limit pressure becomes visible).
