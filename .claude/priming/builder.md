@@ -63,9 +63,10 @@ KEY FACTS (don't re-derive):
     fronted virtual keys are the preferred custody. The paid tier + the full contract §2/§6
     reconciliation are bundled in issue #2 (a later chunk) — don't bake in assumptions against it.
 
-THIS SESSION'S CHUNK: <FILL IN — e.g. "C2: CLI adapters for the three subs (claude/codex/gemini)
-with ANTHROPIC_API_KEY env-scrub, plus the gpt-oss MCP tool from C0 as each orchestrator's local
-delegate. NOT the router/rotation (C3), measurement (C4), or GUI (C5).">
+THIS SESSION'S CHUNK: <FILL IN from MEMORY.md "Next chunk" — e.g. "C4: measurement / 'spend
+avoided' rollup (§8). Log each routed task (tier chosen, tokens, estimated cloud-equivalent cost
+avoided) and roll up a savings figure (same methodology family as monad-stats' costSaved).
+Greenfield logging layer, no default-behavior change. NOT the GUI (C5) or paid-API tier (#2).">
 
 Start by reading the three sources above + internalizing the north star, then tell the PM your
 understanding of where we are and what this chunk entails. Build only after the PM confirms.
@@ -79,3 +80,6 @@ understanding of where we are and what this chunk entails. Build only after the 
   reusable template: pulled the per-session chunk scope into a single `THIS SESSION'S CHUNK` slot;
   folded in the resolved state (invariant #3 reconciled; paid-API billing gate + §2/§6
   reconciliation now live in issue #2). Points at `MEMORY.md` as the per-session entry point.
+- **2026-06-16** — After shipping C2/C2b/C3/C3b + releasing v0.2.0 (frontier-first end-to-end),
+  refreshed the `THIS SESSION'S CHUNK` example from C2 to C4 (the current next chunk). Template
+  body unchanged — it stayed accurate; the next session still fills the slot from MEMORY.md.
