@@ -11,6 +11,16 @@ from __future__ import annotations
 from typing import Mapping, Protocol, runtime_checkable
 
 
+class AdapterError(RuntimeError):
+    """Raised when an adapter cannot produce text.
+
+    Covers bad config, transport/subprocess failure, and unexpected response shape — every
+    way a tier can fail to return usable text. It lives here (not in a single adapter module)
+    so all adapters and the routing layer share one error type to catch. ``openai_compat``
+    re-exports it for backwards-compatible imports.
+    """
+
+
 @runtime_checkable
 class Adapter(Protocol):
     """A callable tier: turn a prompt into text.

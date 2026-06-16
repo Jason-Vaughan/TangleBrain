@@ -53,6 +53,15 @@ class PackagedRosterTest(unittest.TestCase):
         self.assertIn("ANTHROPIC_API_KEY", claude.invoke.scrub_env)
         self.assertTrue(claude.can_orchestrate)
 
+    def test_cli_entries_declare_a_parser(self):
+        self.assertEqual(self.roster.by_id("claude").invoke.parse, "claude-json")
+        self.assertEqual(self.roster.by_id("codex").invoke.parse, "plain")
+        self.assertEqual(self.roster.by_id("gemini").invoke.parse, "gemini-json")
+
+    def test_gemini_cmd_marks_prompt_injection_point(self):
+        # gemini's -p needs the prompt as its value, so the cmd carries a {prompt} token.
+        self.assertIn("{prompt}", self.roster.by_id("gemini").invoke.cmd)
+
     def test_orchestrators_are_the_three_subs(self):
         self.assertEqual([e.id for e in self.roster.orchestrators()], ["claude", "codex", "gemini"])
 
@@ -99,6 +108,14 @@ class LoaderValidationTest(unittest.TestCase):
 
     def test_cli_requires_cmd(self):
         path = write_yaml("- id: a\n  tier: sub\n  invoke: {kind: cli}\n", self)
+        with self.assertRaises(RosterError):
+            load_roster(path)
+
+    def test_parse_must_be_string(self):
+        path = write_yaml(
+            "- id: a\n  tier: sub\n  invoke: {kind: cli, cmd: [x], parse: [not, a, string]}\n",
+            self,
+        )
         with self.assertRaises(RosterError):
             load_roster(path)
 
