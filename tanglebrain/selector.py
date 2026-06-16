@@ -64,7 +64,7 @@ def select_by_id(roster: Roster, entry_id: str) -> RosterEntry:
         raise SelectionError(f"no roster entry with id {entry_id!r}; known ids: {known}")
 
 
-def build_adapter(entry: RosterEntry) -> Adapter:
+def build_adapter(entry: RosterEntry, inject_delegate: bool = False) -> Adapter:
     """Build the adapter for a roster entry.
 
     C2 supports the ``openai-compat`` (free local) and ``cli`` (subscription) adapters. The
@@ -73,6 +73,9 @@ def build_adapter(entry: RosterEntry) -> Adapter:
 
     Args:
         entry: The roster entry to build an adapter for.
+        inject_delegate: For ``cli`` entries, make the gpt-oss MCP delegate available to the CLI as
+            an orchestrator (C3b) — the router sets this so an orchestrator can offload grunt to
+            free local. Ignored for non-``cli`` kinds.
 
     Returns:
         An :class:`~tanglebrain.adapters.base.Adapter` for the entry.
@@ -83,7 +86,7 @@ def build_adapter(entry: RosterEntry) -> Adapter:
     if entry.invoke.kind == "openai-compat":
         return OpenAICompatAdapter.from_entry(entry)
     if entry.invoke.kind == "cli":
-        return CliAdapter.from_entry(entry)
+        return CliAdapter.from_entry(entry, inject_delegate=inject_delegate)
     raise AdapterError(
         f"no adapter for invoke.kind {entry.invoke.kind!r} yet "
         f"(entry {entry.id!r}); the paid-API tier lands later (issue #2)"

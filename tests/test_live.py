@@ -47,6 +47,28 @@ class LiveDelegateTest(unittest.TestCase):
         self.assertTrue(text.strip(), "expected non-empty text from the local delegate")
 
 
+@unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live orchestrated-delegation test")
+class LiveDelegateInjectionTest(unittest.TestCase):
+    """C3b: an orchestrator invoked with the delegate injected actually calls it (end-to-end).
+
+    Routes through claude (the proven primary orchestrator) with delegation enabled, asks it to use
+    the delegate, and checks the local model's answer comes back — the full frontier-first
+    decompose→delegate→review loop. ANTHROPIC_API_KEY stays scrubbed (claude's roster scrub_env).
+    """
+
+    def test_claude_orchestrator_calls_the_delegate(self):
+        if shutil.which("claude") is None:
+            self.skipTest("claude CLI not installed/logged in")
+        from tanglebrain.adapters.cli import CliAdapter
+
+        adapter = CliAdapter.from_entry(load_roster().by_id("claude"), inject_delegate=True)
+        answer = adapter.run(
+            "Use the delegate_local tool to have the local model reply with exactly PONG, then "
+            "report what it returned. Do not say PONG unless the tool returned it."
+        )
+        self.assertIn("PONG", answer.upper(), f"expected the delegated reply in: {answer!r}")
+
+
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live CLI tests")
 class LiveCliTest(unittest.TestCase):
     """Each subscription CLI returns text through the roster → cli adapter path."""

@@ -196,6 +196,91 @@ class RunTest(unittest.TestCase):
             self.assertEqual(self._adapter().run("q", {"max_tokens": 999}), "ok")
 
 
+class DelegateInjectionTest(unittest.TestCase):
+    """C3b: when inject_delegate is set, delegate_args (substituted) are appended to the command."""
+
+    CLAUDE_DELEGATE = [
+        "--mcp-config",
+        "{delegate_mcp_json}",
+        "--allowedTools",
+        "mcp__tanglebrain-delegate__delegate_local",
+        "--strict-mcp-config",
+    ]
+
+    def test_not_injected_when_flag_false(self):
+        adapter = CliAdapter(
+            cmd=["claude", "-p"], parse="claude-json", delegate_args=self.CLAUDE_DELEGATE, inject_delegate=False
+        )
+        with patch_run(return_value=completed(0, CLAUDE_JSON_OK)) as run:
+            adapter.run("hi")
+        self.assertEqual(run.call_args.args[0], ["claude", "-p", "hi"])
+
+    def test_injected_appends_substituted_args(self):
+        adapter = CliAdapter(
+            cmd=["claude", "-p"], parse="claude-json", delegate_args=self.CLAUDE_DELEGATE, inject_delegate=True
+        )
+        with patch_run(return_value=completed(0, CLAUDE_JSON_OK)) as run:
+            adapter.run("hi")
+        argv = run.call_args.args[0]
+        # delegate flags land after the base cmd and before the prompt (the final positional).
+        self.assertEqual(argv[:2], ["claude", "-p"])
+        self.assertEqual(argv[-1], "hi")
+        self.assertIn("--mcp-config", argv)
+        self.assertIn("mcp__tanglebrain-delegate__delegate_local", argv)
+        # The {delegate_mcp_json} token must be substituted with real JSON naming the server.
+        cfg = argv[argv.index("--mcp-config") + 1]
+        self.assertNotIn("{delegate_mcp_json}", cfg)
+        self.assertIn("tanglebrain-delegate", cfg)
+        self.assertIn("tanglebrain.mcp_server", cfg)
+
+    def test_command_token_substituted_for_codex_style(self):
+        adapter = CliAdapter(
+            cmd=["codex", "exec"],
+            parse="plain",
+            delegate_args=["-c", "mcp_servers.x.command={delegate_mcp_command}"],
+            inject_delegate=True,
+        )
+        with patch_run(return_value=completed(0, "ok")) as run:
+            adapter.run("hi")
+        argv = run.call_args.args[0]
+        override = argv[argv.index("-c") + 1]
+        self.assertNotIn("{delegate_mcp_command}", override)
+        self.assertTrue(override.startswith("mcp_servers.x.command="))
+
+    def test_empty_delegate_args_is_noop_even_when_injecting(self):
+        adapter = CliAdapter(cmd=["codex", "exec"], parse="plain", delegate_args=[], inject_delegate=True)
+        with patch_run(return_value=completed(0, "ok")) as run:
+            adapter.run("hi")
+        self.assertEqual(run.call_args.args[0], ["codex", "exec", "hi"])
+
+    def test_prompt_token_cmd_with_injection(self):
+        # gemini-shaped cmd: {prompt} is substituted in place AND delegate flags are appended,
+        # so the prompt must NOT also be appended at the end.
+        adapter = CliAdapter(
+            cmd=["gemini", "-p", "{prompt}", "--output-format", "json"],
+            parse="gemini-json",
+            delegate_args=["--allowed-mcp-server-names", "tanglebrain-delegate", "--approval-mode", "yolo"],
+            inject_delegate=True,
+        )
+        with patch_run(return_value=completed(0, GEMINI_JSON_OK)) as run:
+            adapter.run("do the task")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[argv.index("-p") + 1], "do the task")  # prompt at the -p slot
+        self.assertNotEqual(argv[-1], "do the task")  # not also appended at the end
+        self.assertIn("--allowed-mcp-server-names", argv)
+        self.assertIn("--approval-mode", argv)
+
+    def test_from_entry_carries_delegate_args_and_flag(self):
+        entry = RosterEntry(
+            id="claude",
+            tier="sub",
+            invoke=Invoke(kind="cli", cmd=["claude", "-p"], parse="claude-json", delegate_args=self.CLAUDE_DELEGATE),
+        )
+        adapter = CliAdapter.from_entry(entry, inject_delegate=True)
+        self.assertEqual(adapter.delegate_args, self.CLAUDE_DELEGATE)
+        self.assertTrue(adapter.inject_delegate)
+
+
 class ConstructionTest(unittest.TestCase):
     """Constructor and from_entry validation."""
 

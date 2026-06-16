@@ -62,6 +62,16 @@ class PackagedRosterTest(unittest.TestCase):
         # gemini's -p needs the prompt as its value, so the cmd carries a {prompt} token.
         self.assertIn("{prompt}", self.roster.by_id("gemini").invoke.cmd)
 
+    def test_orchestrators_declare_delegate_args(self):
+        # C3b: each orchestrator carries the per-CLI flags to inject the gpt-oss delegate.
+        for entry_id in ("claude", "codex", "gemini"):
+            self.assertTrue(
+                self.roster.by_id(entry_id).invoke.delegate_args,
+                f"{entry_id} should declare delegate_args",
+            )
+        # claude uses the proven --mcp-config path with the {delegate_mcp_json} token.
+        self.assertIn("{delegate_mcp_json}", self.roster.by_id("claude").invoke.delegate_args)
+
     def test_orchestrators_are_the_three_subs(self):
         self.assertEqual([e.id for e in self.roster.orchestrators()], ["claude", "codex", "gemini"])
 
@@ -114,6 +124,14 @@ class LoaderValidationTest(unittest.TestCase):
     def test_parse_must_be_string(self):
         path = write_yaml(
             "- id: a\n  tier: sub\n  invoke: {kind: cli, cmd: [x], parse: [not, a, string]}\n",
+            self,
+        )
+        with self.assertRaises(RosterError):
+            load_roster(path)
+
+    def test_delegate_args_must_be_list(self):
+        path = write_yaml(
+            "- id: a\n  tier: sub\n  invoke: {kind: cli, cmd: [x], delegate_args: nope}\n",
             self,
         )
         with self.assertRaises(RosterError):
