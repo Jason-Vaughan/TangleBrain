@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jasonvaughan/Documents/Projects/TangleClaw-v3/data/hooks/sessionstart-prime.sh",
+            "statusMessage": "Loading session prime..."
+          }
+        ]
+      }
+    ]
+  }
+}
