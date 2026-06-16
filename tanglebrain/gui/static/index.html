@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TangleBrain — knob panel</title>
+<style>
+  :root {
+    --primary: #8BC34A; --primary-bright: #9CCC65; --primary-dark: #558B2F;
+    --bg: #000; --card-bg: #0D0D0D; --elevated-bg: #1A1A1A;
+    --text: #E8E8E8; --text-muted: #777; --danger: #EF5350; --amber: #FFA726;
+    --border: #222;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+    line-height: 1.5; padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  header { text-align: center; padding: 8px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  header h1 { margin: 0; font-size: 1.5rem; letter-spacing: .5px; }
+  header h1 .accent { color: var(--primary); }
+  header .sub { color: var(--text-muted); font-size: .8rem; margin-top: 4px; }
+  h2 { font-size: .95rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 28px 0 10px; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: .68rem; letter-spacing: .5px; }
+  td.mono, .mono { font-family: 'SF Mono', Menlo, monospace; font-size: .8rem; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .7rem; border: 1px solid var(--border); margin: 1px 3px 1px 0; }
+  .pill.local { color: var(--primary); border-color: var(--primary-dark); }
+  .pill.sub { color: var(--primary-bright); }
+  .pill.api { color: var(--amber); }
+  .pill.orch { color: var(--primary); border-color: var(--primary-dark); }
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .stat { background: var(--elevated-bg); border-radius: 8px; padding: 12px 14px; }
+  .stat .label { color: var(--text-muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .5px; }
+  .stat .value { font-size: 1.3rem; margin-top: 4px; }
+  .stat .value.big { color: var(--primary); }
+  .caveat { color: var(--amber); font-size: .78rem; margin-top: 10px; }
+  textarea, input[type=text] {
+    width: 100%; background: var(--elevated-bg); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 10px; font-family: inherit; font-size: .9rem; resize: vertical;
+  }
+  textarea:focus, input:focus { outline: none; border-color: var(--primary-dark); }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  label.chk { color: var(--text-muted); font-size: .82rem; display: flex; align-items: center; gap: 6px; }
+  button {
+    background: var(--card-bg); color: var(--primary); border: 1px solid var(--primary-dark);
+    border-radius: 8px; padding: 9px 18px; font-size: .9rem; cursor: pointer; font-family: inherit;
+  }
+  button:hover { background: var(--elevated-bg); }
+  button:disabled { color: var(--text-muted); border-color: var(--border); cursor: default; }
+  pre.out { background: var(--elevated-bg); border: 1px solid var(--border); border-radius: 8px;
+            padding: 12px; white-space: pre-wrap; word-break: break-word; margin-top: 12px; font-size: .85rem; }
+  .served { color: var(--text-muted); font-size: .78rem; margin-top: 8px; }
+  .served b { color: var(--primary); }
+  .err { color: var(--danger); }
+  .muted { color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tangle<span class="accent">Brain</span> · knob panel</h1>
+    <div class="sub">read-only — cost-tiered router config &amp; local spend-avoided rollup</div>
+  </header>
+
+  <h2>Run a prompt</h2>
+  <div class="card">
+    <textarea id="prompt" rows="3" placeholder="Ask the router something…"></textarea>
+    <div class="row">
+      <input type="text" id="task" placeholder="task hint (optional: code, reasoning, long-context)" style="flex:1; min-width:220px;">
+      <label class="chk"><input type="checkbox" id="local"> force local ($0)</label>
+      <button id="run">Run</button>
+    </div>
+    <div id="runResult"></div>
+  </div>
+
+  <h2>Spend avoided <span class="muted">(local rollup)</span></h2>
+  <div class="card" id="statsCard"><span class="muted">loading…</span></div>
+
+  <h2>Roster</h2>
+  <div class="card" id="rosterCard"><span class="muted">loading…</span></div>
+
+  <h2>Pricing reference</h2>
+  <div class="card" id="pricingCard"><span class="muted">loading…</span></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  return r.json();
+}
+
+function money(n) { return "$" + (Number(n) || 0).toFixed(2); }
+
+async function loadStats() {
+  try {
+    const d = await getJSON("/api/stats");
+    const s = d.summary || {};
+    const tiers = Object.entries(s.by_tier || {}).map(([k, v]) => `${esc(k)} ${v}`).join(", ") || "—";
+    let html = `<div class="stat-grid">
+      <div class="stat"><div class="label">Tasks routed</div><div class="value">${s.tasks || 0}</div></div>
+      <div class="stat"><div class="label">Spend avoided</div><div class="value big">${money(s.spend_avoided_usd)}</div></div>
+      <div class="stat"><div class="label">By tier</div><div class="value mono" style="font-size:.95rem">${tiers}</div></div>
+      <div class="stat"><div class="label">Est. tokens (in / out)</div><div class="value mono" style="font-size:.95rem">${(s.in_tokens_est||0).toLocaleString()} / ${(s.out_tokens_est||0).toLocaleString()}</div></div>
+    </div>`;
+    if (d.is_placeholder) html += `<div class="caveat">⚠ pricing: PLACEHOLDER — figures illustrative until the anchor is ratified.</div>`;
+    $("statsCard").innerHTML = html;
+  } catch (e) { $("statsCard").innerHTML = `<span class="err">failed to load stats</span>`; }
+}
+
+async function loadRoster() {
+  try {
+    const d = await getJSON("/api/roster");
+    const rows = (d.entries || []).map(e => {
+      const tags = (e.good_at || []).map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
+      const orch = e.can_orchestrate ? `<span class="pill orch">orchestrator</span>` : "";
+      const inv = e.invoke || {};
+      const ref = inv.key_ref ? `<div class="muted mono" style="font-size:.72rem">key: ${esc(inv.key_ref)}</div>` : "";
+      return `<tr>
+        <td class="mono">${esc(e.id)}</td>
+        <td><span class="pill ${esc(e.tier)}">${esc(e.tier)}</span><div class="muted" style="font-size:.72rem">${esc(e.cost||"")}</div></td>
+        <td class="mono">${esc(inv.kind)}${inv.model ? " · " + esc(inv.model) : ""}${ref}</td>
+        <td>${tags} ${orch}</td>
+      </tr>`;
+    }).join("");
+    $("rosterCard").innerHTML = `<table><thead><tr><th>id</th><th>tier</th><th>invoke</th><th>good at</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) { $("rosterCard").innerHTML = `<span class="err">failed to load roster</span>`; }
+}
+
+async function loadPricing() {
+  try {
+    const p = await getJSON("/api/pricing");
+    $("pricingCard").innerHTML = `<div class="mono">${esc(p.reference_model)}</div>
+      <div class="row"><span class="muted">in: $${p.input_per_mtok}/MTok</span><span class="muted">out: $${p.output_per_mtok}/MTok</span>
+      ${p.is_placeholder ? '<span class="caveat">PLACEHOLDER</span>' : '<span class="pill local">ratified</span>'}</div>`;
+  } catch (e) { $("pricingCard").innerHTML = `<span class="err">failed to load pricing</span>`; }
+}
+
+async function run() {
+  const prompt = $("prompt").value.trim();
+  const box = $("runResult");
+  if (!prompt) { box.innerHTML = `<div class="err" style="margin-top:10px">enter a prompt first</div>`; return; }
+  $("run").disabled = true; $("run").textContent = "Running…";
+  box.innerHTML = `<div class="muted" style="margin-top:10px">routing…</div>`;
+  try {
+    const r = await fetch("/api/run", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ prompt, task: $("task").value.trim() || null, local: $("local").checked })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const s = d.served;
+      const served = s ? `<div class="served">served by <b>${esc(s.model)}</b> (${esc(s.tier)} · ${esc(s.path)})</div>` : "";
+      box.innerHTML = `<pre class="out">${esc(d.text)}</pre>${served}`;
+      loadStats();
+    } else {
+      box.innerHTML = `<pre class="out err">${esc(d.error)}</pre>`;
+    }
+  } catch (e) {
+    box.innerHTML = `<pre class="out err">request failed: ${esc(e)}</pre>`;
+  } finally {
+    $("run").disabled = false; $("run").textContent = "Run";
+  }
+}
+
+$("run").addEventListener("click", run);
+loadStats(); loadRoster(); loadPricing();
+</script>
+</body>
+</html>
