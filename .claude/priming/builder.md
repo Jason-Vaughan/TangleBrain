@@ -59,14 +59,22 @@ KEY FACTS (don't re-derive):
   - AUTH SAFETY (when wiring `claude -p`): SCRUB `ANTHROPIC_API_KEY` from its subprocess env —
     it's set on this Mac (108 chars = paid per-token); we want the flat Max sub, not billing.
     `scrub_env` is already a first-class field on the roster `Invoke` object.
-  - Paid-API billing: gated by an explicit `api_billing_enabled` flag (default OFF); LiteLLM-
-    fronted virtual keys are the preferred custody. The paid tier + the full contract §2/§6
-    reconciliation are bundled in issue #2 (a later chunk) — don't bake in assumptions against it.
+  - Paid-API billing (this is now the ACTIVE chunk, issue #2): gated by an explicit
+    `api_billing_enabled` flag, **default OFF** — when off, `tier: api` entries parse but never
+    route. LiteLLM-fronted virtual keys are the preferred custody (`key_ref`); raw keys gated by the
+    same flag. A net-new `api` adapter is required (only `openai-compat` + `cli` exist). The full
+    contract §2/§6 reconciliation is bundled here. SAFETY: never route to a paid tier, log a billed
+    call, or hold a raw key without the explicit toggle on — confirm the design with the PM first.
 
-THIS SESSION'S CHUNK: <FILL IN from MEMORY.md "Next chunk" — e.g. "C4: measurement / 'spend
-avoided' rollup (§8). Log each routed task (tier chosen, tokens, estimated cloud-equivalent cost
-avoided) and roll up a savings figure (same methodology family as monad-stats' costSaved).
-Greenfield logging layer, no default-behavior change. NOT the GUI (C5) or paid-API tier (#2).">
+THIS SESSION'S CHUNK: <FILL IN from MEMORY.md "Next chunk" — currently "#2: paid-API tier (the
+FINAL build chunk; heaviest/most architectural — plan-first, likely split). Add a global
+`api_billing_enabled` flag DEFAULT OFF: when off, `tier: api` roster entries parse but never route;
+when on, each paid key is a `tier: api` entry with a per-key `enabled` toggle + budget cap, and paid
+API stays LAST resort (§6). Needs a NET-NEW `api` adapter (only `openai-compat` + `cli` exist today;
+`build_adapter` has an api-tier gap test). Custody: LiteLLM-fronted virtual key preferred (`key_ref`),
+raw keys not foreclosed but gated by the flag (invariant #3 softened — durable rule: no paid billing
+without the explicit toggle). BUNDLED with the contract §2/§6 reconciliation (Monad-embedded→Mac,
+profile-model→cost-tier). Verify #2 is OPEN first. NOT roster-editing-in-GUI (separate deferred item).">
 
 Start by reading the three sources above + internalizing the north star, then tell the PM your
 understanding of where we are and what this chunk entails. Build only after the PM confirms.
@@ -83,3 +91,7 @@ understanding of where we are and what this chunk entails. Build only after the 
 - **2026-06-16** — After shipping C2/C2b/C3/C3b + releasing v0.2.0 (frontier-first end-to-end),
   refreshed the `THIS SESSION'S CHUNK` example from C2 to C4 (the current next chunk). Template
   body unchanged — it stayed accurate; the next session still fills the slot from MEMORY.md.
+- **2026-06-16** — After shipping C4 (v0.3.0), C5a (v0.4.0), and C5b (v0.5.0) in one session,
+  refreshed the `THIS SESSION'S CHUNK` slot to **#2 (paid-API tier)** — the final build chunk — and
+  promoted the paid-API KEY FACT from "a later chunk, don't assume against it" to the active spec
+  with a billing-safety guardrail. Template body otherwise unchanged.
