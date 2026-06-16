@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **C3 — frontier-first router (control plane).** `tanglebrain/router.py` routes a task to a
+  frontier sub acting as orchestrator, rotating the role across the `can_orchestrate` subs for ~3×
+  the rate-limit runway, with automatic failover (plan §6).
+  - **Task-fit selection**: a `--task <good_at-tag>` hint prefers orchestrators good at it (falling
+    back to all when none match — a preference, not a gate). Auto-classification stays deferred
+    (§6: "only if volume demands").
+  - **Rotation**: round-robin across orchestrators, with the cursor **persisted across processes**
+    (`~/.cache/tanglebrain/router-state.json`, override via `TANGLEBRAIN_STATE_DIR`) so successive
+    `tanglebrain` invocations actually spread load. Missing/corrupt state resets to 0, never crashes.
+  - **Failover**: on an `AdapterError` from one orchestrator, advance to the next; if all fail,
+    raise `RouterError` naming each failure (rate-limit-looking ones are annotated `[rate-limit]`).
+  - Exposed via `tanglebrain --route [--task <kind>]`. **The CLI default stays local-first** — the
+    router becomes the default in C3b (#7), once the local-delegate is wired into orchestrator runs
+    (routing whole tasks to subs without local offload would burn rate limits for no cost benefit).
+  - Lives in its own module; the C1 selector stays minimal. Rotation/failover are proven by the
+    hermetic suite (round-robin, wraparound, failover, persisted cursor); a gated live test
+    confirms a real route returns text end-to-end.
+
 - **C2b — gpt-oss MCP local-delegate.** `tanglebrain-delegate`, an MCP server exposing a single
   `delegate_local(prompt, max_tokens?)` tool, lets a frontier orchestrator (claude / codex /
   gemini) offload grunt work to the free local tier (gpt-oss-120b) at $0 — the mechanism behind
