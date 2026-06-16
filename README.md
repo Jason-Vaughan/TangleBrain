@@ -29,8 +29,11 @@ router itself (orchestrator selection, rotation, failover) arrives in later chun
 - ✅ **C0** — frontier-first decompose spike (shipped in coordinator, verdict KEEP).
 - ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
   one request → local → text end-to-end.
-- ⬜ **C2** — CLI adapters for the three subs (with `ANTHROPIC_API_KEY` scrub).
-- ⬜ **C3** — frontier-first router: orchestrator selection, rotation, 429 failover.
+- ✅ **C2** — CLI adapters for the three subs (claude/codex/gemini) with `ANTHROPIC_API_KEY` scrub.
+- ✅ **C2b** — gpt-oss MCP local-delegate: a `delegate_local` MCP tool an orchestrator calls to
+  offload grunt to free local gpt-oss.
+- ⬜ **C3** — frontier-first router: orchestrator selection, rotation, 429 failover, and the
+  decompose → delegate → review loop.
 - ⬜ **C4** — measurement / "spend avoided" rollup.
 - ⬜ **C5** — knob GUI (thin web panel over the roster config).
 
@@ -59,6 +62,35 @@ model is a config edit, not a code change.
 The adapter calls the local LiteLLM endpoint directly. It needs the scoped LiteLLM key; by
 default it reads `~/.config/tanglebrain/tanglebrain-spike.key` (referenced from the roster entry —
 never hardcoded, never committed).
+
+### Local delegate (MCP) — let an orchestrator offload grunt to free local
+
+`tanglebrain-delegate` is an MCP server exposing one tool, `delegate_local(prompt, max_tokens?)`,
+that routes to the free local tier (gpt-oss-120b). A frontier orchestrator (claude/codex/gemini)
+registers it and offloads bulk sub-tasks at $0 instead of burning its own rate-limited tokens —
+the mechanism behind frontier-first decompose (plan §6). It reuses the same roster + adapter as
+the CLI above, so the endpoint and key live in one place.
+
+It needs the optional `mcp` dependency:
+
+```sh
+pip install -e ".[delegate]"        # or: make venv (installs the extra)
+tanglebrain-delegate                # serve over stdio (for a manual smoke test)
+```
+
+Register it with an orchestrator CLI (exact flags vary by CLI version — check
+`<cli> mcp --help`):
+
+```sh
+# Claude Code:
+claude mcp add tanglebrain-delegate -- tanglebrain-delegate
+# Gemini CLI:
+gemini mcp add tanglebrain-delegate tanglebrain-delegate
+# Codex: add a stdio MCP server entry pointing at `tanglebrain-delegate` in its MCP config.
+```
+
+To point the server at a non-default roster, set `TANGLEBRAIN_ROSTER=/path/to/roster.yaml` in
+its environment.
 
 ## Develop
 

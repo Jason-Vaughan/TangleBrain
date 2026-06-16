@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **C2b — gpt-oss MCP local-delegate.** `tanglebrain-delegate`, an MCP server exposing a single
+  `delegate_local(prompt, max_tokens?)` tool, lets a frontier orchestrator (claude / codex /
+  gemini) offload grunt work to the free local tier (gpt-oss-120b) at $0 — the mechanism behind
+  frontier-first decompose (plan §6). Closes #4.
+  - `tanglebrain/delegate.py`: `run_local_delegate(...)` — the routing logic, **reusing** C1's
+    roster + `select_local` + `OpenAICompatAdapter` (no duplicated LiteLLM/endpoint/key logic).
+    MCP-free so it stays hermetically testable; failures surface to the orchestrator (no retry).
+  - `tanglebrain/mcp_server.py`: a thin `FastMCP` wrapper exposing the sync `delegate_local` tool
+    (its docstring is the orchestrator-facing contract). Console entry `tanglebrain-delegate`
+    serves over stdio. Verified end-to-end: a real MCP stdio client calls the tool and gets
+    gpt-oss text back.
+  - The `mcp` SDK is an **optional dependency** — `pip install "tanglebrain[delegate]"`; the core
+    install stays lean (httpx + PyYAML). README documents per-CLI registration.
+
 - **C2 — CLI adapters for the three subscription tools (claude / codex / gemini), with
   env-scrub.** The subscription tier is now invocable end-to-end through the uniform
   `run(prompt, opts) -> text` interface.
