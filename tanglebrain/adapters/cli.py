@@ -191,6 +191,8 @@ class CliAdapter:
         cmd: list[str],
         parse: str | None = None,
         scrub_env: list[str] | None = None,
+        delegate_args: list[str] | None = None,
+        inject_delegate: bool = False,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         """Configure the adapter.
@@ -200,6 +202,11 @@ class CliAdapter:
             parse: Name of the output parser (a key of :data:`PARSERS`). ``None`` uses
                 :data:`DEFAULT_PARSER` (``plain``).
             scrub_env: Env var names to strip from the subprocess environment (§7).
+            delegate_args: Per-CLI flags that make the gpt-oss MCP delegate available to this CLI
+                as an orchestrator (C3b). A ``{delegate_mcp_json}`` token is substituted with the
+                delegate's MCP-server JSON. Only applied when ``inject_delegate`` is true.
+            inject_delegate: When true, append the (substituted) ``delegate_args`` to the command
+                so the orchestrator can offload grunt to free local gpt-oss.
             timeout: Per-call subprocess timeout in seconds.
 
         Raises:
@@ -215,14 +222,20 @@ class CliAdapter:
         self.cmd = list(cmd)
         self.parser_name = parser_name
         self.scrub_env = list(scrub_env or [])
+        self.delegate_args = list(delegate_args or [])
+        self.inject_delegate = inject_delegate
         self.timeout = timeout
 
     @classmethod
-    def from_entry(cls, entry: RosterEntry, **overrides: object) -> "CliAdapter":
+    def from_entry(
+        cls, entry: RosterEntry, inject_delegate: bool = False, **overrides: object
+    ) -> "CliAdapter":
         """Build an adapter from a ``cli`` roster entry.
 
         Args:
             entry: A roster entry whose ``invoke.kind`` is ``cli``.
+            inject_delegate: Make the gpt-oss MCP delegate available to this CLI (C3b); honors the
+                entry's ``invoke.delegate_args``.
             **overrides: Optional constructor overrides (``timeout``).
 
         Returns:
@@ -241,8 +254,33 @@ class CliAdapter:
             cmd=entry.invoke.cmd,
             parse=entry.invoke.parse,
             scrub_env=entry.invoke.scrub_env,
+            delegate_args=entry.invoke.delegate_args,
+            inject_delegate=inject_delegate,
             **overrides,  # type: ignore[arg-type]
         )
+
+    def _effective_cmd(self) -> list[str]:
+        """Return the base ``cmd``, with substituted ``delegate_args`` appended when injecting.
+
+        The delegate tokens (``{delegate_mcp_json}``, ``{delegate_mcp_command}``) in
+        ``delegate_args`` are replaced via ``delegate_substitutions()`` (imported lazily so the
+        mcp-free import graph is unaffected). Delegate flags land after the base command and before
+        the prompt (added by :func:`build_argv`).
+
+        Returns:
+            The command with delegate flags applied, or just ``self.cmd`` when not injecting.
+        """
+        if not self.inject_delegate or not self.delegate_args:
+            return self.cmd
+        from tanglebrain.delegate import delegate_substitutions
+
+        subs = delegate_substitutions()
+        injected = []
+        for arg in self.delegate_args:
+            for token, value in subs.items():
+                arg = arg.replace(token, value)
+            injected.append(arg)
+        return [*self.cmd, *injected]
 
     def run(self, prompt: str, opts: Mapping[str, object] | None = None) -> str:
         """Run the prompt through the CLI subprocess and return the final text.
@@ -260,7 +298,7 @@ class CliAdapter:
         """
         opts = opts or {}
         timeout = float(opts.get("timeout", self.timeout))
-        argv = build_argv(self.cmd, prompt)
+        argv = build_argv(self._effective_cmd(), prompt)
         env = scrubbed_env(self.scrub_env)
 
         try:
