@@ -97,6 +97,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _served(path: str, entry) -> dict | None:
+    """Build the ``{path, tier, model}`` served-summary for a routed task, or ``None``."""
+    if entry is None:
+        return None
+    return {"path": path, "tier": entry.tier, "model": entry.id}
+
+
 def run_once(
     prompt: str,
     roster_path: str | None = None,
@@ -104,7 +111,8 @@ def run_once(
     model: str | None = None,
     local: bool = False,
     task: str | None = None,
-) -> str:
+    return_served: bool = False,
+):
     """Route a single prompt to a roster tier and return the response text.
 
     Three paths, in precedence order:
@@ -123,9 +131,13 @@ def run_once(
         model: Optional roster entry id to route to explicitly.
         local: Force the free local tier instead of the frontier-first router.
         task: Optional task-fit hint for the router (a ``good_at`` tag).
+        return_served: When ``True``, return ``(text, served)`` where ``served`` is
+            ``{path, tier, model}`` for the entry that served the task (or ``None`` if unknown).
+            The GUI uses this so it needn't re-read the usage log. Default ``False`` returns the
+            plain text string, so existing callers (``main``) are unchanged.
 
     Returns:
-        The selected tier's response text.
+        The response text (``str``), or ``(text, served)`` when ``return_served`` is ``True``.
 
     Raises:
         RosterError: If the roster cannot be loaded.
@@ -137,19 +149,19 @@ def run_once(
     opts = {"max_tokens": max_tokens} if max_tokens is not None else None
 
     if model is not None:
-        entry = select_by_id(roster, model)
+        path, entry = "model", select_by_id(roster, model)
         text = build_adapter(entry).run(prompt, opts)
-        record_task(path="model", entry=entry, prompt=prompt, response=text)
-        return text
-    if local:
-        entry = select_local(roster)
+    elif local:
+        path, entry = "local", select_local(roster)
         text = build_adapter(entry).run(prompt, opts)
-        record_task(path="local", entry=entry, prompt=prompt, response=text)
-        return text
-    router = Router(roster)
-    text = router.route(prompt, task=task, opts=opts)
-    record_task(path="router", entry=router.last_served, prompt=prompt, response=text)
-    return text
+    else:
+        path = "router"
+        router = Router(roster)
+        text = router.route(prompt, task=task, opts=opts)
+        entry = router.last_served
+
+    record_task(path=path, entry=entry, prompt=prompt, response=text)
+    return (text, _served(path, entry)) if return_served else text
 
 
 def main(argv: list[str] | None = None) -> int:
