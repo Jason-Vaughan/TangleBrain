@@ -17,11 +17,18 @@ dependencies = [
     "PyYAML >= 6.0",
 ]
 
+# Optional: the MCP local-delegate server (C2b). Keeps the core install lean — only consumers
+# that run `tanglebrain-delegate` (so an orchestrator CLI can offload grunt to local) need the
+# MCP stack. Install with: pip install "tanglebrain[delegate]".
+[project.optional-dependencies]
+delegate = ["mcp >= 1.0"]
+
 [project.urls]
 Homepage = "https://github.com/Jason-Vaughan/TangleBrain"
 
 [project.scripts]
 tanglebrain = "tanglebrain.cli:main"
+tanglebrain-delegate = "tanglebrain.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["tanglebrain*"]
