@@ -15,7 +15,14 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 
-from tanglebrain.gui.views import DEFAULT_PORT, run_prompt, view_pricing, view_roster, view_stats
+from tanglebrain.gui.views import (
+    DEFAULT_PORT,
+    run_prompt,
+    save_pricing_view,
+    view_pricing,
+    view_roster,
+    view_stats,
+)
 
 _JSON = "application/json; charset=utf-8"
 _HTML = "text/html; charset=utf-8"
@@ -59,14 +66,15 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
         return _json(404, {"error": "not found"})
 
     if method == "POST":
-        if path == "/api/run":
+        action = {"/api/run": run_prompt, "/api/pricing": save_pricing_view}.get(path)
+        if action is not None:
             try:
                 payload = json.loads(body.decode("utf-8")) if body else {}
             except (ValueError, UnicodeDecodeError):
                 return _json(400, {"ok": False, "error": "invalid JSON body"})
             if not isinstance(payload, dict):
                 return _json(400, {"ok": False, "error": "body must be a JSON object"})
-            result = run_prompt(payload)
+            result = action(payload)
             return _json(200 if result.get("ok") else 400, result)
         return _json(404, {"error": "not found"})
 

@@ -25,8 +25,8 @@ subscriptions instead of paying per-token."*
 **Frontier-first routing is live end-to-end, and routed tasks now report their "spend avoided."**
 `tanglebrain "…"` rotates an orchestrator sub, fails over on rate limits, and offloads grunt to
 free local gpt-oss; `tanglebrain --stats` rolls up the cloud-equivalent cost avoided; and a
-localhost knob panel (`tanglebrain-gui`) shows it all in the browser. Remaining: editable knobs
-(C5b) and the gated paid-API tier (issue #2).
+localhost knob panel (`tanglebrain-gui`) shows it all in the browser and lets you edit the pricing
+knob. Remaining: the gated paid-API tier (issue #2), and roster editing in the panel (later).
 
 - ✅ **C0** — frontier-first decompose spike (shipped in coordinator, verdict KEEP).
 - ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
@@ -42,7 +42,8 @@ localhost knob panel (`tanglebrain-gui`) shows it all in the browser. Remaining:
   reports cloud-equivalent cost avoided.
 - ✅ **C5a** — knob GUI (read-only): `tanglebrain-gui` serves a localhost panel to view the roster,
   pricing, and spend-avoided rollup, and run a prompt through the router.
-- ⬜ **C5b** — editable knobs (write config back from the panel).
+- ✅ **C5b** — editable pricing in the panel (validated, atomic, comment-preserving write-back to
+  `pricing.yaml`). Roster editing still to come.
 
 Full plan: [`.claude/plans/tanglebrain.md`](.claude/plans/tanglebrain.md). The historical
 orchestration contract (frozen, superseded by the plan) lives in [`TANGLEBRAIN.md`](TANGLEBRAIN.md).
@@ -106,10 +107,14 @@ A thin **localhost-only** web panel over the config — TangleClaw-style, zero e
 
 Port **3250** is registered for TangleBrain in TangleClaw PortHub. The panel **views** the roster,
 the pricing reference, and the local spend-avoided rollup, and lets you **run a prompt** through the
-router (showing which tier/model served it). It is **read-only** this release — editing config from
-the panel is C5b. It binds `127.0.0.1` only: running a prompt spends real subscription rate-limit
-quota and the panel reads the roster, so it is never network-exposed. The roster view shows each
-entry's `key_ref` as the reference string only — secrets are never resolved or sent to the browser.
+router (showing which tier/model served it). The **pricing card is editable** — change the rates /
+reference label / placeholder flag and Save; it writes the tracked `tanglebrain/config/pricing.yaml`
+(strict validation, atomic write, a backup to the state dir, and the methodology header preserved),
+so the edit is git-visible for you to commit. The **roster stays read-only** (its curated inline
+comments need a comment-preserving editor — a later chunk). The panel binds `127.0.0.1` only:
+running a prompt spends real subscription rate-limit quota and it reads the roster, so it is never
+network-exposed. The roster view shows each entry's `key_ref` as the reference string only — secrets
+are never resolved or sent to the browser.
 
 The router gives each orchestrator the `delegate_local` tool, so a frontier sub decomposes the
 task and offloads grunt to free local gpt-oss at $0, then reviews — the cost lever behind

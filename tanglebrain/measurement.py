@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -108,6 +109,142 @@ def load_pricing(path: str | os.PathLike[str] | None = None) -> Pricing:
         )
     except (OSError, yaml.YAMLError, ValueError, TypeError, KeyError, AttributeError):
         return PLACEHOLDER_PRICING
+
+
+# Fallback header, used ONLY when the target file is absent (e.g. a fresh write to a new path).
+# A normal save preserves the existing file's own leading comment block verbatim (see
+# :func:`_leading_comment_block`), so the curated methodology note is never replaced or drifted.
+PRICING_HEADER = """\
+# Cloud-equivalent reference pricing for the C4 "spend avoided" rollup (plan §8).
+#
+# Methodology mirrors coordinator's usage-stats `costSaved` (ratified 2026-06-13): for each routed
+# task, estimate what it WOULD have cost on a paid frontier API, valued at a reference model's
+# per-token price. The rollup multiplies estimated tokens (a chars/4 heuristic over the visible
+# prompt + response) by these rates. Values are US dollars per 1,000,000 tokens.
+#
+# `placeholder: true` makes `tanglebrain --stats` flag every figure as PLACEHOLDER (use it if you
+# fork the anchor before re-ratifying with the PM). Edited via `tanglebrain-gui` or by hand.
+"""
+
+
+def _leading_comment_block(text: str) -> str:
+    """Return the file's leading run of comment/blank lines (its header), or ``""`` if none.
+
+    Used to preserve a pricing file's curated header verbatim across a save, so no documentation
+    is lost or replaced. Stops at the first non-comment, non-blank line (the first YAML key).
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("#") or not line.strip():
+            out.append(line)
+        else:
+            break
+    while out and not out[-1].strip():  # drop trailing blank lines before the keys
+        out.pop()
+    return "\n".join(out) + "\n" if out else ""
+
+
+def validate_pricing(data: dict) -> Pricing:
+    """Strictly validate raw pricing fields and build a :class:`Pricing`.
+
+    Unlike :func:`load_pricing` (lenient — bad reads fall back to a placeholder), this rejects
+    invalid input so the panel never persists garbage.
+
+    Args:
+        data: ``{reference_model, input_per_mtok, output_per_mtok, placeholder}``.
+
+    Returns:
+        A validated :class:`Pricing`.
+
+    Raises:
+        ValueError: If a field is missing, the wrong type, a non-finite/negative rate, or an
+            empty ``reference_model``.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("pricing must be an object")
+
+    model = data.get("reference_model")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("reference_model must be a non-empty string")
+
+    rates = {}
+    for key in ("input_per_mtok", "output_per_mtok"):
+        value = data.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{key} must be a number")
+        value = float(value)
+        if value != value or value in (float("inf"), float("-inf")):  # NaN / inf guard
+            raise ValueError(f"{key} must be finite")
+        if value < 0:
+            raise ValueError(f"{key} must be >= 0")
+        rates[key] = value
+
+    placeholder = data.get("placeholder", False)
+    if not isinstance(placeholder, bool):
+        raise ValueError("placeholder must be a boolean")
+
+    return Pricing(
+        reference_model=model.strip(),
+        input_per_mtok=rates["input_per_mtok"],
+        output_per_mtok=rates["output_per_mtok"],
+        is_placeholder=placeholder,
+    )
+
+
+def _backup_dir() -> Path:
+    """Return the directory for config backups (under the state dir, never the repo config dir)."""
+    base = os.environ.get(STATE_DIR_ENV)
+    root = Path(base).expanduser() if base else Path.home() / DEFAULT_STATE_SUBDIR
+    return root / "backups"
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically (temp file in the same dir, then ``os.replace``)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _render_pricing(pricing: Pricing, header: str) -> str:
+    """Render a :class:`Pricing` to YAML text beneath ``header``.
+
+    ``reference_model`` is emitted via ``json.dumps`` — a JSON string is valid YAML and safely
+    quotes/escapes any colons, quotes, unicode, or backslashes. Float rates use Python's ``repr``
+    (valid YAML), which round-trips exactly through :func:`load_pricing`.
+    """
+    return (
+        header
+        + f"placeholder: {str(pricing.is_placeholder).lower()}\n"
+        + f"reference_model: {json.dumps(pricing.reference_model)}\n"
+        + f"input_per_mtok: {pricing.input_per_mtok}\n"
+        + f"output_per_mtok: {pricing.output_per_mtok}\n"
+    )
+
+
+def save_pricing(pricing: Pricing, path: str | os.PathLike[str] | None = None) -> None:
+    """Persist pricing to the config YAML — header-preserving, with a backup, written atomically.
+
+    Preserves the target's existing leading comment block verbatim (falling back to
+    :data:`PRICING_HEADER` only when the file is absent), backs up any existing file to
+    ``<state_dir>/backups/pricing-<ts>.yaml``, then atomically replaces the target.
+
+    Args:
+        pricing: The validated pricing to write (see :func:`validate_pricing`).
+        path: Target YAML path. Defaults to the packaged ``config/pricing.yaml``.
+    """
+    target = Path(path) if path is not None else default_pricing_path()
+    header = PRICING_HEADER
+    if target.exists():
+        existing = target.read_text(encoding="utf-8")
+        block = _leading_comment_block(existing)
+        if block.strip():
+            header = block  # keep the curated header verbatim — no drift, no doc loss
+        backup_dir = _backup_dir()
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")  # sub-second: no same-second collision
+        shutil.copy2(target, backup_dir / f"pricing-{stamp}.yaml")
+    _atomic_write(target, _render_pricing(pricing, header))
 
 
 def estimate_tokens(text: str) -> int:

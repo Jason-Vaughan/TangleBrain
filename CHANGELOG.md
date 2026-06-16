@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **C5b — editable pricing in the knob panel.** The panel's pricing card is now editable: change the
+  input/output $/MTok, the reference-model label, and the placeholder flag, then **Save** to persist
+  to `tanglebrain/config/pricing.yaml`. Closes #13.
+  - **Write-safety**: strict validation before any write (rejects non-numeric/negative rates and an
+    empty reference model — nothing is persisted on a bad value); the file is written **atomically**
+    (temp + `os.replace`) and the prior version is **backed up** to `<state_dir>/backups/` first.
+  - **Comment-preserving**: the canonical methodology header is re-emitted on every save, so GUI/
+    programmatic edits never strip it — no new dependency. (Roster editing stays out — its dense
+    inline comments need a comment-preserving mechanism, deferred to a later chunk.)
+  - New `measurement.validate_pricing()` / `save_pricing()`; the panel writes the tracked repo config
+    so an edit is git-visible and committed by the operator.
+
+### Changed
+
+- `cli.run_once()` gained an optional `return_served=True` that also returns the served
+  `{path, tier, model}`. The knob panel uses it to report which tier handled a run **without
+  re-reading the usage log** — removing the C5a best-effort race. Default behavior (returns a bare
+  string) is unchanged.
+
 ## [0.4.0] - 2026-06-16
 
 ### Added

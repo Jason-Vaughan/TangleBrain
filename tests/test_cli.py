@@ -124,6 +124,38 @@ class RunOnceTest(unittest.TestCase):
         self.assertEqual(records[0]["tier"], "local")
         self.assertGreater(records[0]["spend_avoided_usd"], 0.0)
 
+    def test_return_served_local_path(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "local reply"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            result = run_once("hi", local=True, return_served=True)
+        text, served = result
+        self.assertEqual(text, "local reply")
+        self.assertEqual(served["path"], "local")
+        self.assertEqual(served["tier"], "local")
+        self.assertEqual(served["model"], "gpt-oss-120b")
+
+    def test_return_served_router_path(self):
+        served_entry = MagicMock()
+        served_entry.tier = "sub"
+        served_entry.id = "codex"
+        fake_router = MagicMock()
+        fake_router.route.return_value = "routed"
+        fake_router.last_served = served_entry
+        with patch("tanglebrain.cli.load_roster"), patch(
+            "tanglebrain.cli.Router", return_value=fake_router
+        ):
+            text, served = run_once("hi", return_served=True)
+        self.assertEqual(text, "routed")
+        self.assertEqual(served, {"path": "router", "tier": "sub", "model": "codex"})
+
+    def test_default_return_is_plain_str(self):
+        # Back-compat: without return_served, run_once still returns a bare string.
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "x"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            self.assertEqual(run_once("hi", local=True), "x")
+
     def test_model_path_records_a_task(self):
         # The --model override path also meters, tagged path=model with the pinned entry's tier.
         fake_adapter = MagicMock()

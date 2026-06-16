@@ -90,7 +90,9 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+// Full 5-char HTML escape — values are inserted into both text nodes AND attribute contexts
+// (e.g. the editable pricing inputs' value="..."), so quotes MUST be escaped too.
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -134,13 +136,50 @@ async function loadRoster() {
   } catch (e) { $("rosterCard").innerHTML = `<span class="err">failed to load roster</span>`; }
 }
 
+function renderPricing(p) {
+  const ph = p.is_placeholder ? "checked" : "";
+  $("pricingCard").innerHTML = `
+    <div class="row"><span class="muted" style="min-width:130px">reference model</span>
+      <input type="text" id="pRef" value="${esc(p.reference_model)}" style="flex:1; min-width:220px;"></div>
+    <div class="row"><span class="muted" style="min-width:130px">input $/MTok</span>
+      <input type="text" id="pIn" value="${esc(p.input_per_mtok)}" style="width:120px"></div>
+    <div class="row"><span class="muted" style="min-width:130px">output $/MTok</span>
+      <input type="text" id="pOut" value="${esc(p.output_per_mtok)}" style="width:120px"></div>
+    <div class="row"><label class="chk"><input type="checkbox" id="pPlaceholder" ${ph}> mark as placeholder (figures flagged illustrative)</label></div>
+    <div class="row"><button id="pSave">Save pricing</button><span id="pMsg" class="muted"></span></div>`;
+  $("pSave").addEventListener("click", savePricing);
+}
+
 async function loadPricing() {
+  try { renderPricing(await getJSON("/api/pricing")); }
+  catch (e) { $("pricingCard").innerHTML = `<span class="err">failed to load pricing</span>`; }
+}
+
+async function savePricing() {
+  if (!confirm("Overwrite config/pricing.yaml with these values? A backup is kept.")) return;
+  const msg = $("pMsg");
+  $("pSave").disabled = true; msg.textContent = "saving…"; msg.className = "muted";
+  const body = {
+    reference_model: $("pRef").value,
+    input_per_mtok: parseFloat($("pIn").value),
+    output_per_mtok: parseFloat($("pOut").value),
+    placeholder: $("pPlaceholder").checked,
+  };
   try {
-    const p = await getJSON("/api/pricing");
-    $("pricingCard").innerHTML = `<div class="mono">${esc(p.reference_model)}</div>
-      <div class="row"><span class="muted">in: $${p.input_per_mtok}/MTok</span><span class="muted">out: $${p.output_per_mtok}/MTok</span>
-      ${p.is_placeholder ? '<span class="caveat">PLACEHOLDER</span>' : '<span class="pill local">ratified</span>'}</div>`;
-  } catch (e) { $("pricingCard").innerHTML = `<span class="err">failed to load pricing</span>`; }
+    const r = await fetch("/api/pricing", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.ok) {
+      renderPricing(d.pricing);
+      $("pMsg").textContent = "saved ✓"; $("pMsg").className = "pill local";
+      loadStats();  // refresh the placeholder caveat / figures
+    } else {
+      $("pMsg").textContent = d.error || "save failed"; $("pMsg").className = "err";
+    }
+  } catch (e) {
+    $("pMsg").textContent = "request failed"; $("pMsg").className = "err";
+  } finally {
+    $("pSave").disabled = false;
+  }
 }
 
 async function run() {

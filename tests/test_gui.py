@@ -79,14 +79,21 @@ class ViewStatsTest(unittest.TestCase):
 
 class RunPromptTest(unittest.TestCase):
     def test_happy_path_reports_served(self):
-        served = [{"path": "router", "tier": "sub", "model": "claude"}]
-        with patch("tanglebrain.gui.views.run_once", return_value="hello back") as run, \
-             patch("tanglebrain.gui.views.read_records", return_value=served):
+        served = {"path": "router", "tier": "sub", "model": "claude"}
+        with patch("tanglebrain.gui.views.run_once", return_value=("hello back", served)) as run:
             out = views.run_prompt({"prompt": "hi", "task": "code"})
         self.assertTrue(out["ok"])
         self.assertEqual(out["text"], "hello back")
         self.assertEqual(out["served"]["model"], "claude")
         self.assertEqual(run.call_args.kwargs["task"], "code")
+        self.assertTrue(run.call_args.kwargs["return_served"])  # uses the returned meta, no log re-read
+
+    def test_does_not_reread_log(self):
+        # The race fix: run_prompt must NOT call read_records (served comes from run_once).
+        with patch("tanglebrain.gui.views.run_once", return_value=("x", None)), \
+             patch("tanglebrain.gui.views.read_records", side_effect=AssertionError("must not re-read log")):
+            out = views.run_prompt({"prompt": "hi"})
+        self.assertIsNone(out["served"])
 
     def test_empty_prompt_rejected(self):
         out = views.run_prompt({"prompt": "   "})
@@ -103,11 +110,32 @@ class RunPromptTest(unittest.TestCase):
         self.assertIn("all subs failed", out["error"])
 
     def test_local_flag_threaded(self):
-        with patch("tanglebrain.gui.views.run_once", return_value="x") as run, \
-             patch("tanglebrain.gui.views.read_records", return_value=[]):
-            out = views.run_prompt({"prompt": "hi", "local": True})
+        with patch("tanglebrain.gui.views.run_once", return_value=("x", None)) as run:
+            views.run_prompt({"prompt": "hi", "local": True})
         self.assertTrue(run.call_args.kwargs["local"])
-        self.assertIsNone(out["served"])  # no records -> served is None
+
+
+class SavePricingViewTest(unittest.TestCase):
+    def _payload(self, **over):
+        base = {"reference_model": "Test Model", "input_per_mtok": 2.0,
+                "output_per_mtok": 8.0, "placeholder": False}
+        base.update(over)
+        return base
+
+    def test_valid_save_persists_and_returns_view(self):
+        with patch("tanglebrain.gui.views.save_pricing") as save, \
+             patch("tanglebrain.gui.views.view_pricing", return_value={"reference_model": "Test Model"}):
+            out = views.save_pricing_view(self._payload())
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["pricing"]["reference_model"], "Test Model")
+        save.assert_called_once()
+
+    def test_invalid_does_not_save(self):
+        with patch("tanglebrain.gui.views.save_pricing") as save:
+            out = views.save_pricing_view(self._payload(input_per_mtok=-1))
+        self.assertFalse(out["ok"])
+        self.assertIn("input_per_mtok", out["error"])
+        save.assert_not_called()
 
 
 class DispatchTest(unittest.TestCase):
@@ -137,11 +165,27 @@ class DispatchTest(unittest.TestCase):
 
     def test_post_run_valid(self):
         body = json.dumps({"prompt": "hi"}).encode()
-        with patch("tanglebrain.gui.views.run_once", return_value="ok"), \
-             patch("tanglebrain.gui.views.read_records", return_value=[]):
+        with patch("tanglebrain.gui.views.run_once", return_value=("ok", None)):
             status, _, out = server.dispatch("POST", "/api/run", body)
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(out)["ok"])
+
+    def test_post_pricing_valid(self):
+        body = json.dumps({"reference_model": "M", "input_per_mtok": 1.0,
+                           "output_per_mtok": 2.0, "placeholder": False}).encode()
+        with patch("tanglebrain.gui.views.save_pricing"), \
+             patch("tanglebrain.gui.views.view_pricing", return_value={"reference_model": "M"}):
+            status, _, out = server.dispatch("POST", "/api/pricing", body)
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(out)["ok"])
+
+    def test_post_pricing_invalid_400(self):
+        body = json.dumps({"reference_model": "", "input_per_mtok": 1.0, "output_per_mtok": 2.0}).encode()
+        with patch("tanglebrain.gui.views.save_pricing") as save:
+            status, _, out = server.dispatch("POST", "/api/pricing", body)
+        self.assertEqual(status, 400)
+        self.assertFalse(json.loads(out)["ok"])
+        save.assert_not_called()
 
     def test_post_run_bad_json_400(self):
         status, _, out = server.dispatch("POST", "/api/run", b"{not json")
