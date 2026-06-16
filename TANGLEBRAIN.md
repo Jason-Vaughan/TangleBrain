@@ -15,12 +15,16 @@
 >   (free local → flat-rate subs → paid API last; optimize tier-fit + rate-limit spread,
 >   NOT $/token).
 > 
-> **Reconciliation trigger — two decisions deliberately left OPEN (the PM's call, not C1):**
-> 1. The **"no new API-key billing"** rule may yield to "cheap API OK when it lowers NET cost."
-> 2. **Invariant #3** ("TangleBrain never holds cloud keys") will need rewriting once (1) settles.
+> **Reconciliation trigger — RESOLVED 2026-06-16 (PM decision; see issue #2):**
+> 1. ✅ The "no new API-key billing" rule is replaced by an explicit `api_billing_enabled`
+>    flag, **default off** — a deliberate opt-in, not "always OK."
+> 2. ✅ **Invariant #3 is reconciled inline below**: the hard ban becomes an explicit
+>    `api_billing_enabled` toggle (**default off**). LiteLLM-fronted virtual keys are the
+>    *preferred* custody; holding raw keys later is not foreclosed. The invariant **softens,
+>    not reverses** — the durable rule is *no paid billing without the explicit toggle*.
 > 
-> Until both land, treat the body below as **frozen reference**, not canon. Annotate, don't
-> delete — this mirrors how Monad-1 #35 was reconciled.
+> The §2 (where it runs) and §6 (routing model) supersessions above remain historical — those
+> are still superseded by the plan. Per "annotate, don't delete," the body is preserved.
 
 # TangleBrain — Monad-1 intelligent orchestrator (contract)
 
@@ -61,6 +65,16 @@ engine is behind the endpoint:
    "needs frontier" signal; the **top orchestrator** (Claude Code / the CLI) handles the
    cloud hop on its own OAuth subscription. TangleBrain never holds cloud API keys and
    never proxies cloud calls. (Hard rule — no new API-key billing.)
+
+> **↳ Reconciled 2026-06-16 (PM decision; plan §7 / §9.6–9.7, issue #2).** The "no API-key
+> billing" hard rule is **replaced by an explicit gate, not an absolute ban**: paid-API billing is
+> enabled only via an explicit `api_billing_enabled` flag (**default off** — not the intended
+> default mode, but the feature is wanted: cheap keys found later, or other operators of this
+> product). The **preferred custody is LiteLLM-fronted** — TangleBrain references a scoped LiteLLM
+> virtual key (its existing `key_ref` mechanism), keeping the raw provider key in LiteLLM on Monad.
+> Holding raw provider keys directly is **not foreclosed**, but it is never required and always
+> stays behind the same toggle. The durable invariant: *no paid-API billing without the explicit
+> toggle.* Paid API remains a last-resort tier (§6).
 
 ---
 
