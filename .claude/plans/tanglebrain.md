@@ -156,8 +156,11 @@ calls for it. Nothing here is permanent — measure, then decide.
   on Cursatory) would otherwise risk silent billing that defeats the cost goal. `scrub_env` in §5
   enforces this per adapter. (Also: that raw key in plain env is a hygiene item to revisit.)
 - Codex/Gemini: rely on their own OAuth login state; no key injection.
-- No new paid-API keys without an explicit decision (current rule holds; revisit only for a cheap
-  tier that lowers NET cost).
+- **Paid-API billing is gated by an explicit `api_billing_enabled` flag, default OFF** (decided
+  2026-06-16 — §9.6/§9.7, issue #2). When off, `tier: api` entries parse but never route. When on,
+  each paid key is a `tier: api` roster entry with a per-key enable toggle + budget cap, **fronted
+  through LiteLLM** (TangleBrain references a scoped LiteLLM virtual key, never a raw provider key).
+  Paid API remains last-resort (§6).
 
 ---
 
@@ -187,6 +190,14 @@ tune the routing thresholds.
    shared-doc registration.
 5. **Extensibility (standing requirement)** → roster + orchestrator set are config-driven and
    open-ended; adding a future model is an entry edit, never a code change (§5/§6).
+6. **Paid-API billing gate (resolves former open decision a)** → an explicit global
+   `api_billing_enabled` flag, **default off**. When off, `tier: api` entries parse but never
+   route. When on, each paid key is a `tier: api` roster entry with a per-key `enabled` toggle and
+   budget cap; paid API stays last-resort (§6). Issue #2.
+7. **Paid-key custody (resolves former open decision b → contract invariant #3)** → paid APIs are
+   **fronted through LiteLLM**: TangleBrain references a scoped LiteLLM *virtual key* (existing
+   `key_ref`), the raw provider key lives in LiteLLM on Monad. Invariant #3 **softens, not
+   reverses** — the router still never holds a raw cloud key. Issue #2.
 
 **RATIFIED 2026-06-16.** Chunk breakdown (§10) confirmed. **Next session = C0 (the spike):**
 generalize `tools/openclaw-monad-mcp/` (coder-32b/chat-14b → gpt-oss), wire Claude/Codex to

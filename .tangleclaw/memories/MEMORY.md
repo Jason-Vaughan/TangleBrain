@@ -44,13 +44,19 @@ first-class field on the roster `Invoke` object, ready to be honored by the CLI 
 Plus the gpt-oss MCP tool from C0 as each orchestrator's local delegate. (C3 = the real
 router/rotation/failover — NOT C2.)
 
-## Two decisions deliberately LEFT OPEN (PM's call, not the builder's)
+## Two formerly-open decisions — RESOLVED 2026-06-16 (PM)
 
-1. The "no new API-key billing" rule may yield to "cheap API OK when it lowers NET cost."
-2. Contract invariant #3 ("never holds cloud keys") will need rewriting once (1) settles.
+Both parked decisions are now ratified (plan §9.6–9.7, contract invariant #3, **issue #2**):
 
-Bake no assumptions for or against either. They are the reconciliation trigger for unfreezing
-`TANGLEBRAIN.md`.
+1. **Paid-API billing gate** → explicit `api_billing_enabled` flag, **default off**. When off,
+   `tier: api` entries parse but never route. When on, each paid key is a `tier: api` roster entry
+   with a per-key `enabled` toggle + budget cap; paid API stays last-resort (§6).
+2. **Paid-key custody** → paid APIs are **fronted through LiteLLM**: TangleBrain references a
+   scoped LiteLLM virtual key (existing `key_ref`), raw provider key lives in LiteLLM on Monad.
+   Invariant #3 **softened, not reversed** — the router never holds a raw cloud key.
+
+The paid-API tier itself is unbuilt (issue #2, a later chunk). The broader contract §2/§6
+architecture reconciliation (Monad-embedded → Mac; profile model → cost-tier) is still pending.
 
 ## Key facts (don't re-derive)
 

@@ -15,12 +15,15 @@
 >   (free local → flat-rate subs → paid API last; optimize tier-fit + rate-limit spread,
 >   NOT $/token).
 > 
-> **Reconciliation trigger — two decisions deliberately left OPEN (the PM's call, not C1):**
-> 1. The **"no new API-key billing"** rule may yield to "cheap API OK when it lowers NET cost."
-> 2. **Invariant #3** ("TangleBrain never holds cloud keys") will need rewriting once (1) settles.
+> **Reconciliation trigger — RESOLVED 2026-06-16 (PM decision; see issue #2):**
+> 1. ✅ The "no new API-key billing" rule is replaced by an explicit `api_billing_enabled`
+>    flag, **default off** — a deliberate opt-in, not "always OK."
+> 2. ✅ **Invariant #3 is reconciled inline below**: paid APIs are fronted through LiteLLM, so
+>    TangleBrain references a scoped LiteLLM *virtual key* and still never holds a raw provider
+>    key — the invariant **softens, not reverses**.
 > 
-> Until both land, treat the body below as **frozen reference**, not canon. Annotate, don't
-> delete — this mirrors how Monad-1 #35 was reconciled.
+> The §2 (where it runs) and §6 (routing model) supersessions above remain historical — those
+> are still superseded by the plan. Per "annotate, don't delete," the body is preserved.
 
 # TangleBrain — Monad-1 intelligent orchestrator (contract)
 
@@ -61,6 +64,13 @@ engine is behind the endpoint:
    "needs frontier" signal; the **top orchestrator** (Claude Code / the CLI) handles the
    cloud hop on its own OAuth subscription. TangleBrain never holds cloud API keys and
    never proxies cloud calls. (Hard rule — no new API-key billing.)
+
+> **↳ Reconciled 2026-06-16 (PM decision; plan §7 / §9.6–9.7, issue #2).** The "no cloud keys /
+> no API-key billing" hard rule is **softened, not removed**: paid-API billing is now possible
+> behind an explicit `api_billing_enabled` flag (**default off**). Even when enabled, TangleBrain
+> references a **scoped LiteLLM virtual key** (its existing `key_ref` mechanism) — the raw provider
+> key lives in LiteLLM on Monad, never in the router. The spirit holds: *TangleBrain never holds a
+> raw cloud provider key.* Paid API remains a last-resort tier (§6).
 
 ---
 
