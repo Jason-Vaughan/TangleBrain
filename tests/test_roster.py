@@ -1,9 +1,9 @@
 """Tests for the roster config loader (tanglebrain/roster.py)."""
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
-from pathlib import Path
 
 from tanglebrain.roster import (
     Roster,
@@ -13,11 +13,12 @@ from tanglebrain.roster import (
 )
 
 
-def write_yaml(text: str) -> str:
-    """Write YAML to a temp file and return its path (caller-owned, not auto-cleaned)."""
+def write_yaml(text: str, test: unittest.TestCase) -> str:
+    """Write YAML to a temp file and return its path, registering cleanup on the test."""
     handle = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
     handle.write(text)
     handle.close()
+    test.addCleanup(os.unlink, handle.name)
     return handle.name
 
 
@@ -67,39 +68,45 @@ class LoaderValidationTest(unittest.TestCase):
             load_roster("/no/such/roster.yaml")
 
     def test_not_a_list(self):
-        path = write_yaml("id: solo\ntier: local\n")
+        path = write_yaml("id: solo\ntier: local\n", self)
         with self.assertRaises(RosterError):
             load_roster(path)
 
     def test_entry_missing_id(self):
-        path = write_yaml("- tier: local\n  invoke: {kind: openai-compat, base_url: x, model: y}\n")
+        path = write_yaml("- tier: local\n  invoke: {kind: openai-compat, base_url: x, model: y}\n", self)
         with self.assertRaises(RosterError):
             load_roster(path)
 
     def test_entry_missing_tier(self):
-        path = write_yaml("- id: a\n  invoke: {kind: openai-compat, base_url: x, model: y}\n")
+        path = write_yaml("- id: a\n  invoke: {kind: openai-compat, base_url: x, model: y}\n", self)
+        with self.assertRaises(RosterError):
+            load_roster(path)
+
+    def test_invalid_tier_rejected(self):
+        path = write_yaml("- id: a\n  tier: locl\n  invoke: {kind: openai-compat, base_url: x, model: y}\n", self)
         with self.assertRaises(RosterError):
             load_roster(path)
 
     def test_unknown_invoke_kind(self):
-        path = write_yaml("- id: a\n  tier: local\n  invoke: {kind: telepathy}\n")
+        path = write_yaml("- id: a\n  tier: local\n  invoke: {kind: telepathy}\n", self)
         with self.assertRaises(RosterError):
             load_roster(path)
 
     def test_openai_compat_requires_base_url_and_model(self):
-        path = write_yaml("- id: a\n  tier: local\n  invoke: {kind: openai-compat, model: y}\n")
+        path = write_yaml("- id: a\n  tier: local\n  invoke: {kind: openai-compat, model: y}\n", self)
         with self.assertRaises(RosterError):
             load_roster(path)
 
     def test_cli_requires_cmd(self):
-        path = write_yaml("- id: a\n  tier: sub\n  invoke: {kind: cli}\n")
+        path = write_yaml("- id: a\n  tier: sub\n  invoke: {kind: cli}\n", self)
         with self.assertRaises(RosterError):
             load_roster(path)
 
     def test_duplicate_ids_rejected(self):
         path = write_yaml(
             "- id: dup\n  tier: local\n  invoke: {kind: openai-compat, base_url: x, model: y}\n"
-            "- id: dup\n  tier: sub\n  invoke: {kind: cli, cmd: [echo]}\n"
+            "- id: dup\n  tier: sub\n  invoke: {kind: cli, cmd: [echo]}\n",
+            self,
         )
         with self.assertRaises(RosterError):
             load_roster(path)

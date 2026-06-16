@@ -18,10 +18,13 @@ class RunOnceTest(unittest.TestCase):
     def test_routes_through_local_and_returns_text(self):
         fake_adapter = MagicMock()
         fake_adapter.run.return_value = "routed reply"
-        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter) as build:
             self.assertEqual(run_once("hello"), "routed reply")
-        # The selected entry must be the local one.
         fake_adapter.run.assert_called_once()
+        # Assert the entry handed to build_adapter is the local one (not just that run ran).
+        selected = build.call_args.args[0]
+        self.assertEqual(selected.tier, "local")
+        self.assertEqual(selected.id, "gpt-oss-120b")
 
     def test_max_tokens_threaded_through(self):
         fake_adapter = MagicMock()

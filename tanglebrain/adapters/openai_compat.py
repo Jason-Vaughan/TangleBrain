@@ -146,10 +146,16 @@ class OpenAICompatAdapter:
             The model's final ``content`` (``reasoning_content`` is dropped).
 
         Raises:
-            AdapterError: On non-2xx status, transport failure, or unexpected response shape.
+            AdapterError: If ``max_tokens`` < 1, or on non-2xx status, transport failure, or
+                unexpected response shape.
         """
         opts = opts or {}
         max_tokens = int(opts.get("max_tokens", self.default_max_tokens))
+        if max_tokens < 1:
+            raise AdapterError(
+                f"max_tokens must be >= 1, got {max_tokens} "
+                "(gpt-oss needs generous headroom — the C0 budget lesson)"
+            )
 
         url = f"{self.base_url}/chat/completions"
         headers = {"Content-Type": "application/json"}

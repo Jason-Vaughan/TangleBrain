@@ -56,6 +56,7 @@ class ResolveKeyRefTest(unittest.TestCase):
         handle = tempfile.NamedTemporaryFile("w", suffix=".key", delete=False)
         handle.write("  sk-scoped-123\n")
         handle.close()
+        self.addCleanup(os.unlink, handle.name)
         self.assertEqual(resolve_key_ref(f"file:{handle.name}"), "sk-scoped-123")
 
     def test_file_ref_expands_user(self):
@@ -72,6 +73,7 @@ class ResolveKeyRefTest(unittest.TestCase):
         handle = tempfile.NamedTemporaryFile("w", suffix=".key", delete=False)
         handle.write("   \n")
         handle.close()
+        self.addCleanup(os.unlink, handle.name)
         with self.assertRaises(AdapterError):
             resolve_key_ref(f"file:{handle.name}")
 
@@ -154,6 +156,12 @@ class RunTest(unittest.TestCase):
         with patch("tanglebrain.adapters.openai_compat.httpx.Client", return_value=fake):
             with self.assertRaises(AdapterError):
                 self._adapter("none").run("q")
+
+    def test_max_tokens_below_one_rejected(self):
+        # The CLI passes --max-tokens straight through; 0/negative would truncate silently.
+        for bad in (0, -1):
+            with self.assertRaises(AdapterError):
+                self._adapter("none").run("q", {"max_tokens": bad})
 
     def test_null_content_raises_with_budget_hint(self):
         fake = fake_client_returning(make_response(200, json_body={"choices": [{"message": {"content": None}}]}))

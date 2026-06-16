@@ -30,6 +30,7 @@ from pathlib import Path
 import yaml
 
 VALID_KINDS = ("openai-compat", "cli", "api")
+VALID_TIERS = ("local", "sub", "api")
 
 
 class RosterError(ValueError):
@@ -216,7 +217,8 @@ def _parse_entry(raw: object) -> RosterEntry:
         A validated :class:`RosterEntry`.
 
     Raises:
-        RosterError: If the entry is not a mapping or is missing ``id`` / ``tier`` / ``invoke``.
+        RosterError: If the entry is not a mapping, is missing ``id`` / ``tier`` / ``invoke``,
+            or ``tier`` is not one of ``VALID_TIERS``.
     """
     if not isinstance(raw, dict):
         raise RosterError(f"each roster entry must be a mapping, got {type(raw).__name__}")
@@ -228,6 +230,10 @@ def _parse_entry(raw: object) -> RosterEntry:
     tier = raw.get("tier")
     if not tier:
         raise RosterError(f"entry {entry_id!r}: missing required field 'tier'")
+    if tier not in VALID_TIERS:
+        raise RosterError(
+            f"entry {entry_id!r}: tier must be one of {VALID_TIERS}, got {tier!r}"
+        )
 
     if "invoke" not in raw:
         raise RosterError(f"entry {entry_id!r}: missing required field 'invoke'")
