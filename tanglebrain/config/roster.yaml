@@ -1,0 +1,53 @@
+# TangleBrain roster (plan §5) — the editable list of routable models.
+#
+# Add / remove / reorganize entries here; that is the modifiability requirement, first-class.
+# A future model (another OAuth CLI, an OpenRouter model, a paid API) is a new entry — never
+# a code change. Flag `can_orchestrate: true` to put an entry in the §6 orchestrator rotation.
+#
+# invoke.kind ∈ {openai-compat, cli, api}.  key_ref ∈ {file:PATH, env:NAME, none} — a
+# credential *reference*, never a raw secret (see the contract's key-ref convention).
+#
+# C1 status: only the `openai-compat` local entry is invocable today. The three sub entries
+# below parse into typed objects (the roster is complete and inspectable now) but their CLI
+# adapters land in C2 — they are intentionally not yet routable.
+
+- id: gpt-oss-120b
+  tier: local
+  invoke:
+    kind: openai-compat
+    base_url: "http://monad-1.tail123678.ts.net:4000/v1"
+    model: "gpt-oss-120b"
+    # Scoped LiteLLM key (allowlist gpt-oss-120b; minted for the C0 spike, 0600 on this Mac).
+    # §5's example omitted auth, but the real endpoint requires a Bearer token — attached via
+    # the contract's key_ref mechanism so it is referenced, never embedded or committed.
+    key_ref: "file:~/.config/monad/tanglebrain-spike.key"
+  cost: free
+  good_at: [grunt, code, tools]
+
+- id: claude
+  tier: sub
+  invoke:
+    kind: cli
+    cmd: ["claude", "-p", "--output-format", "stream-json"]
+    scrub_env: ["ANTHROPIC_API_KEY"]   # ride the Max sub (flat), not the per-token API key (§7)
+  cost: flat-rate                       # rate-limit bound
+  good_at: [reasoning, decomposition, review]
+  can_orchestrate: true                 # joins the frontier-first rotation (§6)
+
+- id: codex
+  tier: sub
+  invoke:
+    kind: cli
+    cmd: ["codex", "exec"]
+  cost: flat-rate
+  good_at: [code, agentic-code]
+  can_orchestrate: true
+
+- id: gemini
+  tier: sub
+  invoke:
+    kind: cli
+    cmd: ["gemini", "-p", "--output-format", "json"]
+  cost: flat-rate
+  good_at: [long-context, structured-json]
+  can_orchestrate: true
