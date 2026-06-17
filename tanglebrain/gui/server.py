@@ -1,12 +1,12 @@
-"""Knob GUI HTTP server (C5a) — stdlib :mod:`http.server`, localhost-only, zero new deps.
+"""Knob GUI HTTP server — stdlib :mod:`http.server`, localhost-only, zero new deps.
 
 The handler is a thin shell over :func:`dispatch`, a pure ``(method, path, body) -> (status,
 content_type, body)`` function holding all routing so it can be tested without a socket. The page
 itself is the packaged single-file ``static/index.html``.
 
 Launched via the ``tanglebrain-gui`` console script. Binds ``127.0.0.1`` only — not configurable:
-the panel runs prompts (spending real sub rate-limit quota) and reads the roster, so it must never
-be network-exposed.
+the panel runs prompts (spending real backend quota) and reads the roster, so it must never be
+network-exposed.
 """
 from __future__ import annotations
 

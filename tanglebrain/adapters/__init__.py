@@ -1,9 +1,9 @@
 """Tier adapters.
 
-Each tier is a node/adapter behind one uniform interface — ``run(prompt, opts) -> text``
-(plan §4) — so adding or removing a model is local and contained. C1 ships only the
-``openai-compat`` adapter (the free local tier); the ``cli`` adapter for the subscription tier
-(claude / codex / gemini) lands in C2.
+Each tier is a node/adapter behind one uniform interface — ``run(prompt, opts) -> text`` — so
+adding or removing a backend is local and contained. The ``openai-compat`` adapter serves the free
+local tier; the ``cli`` adapter drives an authenticated CLI; the ``api`` adapter serves a paid
+backend.
 """
 from __future__ import annotations
 

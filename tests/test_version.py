@@ -1,4 +1,4 @@
-"""Tests for the package version (tanglebrain.__version__) — issue #17.
+"""Tests for the package version (tanglebrain.__version__).
 
 The version must come from the installed distribution metadata (driven by ``pyproject.toml``), not
 a hardcoded literal, so it never drifts from the released version again.
@@ -22,7 +22,7 @@ class VersionTest(unittest.TestCase):
         self.assertEqual(tanglebrain.__version__, version("tanglebrain"))
 
     def test_not_the_stale_literal_or_sentinel(self):
-        # Regression guards: the old frozen C1 value (#17) and the uninstalled fallback must not
+        # Regression guards: the old frozen literal value and the uninstalled fallback must not
         # appear in an installed environment.
         self.assertNotEqual(tanglebrain.__version__, "0.1.0")
         self.assertNotEqual(tanglebrain.__version__, "0.0.0+unknown")

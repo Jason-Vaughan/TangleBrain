@@ -50,7 +50,7 @@ class LiveEndToEndTest(unittest.TestCase):
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live delegate test")
 class LiveDelegateTest(unittest.TestCase):
-    """C2b: the MCP delegate's routing logic offloads to real gpt-oss and returns text."""
+    """The MCP delegate's routing logic offloads to real gpt-oss and returns text."""
 
     def test_delegate_offloads_to_local_and_returns_text(self):
         text = run_local_delegate("Reply with exactly the word: pong")
@@ -60,7 +60,7 @@ class LiveDelegateTest(unittest.TestCase):
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live orchestrated-delegation test")
 class LiveDelegateInjectionTest(unittest.TestCase):
-    """C3b: an orchestrator invoked with the delegate injected actually calls it (end-to-end).
+    """An orchestrator invoked with the delegate injected actually calls it (end-to-end).
 
     Routes through claude (the proven primary orchestrator) with delegation enabled, asks it to use
     the delegate, and checks the local model's answer comes back — the full frontier-first
@@ -104,7 +104,7 @@ class LiveCliTest(unittest.TestCase):
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live router test")
 class LiveRouterTest(unittest.TestCase):
-    """C3: the frontier-first router selects an orchestrator and returns its text."""
+    """The frontier-first router selects an orchestrator and returns its text."""
 
     def test_router_routes_to_an_orchestrator(self):
         # Uses the real subs; rotation state goes to a temp dir so the test is self-contained.
@@ -116,7 +116,7 @@ class LiveRouterTest(unittest.TestCase):
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the env-scrub safety proof")
 class LiveEnvScrubTest(unittest.TestCase):
-    """Safety-critical (§7): claude must run with ANTHROPIC_API_KEY scrubbed from its env."""
+    """Safety-critical: claude must run with ANTHROPIC_API_KEY scrubbed from its env."""
 
     def test_claude_subprocess_sees_no_anthropic_key(self):
         if shutil.which("claude") is None:

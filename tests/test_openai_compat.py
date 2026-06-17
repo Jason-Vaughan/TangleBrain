@@ -21,7 +21,7 @@ from tanglebrain.adapters.openai_compat import (
 )
 from tanglebrain.roster import Invoke, RosterEntry
 
-URL = "http://monad-1.example:4000/v1"
+URL = "http://litellm.example:4000/v1"
 
 
 def fake_client_returning(response: httpx.Response) -> MagicMock:

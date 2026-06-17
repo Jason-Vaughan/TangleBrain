@@ -1,10 +1,9 @@
-"""The uniform adapter interface (plan §4).
+"""The uniform adapter interface.
 
-Every tier — free local, subscription CLI, paid API — is invoked through one shape:
-``run(prompt, opts) -> text``. Routing logic above the adapters (the selector in C1, the
-cost-tiered router in C3) never needs to know *how* a tier is reached, only that it can hand
-it a prompt and get text back. That uniformity is what makes adding or removing a model a
-local, contained change.
+Every tier — free local, authenticated CLI, paid API — is invoked through one shape:
+``run(prompt, opts) -> text``. Routing logic above the adapters (the selector and the router) never
+needs to know *how* a tier is reached, only that it can hand it a prompt and get text back. That
+uniformity is what makes adding or removing a backend a local, contained change.
 """
 from __future__ import annotations
 

@@ -43,7 +43,7 @@ def worker(entry_id: str) -> RosterEntry:
 
 
 def api(entry_id: str, enabled: bool = True) -> RosterEntry:
-    """A paid-API tier entry (the last-resort fallback, C6b)."""
+    """A paid-API tier entry (the last-resort fallback)."""
     return RosterEntry(
         id=entry_id,
         tier="api",
@@ -55,7 +55,7 @@ def api(entry_id: str, enabled: bool = True) -> RosterEntry:
 def factory(outcomes: dict[str, tuple[str, str]]):
     """Build an adapter_factory from {id: ('ok', text) | ('err', message)}.
 
-    Accepts the ``inject_delegate`` kwarg the Router passes (C3b), ignored here.
+    Accepts the ``inject_delegate`` kwarg the Router passes, ignored here.
     """
 
     def make(entry: RosterEntry, inject_delegate: bool = False):
@@ -74,7 +74,7 @@ class RouterTestBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.state = Path(self.tmp) / "router-state.json"
-        # claude=reasoning, codex=code, gemini=long-context — the §5 starting roster.
+        # claude=reasoning, codex=code, gemini=long-context — a starting roster.
         self.roster = Roster(
             [
                 orch("claude", ["reasoning", "decomposition"]),
@@ -237,7 +237,7 @@ class FailoverTest(RouterTestBase):
 
 
 class LastResortApiFallbackTest(RouterTestBase):
-    """C6b: paid-API entries are the genuine last resort — reached only after every orchestrator
+    """Paid-API entries are the genuine last resort — reached only after every orchestrator
     fails AND the billing gate is on. Off by default, so the router never reaches a paid tier."""
 
     def mk(self, roster, outcomes, billing=True):

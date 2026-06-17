@@ -1,27 +1,27 @@
-"""Roster config loader (plan §5).
+"""Roster config loader.
 
-The roster is a simple, editable YAML list of routable models — *not* a registry subsystem
-(we are explicitly not rebuilding FleetHub). Adding, removing, or reorganizing a model is an
-entry edit, never a code change; this modifiability is a first-class requirement.
+The roster is a simple, editable YAML list of routable backends — *not* a registry subsystem.
+Adding, removing, or reorganizing a backend is an entry edit, never a code change; this
+modifiability is a first-class requirement.
 
 This module parses that YAML into typed objects. It parses *every* entry regardless of which
 adapters are built, so the full roster is always inspectable; whether a given entry is
 *invocable* depends on which adapters exist (``openai-compat`` + ``cli``) and, for ``tier: api``
 entries, on the global ``api_billing_enabled`` gate plus the entry's own ``enabled`` flag — a
-paid entry parses here but stays inert until both are on (issue #2, see :mod:`tanglebrain.settings`).
+paid entry parses here but stays inert until both are on (see :mod:`tanglebrain.settings`).
 
-Each entry (plan §5)::
+Each entry::
 
-    - id: gpt-oss-120b
+    - id: local-model
       tier: local
-      invoke: { kind: openai-compat, base_url: "http://.../v1", model: "gpt-oss-120b" }
+      invoke: { kind: openai-compat, base_url: "http://.../v1", model: "local-model" }
       cost: free
       good_at: [grunt, code, tools]
 
 ``invoke.kind`` is one of ``openai-compat`` | ``cli`` | ``api``. ``scrub_env`` enforces the
-§7 sub-vs-key safety rule per adapter. ``can_orchestrate`` flags an entry as eligible for the
-§6 orchestrator rotation. ``key_ref`` references a credential without embedding it (see the
-contract's key-ref convention): ``file:PATH`` | ``env:NAME`` | ``none``.
+session-vs-key safety rule per adapter. ``can_orchestrate`` flags an entry as eligible for the
+orchestrator rotation. ``key_ref`` references a credential without embedding it:
+``file:PATH`` | ``env:NAME`` | ``none``.
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class RosterError(ValueError):
 
 @dataclass(frozen=True)
 class Invoke:
-    """How to invoke one roster entry — the transport-specific call details (plan §5).
+    """How to invoke one roster entry — the transport-specific call details.
 
     Attributes:
         kind: One of ``openai-compat`` | ``cli`` | ``api``.
@@ -66,8 +66,8 @@ class Invoke:
             from the subprocess stdout (e.g. ``claude-json``, ``gemini-json``, ``plain``).
             ``None`` lets the adapter pick its default. Informational for non-``cli`` kinds.
         delegate_args: Extra argv appended to ``cmd`` when the router invokes this entry as an
-            orchestrator with local delegation enabled (C3b) — the per-CLI flags that register the
-            gpt-oss MCP delegate and allow its tool. A ``{delegate_mcp_json}`` token is substituted
+            orchestrator with local delegation enabled — the per-CLI flags that register the
+            local-delegate tool and allow it. A ``{delegate_mcp_json}`` token is substituted
             with the delegate's MCP-server JSON at runtime. Empty = the CLI cannot be handed the
             delegate per-invocation (or doesn't need it).
         key_ref: Credential reference — ``file:PATH`` | ``env:NAME`` | ``none`` — never a raw
@@ -86,21 +86,21 @@ class Invoke:
 
 @dataclass(frozen=True)
 class RosterEntry:
-    """One routable model in the roster (plan §5).
+    """One routable backend in the roster.
 
     Attributes:
         id: Unique identifier for the entry (e.g. ``gpt-oss-120b``, ``claude``).
         tier: Cost tier — ``local`` | ``sub`` | ``api``.
         invoke: How to call this entry (see :class:`Invoke`).
-        cost: Free-form cost annotation (e.g. ``free``, ``flat-rate``); informational.
-        good_at: Tags describing what the entry is good at (drives task-fit routing in §6).
-        can_orchestrate: Whether this entry joins the §6 orchestrator rotation.
+        cost: Free-form cost annotation (e.g. ``free``, ``paid``); informational.
+        good_at: Tags describing what the entry is good at (drives task-fit routing).
+        can_orchestrate: Whether this entry joins the orchestrator rotation.
         enabled: Per-entry kill-switch. ``True`` by default. Currently enforced only for
             ``tier: api`` entries (a disabled paid key is never routable, even with the global
             ``api_billing_enabled`` gate on); informational for other tiers.
-        budget_usd_month: Optional monthly USD budget annotation for a paid key (issue #2), which
-            must be a number ``> 0`` when present. In v1 this is **displayed only** — the hard cap
-            is enforced LiteLLM-side on the virtual key, not by TangleBrain. ``None`` (the default)
+        budget_usd_month: Optional monthly USD budget annotation for a paid key, which must be a
+            number ``> 0`` when present. This is **displayed only** — the hard cap is enforced
+            gateway-side on the key, not by TangleBrain. ``None`` (the default)
             means no budget is recorded.
     """
 
@@ -118,7 +118,7 @@ class Roster:
     """An ordered collection of :class:`RosterEntry`, with lookup/filter helpers.
 
     Order is preserved from the YAML file because it is meaningful — e.g. the local-first
-    selector (C1) walks entries in declared order.
+    selector walks entries in declared order.
     """
 
     def __init__(self, entries: list[RosterEntry]) -> None:
@@ -176,7 +176,7 @@ class Roster:
         return [e for e in self._entries if e.tier == tier]
 
     def orchestrators(self) -> list[RosterEntry]:
-        """Return the entries flagged ``can_orchestrate`` (the §6 rotation set).
+        """Return the entries flagged ``can_orchestrate`` (the rotation set).
 
         Returns:
             The orchestrator-capable entries, in declared order.
@@ -224,9 +224,9 @@ def _parse_invoke(raw: object, entry_id: str) -> Invoke:
         if not cmd or not isinstance(cmd, list):
             raise RosterError(f"entry {entry_id!r}: cli invoke requires a non-empty 'cmd' list")
     elif kind == "api":
-        # Paid API is LiteLLM-fronted (plan §7, decision #7): base_url is the LiteLLM endpoint,
-        # model the alias it exposes, and key_ref a *scoped LiteLLM virtual key* — never a raw
-        # provider key. All three are required so a paid entry can never be half-configured.
+        # Paid API is gateway-fronted: base_url is the OpenAI-compatible gateway endpoint, model the
+        # alias it exposes, and key_ref a *scoped key* — never a raw provider key. All three are
+        # required so a paid entry can never be half-configured.
         if not base_url or not model:
             raise RosterError(
                 f"entry {entry_id!r}: api invoke requires 'base_url' and 'model' "

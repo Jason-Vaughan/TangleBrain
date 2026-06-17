@@ -1,4 +1,4 @@
-"""Tests for the C1 local-first selector (tanglebrain/selector.py)."""
+"""Tests for the local-first selector (tanglebrain/selector.py)."""
 from __future__ import annotations
 
 import unittest
@@ -77,7 +77,7 @@ class BuildAdapterTest(unittest.TestCase):
         self.assertIsInstance(adapter, CliAdapter)
 
     def test_api_entry_inert_when_billing_disabled(self):
-        # Default gate is OFF — a paid entry parses but is never routable (issue #2).
+        # Default gate is OFF — a paid entry parses but is never routable.
         with self.assertRaises(AdapterError) as ctx:
             build_adapter(api_entry(), settings=Settings(api_billing_enabled=False))
         self.assertIn("billing is disabled", str(ctx.exception))

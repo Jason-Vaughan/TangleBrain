@@ -38,9 +38,9 @@ ROSTER = """\
     kind: cli
     cmd: ["claude", "-p"]
     parse: claude-json
-  cost: flat-rate                       # rate-limit bound
+  cost: subscription                    # informational
   good_at: [reasoning, review]
-  can_orchestrate: true                 # joins the rotation (§6)
+  can_orchestrate: true                 # joins the rotation
 
 - id: gpt5
   tier: api
@@ -121,7 +121,7 @@ class ApplyEditTest(RosterEditTestBase):
     def test_update_preserves_trailing_comment(self):
         save_roster_edits("claude", {"can_orchestrate": False}, path=self.path)
         text = self._text()
-        self.assertIn("can_orchestrate: false                 # joins the rotation (§6)", text)
+        self.assertIn("can_orchestrate: false                 # joins the rotation", text)
         self.assertFalse(self._entry("claude").can_orchestrate)
 
     def test_insert_when_field_absent(self):

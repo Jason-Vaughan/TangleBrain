@@ -34,7 +34,7 @@ _PINNED_ROSTER_YAML = """\
 - id: claude
   tier: sub
   invoke: {kind: cli, cmd: ["claude"], parse: claude-json}
-  cost: flat-rate
+  cost: subscription
   good_at: [reasoning]
   can_orchestrate: true
 """
@@ -51,7 +51,7 @@ def _pinned_roster(test: unittest.TestCase) -> str:
 
 class RunOnceTest(unittest.TestCase):
     def setUp(self):
-        # Redirect the C4 usage log into a temp dir so metering side-effects stay hermetic
+        # Redirect the usage log into a temp dir so metering side-effects stay hermetic
         # (run_once now records each routed task) and never touch the real ~/.cache.
         self.tmp = tempfile.mkdtemp()
         self._env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.tmp}, clear=False)
@@ -62,7 +62,7 @@ class RunOnceTest(unittest.TestCase):
         return read_records(Path(self.tmp) / "usage.jsonl")
 
     def test_default_routes_through_router(self):
-        # C3b flipped the default: no flags -> frontier-first Router (not local-first).
+        # The default (no flags) routes through the frontier-first Router (not local-first).
         fake_router = MagicMock()
         fake_router.route.return_value = "routed reply"
         with patch("tanglebrain.cli.load_roster"), patch(
@@ -224,7 +224,7 @@ class RunOnceTest(unittest.TestCase):
         self.assertEqual(records[0]["model"], "claude")
 
     def test_gate_trivial_routes_to_local(self):
-        # §6 gate on + classifier says trivial → served by free local (path 'gate-local'), no Router.
+        # gate on + classifier says trivial → served by free local (path 'gate-local'), no Router.
         fake_adapter = MagicMock(); fake_adapter.run.return_value = "local ans"
         with patch("tanglebrain.cli.classify", return_value="trivial") as clf, \
              patch("tanglebrain.cli.build_adapter", return_value=fake_adapter), \

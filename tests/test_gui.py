@@ -1,4 +1,4 @@
-"""Tests for the C5a knob GUI (tanglebrain/gui).
+"""Tests for the knob GUI (tanglebrain/gui).
 
 Hermetic: the view functions and the pure `dispatch` router are exercised directly — no socket is
 bound and no network/subprocess runs (run_once is mocked). Covers secret-safety (key_ref is a ref
@@ -20,7 +20,7 @@ def _entry(eid, tier, *, key_ref=None, model=None, kind="cli", good_at=(), orch=
     return RosterEntry(
         id=eid, tier=tier,
         invoke=Invoke(kind=kind, model=model, key_ref=key_ref, cmd=["x"] if kind == "cli" else None),
-        cost="free" if tier == "local" else "flat-rate",
+        cost="free" if tier == "local" else "subscription",
         good_at=list(good_at), can_orchestrate=orch,
     )
 
@@ -56,7 +56,7 @@ class ViewRosterTest(unittest.TestCase):
         self.assertEqual(set(inv), {"kind", "base_url", "model", "parse", "key_ref"})
 
     def test_surfaces_enabled_and_budget(self):
-        # C6c: the panel shows the per-key kill-switch + the display-only monthly budget.
+        # The panel shows the per-key kill-switch + the display-only monthly budget.
         paid = RosterEntry(
             id="gpt5", tier="api",
             invoke=Invoke(kind="api", base_url="u", model="gpt-5", key_ref="file:/k.key"),

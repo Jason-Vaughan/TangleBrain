@@ -1,23 +1,16 @@
-"""Frontier-first router (plan §6) — multi-orchestrator selection + rotation + failover.
+"""Frontier-first router — pluggable orchestrator selection + rotation + failover.
 
-This is C3's **control plane**: route a task to a frontier sub acting as orchestrator, rotate the
-orchestrator role across the ``can_orchestrate`` subs for ~3x the rate-limit runway, and fail over
-to the next sub when one errors. The win is real on its own — three flat-rate subs in rotation,
-with automatic failover — independent of local delegation.
+The control plane: route a task to an orchestrator (a ``can_orchestrate`` backend), rotate the
+orchestrator role across the eligible set, and fail over to the next when one errors. Rotation and
+failover give resilience and even load, independent of local delegation.
 
-Explicitly NOT in this module (it stays a deterministic control plane):
-
-- **Delegate-injection** — wiring C2b's ``delegate_local`` MCP tool into orchestrator invocations
-  so a sub offloads grunt to free local gpt-oss mid-task — and flipping the CLI default to
-  frontier-first. That is **C3b (issue #7)**; until it lands the router is exposed behind an
-  explicit flag and the CLI default stays local-first (routing whole tasks to subs without local
-  offload would burn rate limits for no cost benefit).
-- **Auto task-classification** — picking the task kind for the caller. Deferred per §6 ("add a
-  cheap local classifier gate only if volume demands"); the caller passes a ``task`` hint or gets
-  pure rotation.
+This module stays a deterministic control plane. It does not classify tasks for the caller — the
+caller passes a ``task`` hint or gets pure rotation; the optional classifier gate lives in
+:mod:`tanglebrain.classifier`. Orchestrators offload sub-tasks to the free local backend via the
+``delegate_local`` tool, which the router injects into their invocations.
 
 Rotation state persists across processes (each ``tanglebrain`` run is a new process), so successive
-requests actually spread across the subs.
+requests rotate across the orchestrators.
 """
 from __future__ import annotations
 
@@ -110,7 +103,7 @@ def _write_cursor(path: Path, cursor: int) -> None:
 
 
 class Router:
-    """Frontier-first orchestrator router: task-fit selection + rotation + failover (§6)."""
+    """Frontier-first orchestrator router: task-fit selection + rotation + failover."""
 
     def __init__(
         self,
@@ -126,13 +119,13 @@ class Router:
             roster: The loaded roster; its ``can_orchestrate`` entries form the rotation set.
             state_path: Path to the rotation-state file. Defaults to :func:`default_state_path`.
                 Inject a temp path in tests so they never touch the real cache.
-            adapter_factory: Builds an adapter for an entry. Defaults to the C2 selector's
+            adapter_factory: Builds an adapter for an entry. Defaults to the selector's
                 ``build_adapter``; injectable for tests. Called as
                 ``adapter_factory(entry, inject_delegate=...)``.
-            inject_delegate: Make the gpt-oss MCP delegate available to each orchestrator (C3b), so
-                it offloads grunt to free local — the frontier-first cost lever. On by default; set
-                false to route to bare orchestrators (e.g. for debugging).
-            settings: Global settings carrying the paid-API billing gate (C6b). Loaded from the
+            inject_delegate: Make the local-delegate tool available to each orchestrator, so it
+                offloads sub-tasks to the free local backend. On by default; set false to route to
+                bare orchestrators (e.g. for debugging).
+            settings: Global settings carrying the paid-API billing gate. Loaded from the
                 packaged ``config/settings.yaml`` when ``None``. The router consults
                 ``api_billing_enabled`` to decide whether the last-resort paid-API fallback is live;
                 with the gate off (the default) the router never reaches a paid tier.
@@ -143,7 +136,7 @@ class Router:
         self.inject_delegate = inject_delegate
         self.settings = settings if settings is not None else load_settings()
         # The entry that served the most recent successful route(), or None before any success.
-        # Surfaced so the CLI's measurement seam (C4) can record which tier/model handled a task
+        # Surfaced so the CLI's measurement seam can record which tier/model handled a task
         # without changing route()'s str return type.
         self.last_served: RosterEntry | None = None
 
@@ -162,10 +155,10 @@ class Router:
         over to the next. On success, advance the persisted cursor past the served orchestrator so
         the next request starts elsewhere (load-spread).
 
-        Last resort (C6b): if **every** orchestrator fails and the paid-API billing gate is on
+        Last resort: if **every** orchestrator fails and the paid-API billing gate is on
         (``settings.api_billing_enabled``), fall through to the enabled ``tier: api`` entries in
-        roster order — the genuine last resort (plan §6). With the gate off (the default) the router
-        never reaches a paid tier. A paid success does not advance the orchestrator rotation cursor.
+        roster order — the genuine last resort. With the gate off (the default) the router never
+        reaches a paid tier. A paid success does not advance the orchestrator rotation cursor.
 
         Args:
             prompt: The task prompt.
@@ -209,13 +202,13 @@ class Router:
             self.last_served = entry
             return text
 
-        # C6b — last-resort paid-API fallback. Only after EVERY orchestrator has failed, and only
-        # when billing is explicitly enabled, fall through to a paid `api` entry (plan §6: paid API
-        # is the genuine last resort). With the gate off — the default — this block is skipped
-        # entirely, so the router can never reach a paid tier. Enabled paid entries are tried in
-        # roster order; a paid success does NOT advance the orchestrator rotation cursor (api is not
-        # part of the §6 rotation). This requires at least one orchestrator above — the router never
-        # paid-routes a roster that has no subs to exhaust (use ``--model`` for an explicit paid call).
+        # Last-resort paid-API fallback. Only after EVERY orchestrator has failed, and only when
+        # billing is explicitly enabled, fall through to a paid `api` entry (the genuine last
+        # resort). With the gate off — the default — this block is skipped entirely, so the router
+        # can never reach a paid tier. Enabled paid entries are tried in roster order; a paid success
+        # does NOT advance the orchestrator rotation cursor (api is not part of the rotation). This
+        # requires at least one orchestrator above — the router never paid-routes a roster that has no
+        # orchestrators to exhaust (use ``--model`` for an explicit paid call).
         if self.settings.api_billing_enabled:
             attempted = {eid for eid, _ in failures}
             for entry in self.roster.in_tier("api"):
