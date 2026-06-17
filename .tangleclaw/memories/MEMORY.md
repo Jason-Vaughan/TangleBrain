@@ -141,10 +141,9 @@ truth — read these, don't re-derive from this file):
     `value="…"` attr but `esc()` only escaped `&<>` — now full 5-char escape incl quotes); header
     constant had drifted (now preserve-existing-verbatim); adversarial round-trip test added.
 
-- 🔄 **C6a** *(this session — 8th chunk; planning + build in one session, PM-authorized override of
+- ✅ **C6a** *(this session — 8th chunk; planning + build in one session, PM-authorized override of
   the "clean session" note since context was 91% free)* — **paid-API tier scaffolding, off by default
-  (§10 C6, issue #2 slice 1/3)**. **PR #16 OPEN — NOT yet merged** (feature PR, manual-merge: review +
-  `gh pr merge 16 --squash --delete-branch`). Branch `feat/c6a-paid-api-gate`. Issue #2 stays OPEN
+  (§10 C6, issue #2 slice 1/3)**. **Merged (PR #16; squash `6cb4144`).** Issue #2 stays OPEN
   (C6b/C6c remain). Releases as **v0.6.0** on next bump (CHANGELOG `### Added` → minor). Key facts:
   - **Gate**: new `tanglebrain/settings.py` + `config/settings.yaml`, `Settings.api_billing_enabled`
     **default False**. `load_settings`: missing file → defaults (gate off); malformed → `SettingsError`
@@ -171,8 +170,8 @@ truth — read these, don't re-derive from this file):
 
 ## Next chunk = C6b — last-resort routing (issue #2 still OPEN; 2nd of 3 paid-API slices)
 
-**FIRST: merge PR #16** (`gh pr merge 16 --squash --delete-branch`) if not already merged, then verify
-issue #2 still OPEN. Read the build plan:
+**C6a is merged to main; verify issue #2 still OPEN** (`gh issue view 2 --json state -q .state`) before
+starting. Read the build plan:
 `/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md` (C6b section).
 **C6b** = wire the `api` tier into `Router` as genuine last resort — only after all `can_orchestrate`
 subs are exhausted/failed (and gate-on), fall through to an enabled `api` entry. Preserve failover +
