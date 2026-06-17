@@ -26,8 +26,8 @@ subscriptions instead of paying per-token."*
 `tanglebrain "…"` rotates an orchestrator sub, fails over on rate limits, and offloads grunt to
 free local gpt-oss; `tanglebrain --stats` rolls up the cloud-equivalent cost avoided; and a
 localhost knob panel (`tanglebrain-gui`) shows it all in the browser and lets you edit the pricing
-knob. The paid-API tier now exists but ships **off by default** (issue #2 / C6a); remaining:
-wiring it into last-resort routing (C6b), and roster editing in the panel (later).
+knob. The paid-API tier exists and is wired into last-resort routing, but ships **off by default**
+(issue #2 / C6a+C6b); remaining: budget display + runbook (C6c), and roster editing in the panel.
 
 - ✅ **C0** — frontier-first decompose spike (shipped in coordinator, verdict KEEP).
 - ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
@@ -47,7 +47,9 @@ wiring it into last-resort routing (C6b), and roster editing in the panel (later
   `pricing.yaml`). Roster editing still to come.
 - ✅ **C6a** — paid-API tier scaffolding: an `api` adapter (LiteLLM-fronted) behind a global
   `api_billing_enabled` gate (**default off**) plus a per-entry `enabled` kill-switch. A `tier: api`
-  entry parses but is **never routable** until both are on. Last-resort routing is C6b.
+  entry parses but is **never routable** until both are on.
+- ✅ **C6b** — last-resort paid-API routing: the router falls through to an enabled `api` entry only
+  after every sub has failed **and** the gate is on. Off by default → the router never reaches paid.
 
 Full plan: [`.claude/plans/tanglebrain.md`](.claude/plans/tanglebrain.md). The historical
 orchestration contract (frozen, superseded by the plan) lives in [`TANGLEBRAIN.md`](TANGLEBRAIN.md).
@@ -182,9 +184,10 @@ also records `budget_usd_month` for visibility — in this version the **hard bu
 LiteLLM-side** on the virtual key, not by TangleBrain. A commented example entry is at the bottom of
 `tanglebrain/config/roster.yaml`.
 
-> Note (C6a): the tier exists and its adapter works, but **last-resort routing is not wired yet**
-> (C6b). Today an `api` entry only runs when selected explicitly (`--model <id>`) with both gates
-> on; the router does not fall through to it automatically.
+Once both gates are on, a paid entry runs either when selected explicitly (`--model <id>`) or as the
+router's **genuine last resort** — the default `tanglebrain "…"` router falls through to an enabled
+`api` entry only after *every* orchestrator sub has failed/exhausted (C6b). It tries paid entries in
+roster order and never paid-routes a roster that has no subs to exhaust first.
 
 ## Develop
 
