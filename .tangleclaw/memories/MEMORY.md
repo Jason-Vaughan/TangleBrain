@@ -141,11 +141,49 @@ truth — read these, don't re-derive from this file):
     `value="…"` attr but `esc()` only escaped `&<>` — now full 5-char escape incl quotes); header
     constant had drifted (now preserve-existing-verbatim); adversarial round-trip test added.
 
-## Next chunk = #2 — paid-API tier (the FINAL build chunk; heaviest/most architectural)
+- 🔄 **C6a** *(this session — 8th chunk; planning + build in one session, PM-authorized override of
+  the "clean session" note since context was 91% free)* — **paid-API tier scaffolding, off by default
+  (§10 C6, issue #2 slice 1/3)**. **PR #16 OPEN — NOT yet merged** (feature PR, manual-merge: review +
+  `gh pr merge 16 --squash --delete-branch`). Branch `feat/c6a-paid-api-gate`. Issue #2 stays OPEN
+  (C6b/C6c remain). Releases as **v0.6.0** on next bump (CHANGELOG `### Added` → minor). Key facts:
+  - **Gate**: new `tanglebrain/settings.py` + `config/settings.yaml`, `Settings.api_billing_enabled`
+    **default False**. `load_settings`: missing file → defaults (gate off); malformed → `SettingsError`
+    (never a coincidental enable); **non-bool rejected** (a stray `1`/`"true"` can't enable billing;
+    bare `yes/no/on/off` ARE YAML bools and legitimately accepted). Packaged settings.yaml ships off.
+  - **`api` adapter** = `tanglebrain/adapters/api.py` `ApiAdapter(OpenAICompatAdapter)` — paid APIs are
+    LiteLLM-fronted (OpenAI-compat), so it **reuses the openai-compat transport**; `from_entry` only
+    checks kind. Same transport, different *policy*. `key_ref` → scoped LiteLLM **virtual key**,
+    resolved lazily on `run` (never at construction; test patches a missing key file to prove it).
+  - **Roster** (`roster.py`): `_parse_invoke` `api` branch requires `base_url`+`model`+`key_ref`. New
+    `RosterEntry` fields `enabled: bool = True` (per-key kill-switch) + `budget_usd_month: float|None`
+    (must be >0; **display-only in v1**, LiteLLM enforces the hard cap — PM decision). Both parsed
+    universally but only enforced for api in C6a.
+  - **Gate enforcement** in `selector.build_adapter(entry, inject_delegate, settings=None)`: `api`
+    branch builds `ApiAdapter` ONLY if `settings.api_billing_enabled` AND `entry.enabled`, else
+    `AdapterError`. Default-loads settings only when an api entry is actually built (no file read for
+    local/cli). All existing call sites (cli `--model`/`--local`, router) unchanged — settings defaults.
+  - **"Parse but never route" verified unbypassable** by the Critic across `--model`/`--local`/router.
+    `measurement.record_task` already zeroes `spend_avoided` for `tier=="api"` (pre-existing, untouched).
+  - **Contract §2/§6 + invariant #3 reconciliation** (the bundled docs task) was **ALREADY DONE** in
+    `TANGLEBRAIN.md` (banner + inline, 2026-06-16) → no edit needed this session.
+  - 250 hermetic tests pass (was 249). New: `test_settings.py`, `test_api_adapter.py`, api roster tests,
+    gated selector matrix, a CLI-boundary test (`--model <api>` inert + meters nothing, gate off).
 
-**PLANNED 2026-06-16 (this session, no code) → split into C6a/C6b/C6c.** Canonical build plan:
-`/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md` (read it before
-building; verify #2 still OPEN first). **START THE BUILD IN A CLEAN SESSION** — C6a only.
+## Next chunk = C6b — last-resort routing (issue #2 still OPEN; 2nd of 3 paid-API slices)
+
+**FIRST: merge PR #16** (`gh pr merge 16 --squash --delete-branch`) if not already merged, then verify
+issue #2 still OPEN. Read the build plan:
+`/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md` (C6b section).
+**C6b** = wire the `api` tier into `Router` as genuine last resort — only after all `can_orchestrate`
+subs are exhausted/failed (and gate-on), fall through to an enabled `api` entry. Preserve failover +
+rate-limit annotation; keep the router a deterministic control plane (no auto-classification). Then
+**C6c** (thin): surface `budget_usd_month`/`enabled` in `--stats`/GUI (read-only) + a LiteLLM
+virtual-key runbook. Issue #2 closes when C6b (+ maybe C6c) lands. Still deferred/non-build: GUI roster
+editing (from C5; needs comment-preserving YAML).
+
+### Original #2 plan-time context (kept for reference)
+**PLANNED 2026-06-16 → split into C6a/C6b/C6c.** Canonical build plan:
+`/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md`.
 
 **Issue #2** = the paid-API tier: explicit `api_billing_enabled` global flag **default OFF** (when off,
 `tier: api` entries parse but never route); when on, each paid key is a `tier: api` roster entry with
