@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-17
+
 ### Added
 
 - **Local classifier gate (plan §6 evolution path), off by default.** An optional cheap local
