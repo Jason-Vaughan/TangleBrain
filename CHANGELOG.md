@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **C6a — paid-API tier scaffolding (off by default).** A new `api` adapter and the global billing
+  gate that guards it. A `tier: api` roster entry now parses fully but is **never routable** until
+  it is explicitly enabled — preserving today's safe, zero-paid-spend default (issue #2).
+  - **The gate**: new `tanglebrain/settings.py` + `config/settings.yaml` with `api_billing_enabled`
+    (**default `false`**). A missing settings file defaults the gate *off*; a malformed one is a hard
+    error (never a coincidental enable). `selector.build_adapter` builds an `api` entry only when the
+    global gate **and** the entry's own `enabled` flag are both on, else raises clearly.
+  - **The adapter**: `tanglebrain/adapters/api.py` `ApiAdapter` — paid APIs are LiteLLM-fronted, so
+    it reuses the OpenAI-compat transport and references a scoped LiteLLM **virtual key** via
+    `key_ref` (never a raw provider key, resolved lazily at call time).
+  - **Roster fields**: `api` invoke now requires `base_url` + `model` + `key_ref`; new per-entry
+    `enabled` (kill-switch, default `true`) and `budget_usd_month` (display-only in v1 — the hard cap
+    is enforced LiteLLM-side on the virtual key). A commented example entry ships in `roster.yaml`.
+  - Last-resort routing (wiring `api` into the router) is **not** in this change — that is C6b.
+
 ## [0.5.0] - 2026-06-16
 
 ### Added

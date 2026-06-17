@@ -11,8 +11,10 @@
 # token the prompt is appended as the final argument. `parse` names the output parser
 # (claude-json | gemini-json | plain). `scrub_env` strips env vars from the subprocess (§7).
 #
-# Status (C2): the `openai-compat` local entry and all three `cli` subs are invocable. The
-# paid-API tier (kind: api) is gated behind `api_billing_enabled` and lands later (issue #2).
+# Status: the `openai-compat` local entry and all three `cli` subs are invocable. The paid-API
+# tier (kind: api) is gated behind `api_billing_enabled` (config/settings.yaml, default false) AND
+# each entry's own `enabled` flag — a `tier: api` entry parses but stays inert until both are on
+# (issue #2). A commented example is at the bottom of this file.
 
 - id: gpt-oss-120b
   tier: local
@@ -71,3 +73,21 @@
   cost: flat-rate
   good_at: [long-context, structured-json]
   can_orchestrate: true
+
+# --- Paid-API tier example (issue #2) — COMMENTED OUT so it stays inert. ---
+# Paid API is the genuine last resort (§6). To enable: set api_billing_enabled: true in
+# config/settings.yaml, mint a BUDGET-SCOPED LiteLLM virtual key on local, point key_ref at it,
+# and uncomment. The raw provider key lives in LiteLLM, never here — TangleBrain only references
+# the virtual key. budget_usd_month is recorded for visibility; the hard cap is LiteLLM-side.
+#
+# - id: gpt-5
+#   tier: api
+#   invoke:
+#     kind: api
+#     base_url: "http://litellm.example:4000/v1"   # LiteLLM endpoint (OpenAI-compat)
+#     model: "gpt-5"                                          # the LiteLLM model alias
+#     key_ref: "file:~/.config/tanglebrain/tanglebrain-gpt5.key"   # a scoped LiteLLM VIRTUAL key
+#   cost: paid                  # real $ — last resort only (§6)
+#   good_at: [reasoning, hard]
+#   enabled: true               # per-key kill-switch (false => never routable, even if billing on)
+#   budget_usd_month: 25        # display-only in v1; LiteLLM enforces the hard cap on the key
