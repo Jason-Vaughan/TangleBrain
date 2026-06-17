@@ -21,7 +21,7 @@ What you expected to happen instead.
 
 ## Environment
 
-- TangleBrain version (`python -c "import tanglebrain; print(tanglebrain.__version__)"`):
+- TangleBrain version (`tanglebrain --version`):
 - Python version (`python --version`):
 - OS:
 - Which path was involved (e.g. `--local`, the router, `tanglebrain-gui`, the delegate):
