@@ -18,6 +18,7 @@ import argparse
 import sys
 
 from tanglebrain.adapters import AdapterError
+from tanglebrain.classifier import TRIVIAL, classify
 from tanglebrain.measurement import (
     format_rollup,
     load_pricing,
@@ -28,6 +29,7 @@ from tanglebrain.measurement import (
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.router import Router, RouterError
 from tanglebrain.selector import SelectionError, build_adapter, select_by_id, select_local
+from tanglebrain.settings import load_settings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,6 +82,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Task-fit hint for the router (a good_at tag, e.g. 'code', 'reasoning', 'long-context').",
     )
+    gate_group = parser.add_mutually_exclusive_group()
+    gate_group.add_argument(
+        "--gate",
+        dest="gate",
+        action="store_true",
+        default=None,
+        help="Force the §6 local classifier gate ON for this run: a cheap local classify sends "
+        "trivial requests straight to free local, only frontier ones to a sub.",
+    )
+    gate_group.add_argument(
+        "--no-gate",
+        dest="gate",
+        action="store_false",
+        help="Force the classifier gate OFF (always frontier-first router), ignoring the setting.",
+    )
     parser.add_argument(
         "--max-tokens",
         type=int,
@@ -112,16 +129,19 @@ def run_once(
     local: bool = False,
     task: str | None = None,
     return_served: bool = False,
+    gate: bool | None = None,
 ):
     """Route a single prompt to a roster tier and return the response text.
 
-    Three paths, in precedence order:
+    Paths, in precedence order:
 
     - ``model`` set → select that named entry explicitly (an override, not a routing decision).
     - ``local`` true → the free local tier directly (gpt-oss), no orchestration (C1 behaviour).
-    - otherwise → **the frontier-first** :class:`~tanglebrain.router.Router` (§6, the default since
-      C3b): task-fit orchestrator selection + rotation + failover across the subs, with each
-      orchestrator given the gpt-oss delegate so it offloads grunt to free local.
+    - otherwise → the default routing path. With the §6 **classifier gate** off (the default), this
+      is **the frontier-first** :class:`~tanglebrain.router.Router`: task-fit orchestrator selection +
+      rotation + failover across the subs, each given the gpt-oss delegate. With the gate on, a cheap
+      local classify runs first: a *trivial* request is handled directly on free local (path
+      ``gate-local``, skipping the subs), and everything else falls through to the router.
 
     Args:
         prompt: The prompt to route.
@@ -135,6 +155,9 @@ def run_once(
             ``{path, tier, model}`` for the entry that served the task (or ``None`` if unknown).
             The GUI uses this so it needn't re-read the usage log. Default ``False`` returns the
             plain text string, so existing callers (``main``) are unchanged.
+        gate: Override for the §6 classifier gate on the default path. ``None`` (default) uses the
+            ``classifier_gate_enabled`` setting; ``True``/``False`` force the gate on/off for this
+            call. Ignored when ``model`` or ``local`` is set.
 
     Returns:
         The response text (``str``), or ``(text, served)`` when ``return_served`` is ``True``.
@@ -155,10 +178,17 @@ def run_once(
         path, entry = "local", select_local(roster)
         text = build_adapter(entry).run(prompt, opts)
     else:
-        path = "router"
-        router = Router(roster)
-        text = router.route(prompt, task=task, opts=opts)
-        entry = router.last_served
+        gate_on = load_settings().classifier_gate_enabled if gate is None else gate
+        if gate_on and classify(prompt, roster=roster) == TRIVIAL:
+            # §6 classifier gate: a trivial request skips the rate-limited subs and is handled
+            # directly on free local. Frontier (or any classifier failure) falls through to the router.
+            path, entry = "gate-local", select_local(roster)
+            text = build_adapter(entry).run(prompt, opts)
+        else:
+            path = "router"
+            router = Router(roster)
+            text = router.route(prompt, task=task, opts=opts)
+            entry = router.last_served
 
     record_task(path=path, entry=entry, prompt=prompt, response=text)
     return (text, _served(path, entry)) if return_served else text
@@ -191,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             local=args.local,
             task=args.task,
+            gate=args.gate,
         )
     except (RosterError, SelectionError, RouterError, AdapterError) as exc:
         print(f"tanglebrain: {exc}", file=sys.stderr)

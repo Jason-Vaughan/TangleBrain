@@ -40,9 +40,14 @@ class Settings:
         api_billing_enabled: The paid-API billing gate. ``False`` (the default) means every
             ``tier: api`` roster entry parses but is **never routable** — the adapter factory
             refuses to build it. Must be flipped to ``True`` explicitly to permit any paid spend.
+        classifier_gate_enabled: The §6 local classifier gate. ``False`` (the default) keeps the
+            normal frontier-first routing. When ``True``, a cheap local classify runs in front of the
+            router: trivial requests go straight to free local, only frontier requests consume a sub.
+            Built ahead of the §8 data trigger, so it stays off until an operator turns it on.
     """
 
     api_billing_enabled: bool = False
+    classifier_gate_enabled: bool = False
 
 
 def default_settings_path() -> Path:
@@ -86,13 +91,18 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
             f"settings file must be a YAML mapping, got {type(raw).__name__}: {settings_path}"
         )
 
-    enabled = raw.get("api_billing_enabled", False)
-    # Reject non-bool explicitly — `bool` is a subclass of `int`, but a stray `1`/`"true"` in the
-    # billing gate must be a hard error, never a coincidental truthy enable.
-    if not isinstance(enabled, bool):
-        raise SettingsError(
-            f"settings 'api_billing_enabled' must be a boolean (true/false), got "
-            f"{enabled!r} ({type(enabled).__name__}): {settings_path}"
-        )
+    def _bool(key: str) -> bool:
+        value = raw.get(key, False)
+        # Reject non-bool explicitly — `bool` is a subclass of `int`, but a stray `1`/`"true"` in a
+        # gate must be a hard error, never a coincidental truthy enable.
+        if not isinstance(value, bool):
+            raise SettingsError(
+                f"settings {key!r} must be a boolean (true/false), got "
+                f"{value!r} ({type(value).__name__}): {settings_path}"
+            )
+        return value
 
-    return Settings(api_billing_enabled=enabled)
+    return Settings(
+        api_billing_enabled=_bool("api_billing_enabled"),
+        classifier_gate_enabled=_bool("classifier_gate_enabled"),
+    )

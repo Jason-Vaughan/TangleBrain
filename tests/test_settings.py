@@ -69,6 +69,18 @@ class LoadSettingsTest(unittest.TestCase):
         with self.assertRaises(SettingsError):
             load_settings(write_yaml("api_billing_enabled: : :\n", self))
 
+    def test_classifier_gate_defaults_off(self):
+        self.assertFalse(load_settings(write_yaml("", self)).classifier_gate_enabled)
+        self.assertFalse(load_settings("/no/such.yaml").classifier_gate_enabled)
+
+    def test_classifier_gate_parses_and_validates(self):
+        self.assertTrue(load_settings(write_yaml("classifier_gate_enabled: true\n", self)).classifier_gate_enabled)
+        with self.assertRaises(SettingsError):
+            load_settings(write_yaml("classifier_gate_enabled: 1\n", self))
+
+    def test_packaged_settings_ship_classifier_gate_off(self):
+        self.assertFalse(load_settings().classifier_gate_enabled)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Local classifier gate (plan §6 evolution path), off by default.** An optional cheap local
+  classify can now run in front of the router: it rates each request's complexity using free local
+  gpt-oss and sends **trivial** work straight to free local (skipping the rate-limited subs), while
+  **frontier** work falls through to the normal frontier-first router. This preserves sub rate-limit
+  runway when rotation alone isn't enough.
+  - **Off by default** — new `classifier_gate_enabled` setting (`config/settings.yaml`, default
+    `false`); per-run `--gate` / `--no-gate` override the setting. Built ahead of the §8 data trigger,
+    so existing routing behaviour is unchanged until it's turned on.
+  - **Fail-safe by design** — the classifier rates *task complexity* (not "can the local model do
+    it?"), and any ambiguity, parse miss, or classifier error resolves to **frontier**, so the gate
+    can never trap a hard task on the local tier. New `tanglebrain/classifier.py`; gated work is
+    metered with `path=gate-local`.
+
 ## [0.8.0] - 2026-06-17
 
 ### Added
