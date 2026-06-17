@@ -214,6 +214,13 @@ router's **genuine last resort** — the default `tanglebrain "…"` router fall
 `api` entry only after *every* orchestrator sub has failed/exhausted (C6b). It tries paid entries in
 roster order and never paid-routes a roster that has no subs to exhaust first.
 
+> **Live status:** the paid tier is **hermetically tested but never run against a real paid
+> endpoint** — by design (TangleBrain is deliberately anti-key; we don't mint billable keys just to
+> test). The hooks are in place and the routing/gating/visibility are proven; the live
+> `router → ApiAdapter → virtual key → provider` round-trip is unverified until an operator wires a
+> real key. See [#23](https://github.com/Jason-Vaughan/TangleBrain/issues/23). Treat it as
+> hermetically correct but live-unproven, and file a fix if a live provider needs one.
+
 #### Runbook — enabling a paid key (LiteLLM-fronted)
 
 1. **Mint a budget-scoped virtual key in LiteLLM on Monad.** This is where the hard cap lives —
