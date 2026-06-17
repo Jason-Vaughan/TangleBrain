@@ -16,9 +16,9 @@ subscriptions instead of paying per-token."*
 
 | Tier | Example | Marginal cost |
 |---|---|---|
-| **Free local** | `gpt-oss-120b` via LiteLLM on Monad (over the tailnet) | $0, unlimited |
-| **Sub** | `claude -p`, `codex exec`, `gemini -p` | $0 at margin; rate-limit bound |
-| **Paid API** | (later, explicit, opt-in) | per-token — last resort only |
+| **Free local** | a local model via Ollama / any OpenAI-compatible server you run | $0, unlimited |
+| **Sub** | opt-in authenticated CLIs (`claude -p`, `codex exec`, `gemini -p`) | $0 at margin; rate-limit bound |
+| **Paid API** | bring-your-own-key overflow (explicit, opt-in) | per-token — last resort only |
 
 ## Status
 
@@ -29,7 +29,7 @@ localhost knob panel (`tanglebrain-gui`) shows it all in the browser and lets yo
 knob. The paid-API tier is complete — gated, last-resort-routed, and visible in the panel — but ships
 **off by default** (issue #2, C6a–C6c). Remaining: roster editing in the panel (later).
 
-- ✅ **C0** — frontier-first decompose spike (shipped in Monad-1, verdict KEEP).
+- ✅ **C0** — frontier-first decompose spike (validated the approach, verdict KEEP).
 - ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
   one request → local → text end-to-end.
 - ✅ **C2** — CLI adapters for the three subs (claude/codex/gemini) with `ANTHROPIC_API_KEY` scrub.
@@ -53,8 +53,7 @@ knob. The paid-API tier is complete — gated, last-resort-routed, and visible i
 - ✅ **C6c** — paid-API visibility: the knob panel surfaces each entry's `enabled`/`budget_usd_month`
   and a **Paid-API billing: ON/OFF** banner, plus a README runbook for minting a LiteLLM virtual key.
 
-Full plan: [`.claude/plans/tanglebrain.md`](.claude/plans/tanglebrain.md). The historical
-orchestration contract (frozen, superseded by the plan) lives in [`TANGLEBRAIN.md`](TANGLEBRAIN.md).
+See [`CHANGELOG.md`](CHANGELOG.md) for the development history (an `ARCHITECTURE.md` is coming).
 
 ## Install
 
@@ -66,9 +65,12 @@ make venv          # create .venv and install -e . (dev deps included)
 
 ## Use
 
-The roster of routable models is a plain, editable YAML list
-([`tanglebrain/config/roster.yaml`](tanglebrain/config/roster.yaml)) — adding or removing a
-model is a config edit, not a code change.
+The roster of routable models is a plain, editable YAML list — adding or removing a model is a
+config edit, not a code change. The shipped
+[`tanglebrain/config/roster.yaml`](tanglebrain/config/roster.yaml) is only a **generic example**;
+keep your real roster **outside the repo** so updates never clobber it. It's auto-discovered in
+order: `$TANGLEBRAIN_ROSTER` → `~/.config/tanglebrain/roster.yaml` → the packaged example. Copy the
+example to `~/.config/tanglebrain/roster.yaml` and edit it there (or pass `--roster <path>`).
 
 ```sh
 # Default: frontier-first router. Rotates the orchestrator across the subs (claude/codex/gemini)
@@ -113,13 +115,12 @@ paid frontier API. `tanglebrain --stats` rolls those records up into a single "s
 figure, the way the north star (drive ongoing compute cost *down*) becomes visible.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
-subscription CLIs expose no usable token counts, so one consistent (if approximate) methodology is
+authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is
 applied to every tier. The reference frontier price lives in
-[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) and mirrors Monad-1's
-`monad-stats` `costSaved` anchor — Claude Sonnet at $3/$15 per MTok (methodology ratified
-2026-06-13) — so both projects value avoided spend identically. A `placeholder` flag makes the
-rollup render a PLACEHOLDER caveat if the anchor is ever forked before re-ratifying. Logging is
-best-effort and never affects the returned answer.
+[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) — Claude Sonnet at $3/$15 per
+MTok by default; tune it to whatever frontier model you want to compare against. A `placeholder`
+flag makes the rollup render a PLACEHOLDER caveat when the rates are rough. Logging is best-effort
+and never affects the returned answer.
 
 ### Knob panel (`tanglebrain-gui`)
 
@@ -156,9 +157,9 @@ registration** so it can see the delegate:
 gemini mcp add tanglebrain-delegate -- "$(pwd)/.venv/bin/python" -m tanglebrain.mcp_server
 ```
 
-The adapter calls the Monad LiteLLM endpoint directly. It needs the scoped LiteLLM key; by
-default it reads `~/.config/monad/tanglebrain-spike.key` (referenced from the roster entry —
-never hardcoded, never committed).
+The adapter calls the local endpoint your roster points at directly. If that endpoint needs a key,
+the roster entry's `key_ref` references it (an env var or a `0600` file) — never hardcoded, never
+committed.
 
 ### Local delegate (MCP) — let an orchestrator offload grunt to free local
 
@@ -202,12 +203,12 @@ on for a paid entry to build:
    `false`).
 2. **Per-entry switch** — `enabled: true` on the roster entry (a per-key kill-switch).
 
-Custody is **LiteLLM-fronted**: TangleBrain never holds a raw provider key. You mint a
-budget-scoped **virtual key** in LiteLLM on Monad and reference it via `key_ref` (e.g.
-`file:~/.config/monad/tanglebrain-gpt5.key`); the raw provider key stays in LiteLLM. A paid entry
-also records `budget_usd_month` for visibility — in this version the **hard budget cap is enforced
-LiteLLM-side** on the virtual key, not by TangleBrain. A commented example entry is at the bottom of
-`tanglebrain/config/roster.yaml`.
+Custody is **by reference, never embedding**: TangleBrain never holds a raw key in config —
+`key_ref` points at an env var (`env:OPENAI_API_KEY`) or a `0600` key file
+(`file:~/.config/tanglebrain/keys/paid.key`). Prefer fronting paid APIs through a budget-capped
+gateway or a scoped key so spend is bounded **at the source**. A paid entry also records
+`budget_usd_month` for visibility — TangleBrain does **not** enforce spend; cap it at your
+gateway/provider. A commented example entry is at the bottom of `tanglebrain/config/roster.yaml`.
 
 Once both gates are on, a paid entry runs either when selected explicitly (`--model <id>`) or as the
 router's **genuine last resort** — the default `tanglebrain "…"` router falls through to an enabled
@@ -221,26 +222,20 @@ roster order and never paid-routes a roster that has no subs to exhaust first.
 > real key. See [#23](https://github.com/Jason-Vaughan/TangleBrain/issues/23). Treat it as
 > hermetically correct but live-unproven, and file a fix if a live provider needs one.
 
-#### Runbook — enabling a paid key (LiteLLM-fronted)
+#### Runbook — enabling a paid key
 
-1. **Mint a budget-scoped virtual key in LiteLLM on Monad.** This is where the hard cap lives —
-   TangleBrain never enforces spend itself. On the Monad LiteLLM host:
+1. **Get a key for any OpenAI-compatible endpoint you control** — a provider directly, OpenRouter, or
+   a self-hosted gateway (e.g. LiteLLM). Prefer a **budget-capped / scoped** key so spend is bounded
+   at the source; TangleBrain doesn't enforce spend itself.
+2. **Store it outside the repo.** Reference an env var (`key_ref: env:OPENAI_API_KEY`) or a `0600`
+   file (`*.key` is gitignored):
    ```sh
-   curl -s http://monad-1.tail123678.ts.net:4000/key/generate \
-     -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H "Content-Type: application/json" \
-     -d '{"models": ["gpt-5"], "max_budget": 25, "budget_duration": "30d", "key_alias": "tanglebrain-gpt5"}'
+   install -m 600 /dev/stdin ~/.config/tanglebrain/keys/paid.key <<< 'sk-your-key'
    ```
-   This returns a virtual key (`sk-…`) scoped to one model with a hard $25 / 30-day cap enforced
-   LiteLLM-side. (Adjust `models` / `max_budget` / `budget_duration` to taste.)
-2. **Store the virtual key on this Mac, never in the repo.** Write it `0600` and reference it by
-   path — `*.key` is gitignored:
-   ```sh
-   install -m 600 /dev/stdin ~/.config/monad/tanglebrain-gpt5.key <<< 'sk-the-returned-virtual-key'
-   ```
-3. **Add the roster entry** (uncomment/adapt the example at the bottom of
-   `tanglebrain/config/roster.yaml`): `tier: api`, `invoke.kind: api`, `base_url` = the LiteLLM
-   endpoint, `model` = the alias, `key_ref: file:~/.config/monad/tanglebrain-gpt5.key`,
-   `enabled: true`, and `budget_usd_month: 25` (display-only — must match what you set LiteLLM-side).
+3. **Add the roster entry** (uncomment/adapt the example at the bottom of your roster): `tier: api`,
+   `invoke.kind: api`, `base_url` = your endpoint, `model` = the model id it exposes,
+   `key_ref` = the env/file reference above, `enabled: true`, and `budget_usd_month: 25`
+   (display-only — match what you capped at the source).
 4. **Flip the global gate**: set `api_billing_enabled: true` in `tanglebrain/config/settings.yaml`.
 5. **Verify** in the knob panel (`tanglebrain-gui`): the roster card shows a **Paid-API billing: ON**
    banner and the entry's `budget: $25.00/mo` note; or run `tanglebrain --model gpt-5 "…"` for an
@@ -253,7 +248,7 @@ roster order and never paid-routes a roster that has no subs to exhaust first.
 make help          # list targets
 make lint          # smoke-check every Python file parses
 make test          # lint + run the unit test suite (hermetic; HTTP is mocked)
-make test-live     # opt-in: hit the real Monad endpoint end-to-end (needs the scoped key)
+make test-live     # opt-in: hit the real local endpoint your roster points at, end-to-end
 ```
 
 ## License

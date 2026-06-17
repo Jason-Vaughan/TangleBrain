@@ -104,20 +104,12 @@ class RunLocalDelegateTest(unittest.TestCase):
                 run_local_delegate("q", roster_path="/explicit.yaml")
         self.assertEqual(load.call_args.args[0], "/explicit.yaml")
 
-    def test_roster_env_var_used_when_no_explicit_path(self):
+    def test_no_explicit_path_delegates_resolution_to_load_roster(self):
+        # Env/XDG resolution now lives in tanglebrain.roster.default_roster_path (covered by
+        # test_roster.RosterDiscoveryTest); the delegate just passes the path through (None here).
         adapter = MagicMock()
         adapter.run.return_value = "x"
         with patch.dict(os.environ, {ROSTER_ENV_VAR: "/from/env.yaml"}, clear=False):
-            with patch("tanglebrain.delegate.load_roster") as load, patch(
-                "tanglebrain.delegate.select_local"
-            ), patch("tanglebrain.delegate.build_adapter", return_value=adapter):
-                run_local_delegate("q")
-        self.assertEqual(load.call_args.args[0], "/from/env.yaml")
-
-    def test_no_path_and_no_env_passes_none(self):
-        adapter = MagicMock()
-        adapter.run.return_value = "x"
-        with patch.dict(os.environ, {}, clear=True):
             with patch("tanglebrain.delegate.load_roster") as load, patch(
                 "tanglebrain.delegate.select_local"
             ), patch("tanglebrain.delegate.build_adapter", return_value=adapter):

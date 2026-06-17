@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Generic shipped roster + external roster discovery.** The bundled `config/roster.yaml` is now a
+  **generic example** (free local tier points at Ollama on `localhost:11434`, opt-in subscription-CLI
+  entries, no maintainer infra). Your real roster lives **outside the repo** and is auto-discovered:
+  `TANGLEBRAIN_ROSTER` env → `~/.config/tanglebrain/roster.yaml` (XDG) → the packaged example. So a
+  `git pull` never clobbers your config, and the package ships nothing deployment-specific. The
+  `--roster` flag still takes precedence. Part of the public-OSS rollout.
+
+### Added
+
+- `roster.packaged_roster_path()` (the bundled example) and `roster.default_roster_path()` discovery,
+  mirroring the existing state-dir resolution pattern.
+
 ### Internal
 
-- Live e2e test (`tests/test_live.py`) now pins the **direct-local** path: it calls
-  `run_once(..., local=True)` and asserts the request was served by the local tier
-  (`tier=local`, `model=gpt-oss-120b`). Bare `run_once` has routed through the frontier-first router
-  since the C3b default flip, so the C1 acceptance assertion had quietly stopped exercising the local
-  path. Test-only; no behaviour change (#24).
+- Live e2e test (`tests/test_live.py`) pins the **direct-local** path (`run_once(..., local=True)`)
+  and asserts it was served by the active roster's own local entry (roster-agnostic). Bare `run_once`
+  has routed through the frontier-first router since the default flip, so the acceptance assertion had
+  quietly stopped exercising the local path (#24). Test-only.
 
 ## [0.9.0] - 2026-06-17
 

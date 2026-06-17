@@ -17,10 +17,9 @@ transparent retry/swap here), matching the adapter contract and the C0 reference
 from __future__ import annotations
 
 import json
-import os
 import sys
 
-from tanglebrain.roster import load_roster
+from tanglebrain.roster import ROSTER_ENV_VAR, load_roster
 from tanglebrain.selector import build_adapter, select_local
 
 #: gpt-oss spends part of its budget on internal reasoning before the final answer, so the
@@ -73,10 +72,9 @@ def delegate_substitutions() -> dict[str, str]:
         "{delegate_mcp_command}": sys.executable,
     }
 
-#: Env var an MCP client can set to point the server at a non-default roster. The server runs as
-#: a subprocess launched by the orchestrator CLI, so it must be able to locate the roster; when
-#: unset, the packaged ``tanglebrain/config/roster.yaml`` is used.
-ROSTER_ENV_VAR = "TANGLEBRAIN_ROSTER"
+# ``ROSTER_ENV_VAR`` ("TANGLEBRAIN_ROSTER") is re-exported from :mod:`tanglebrain.roster`, where the
+# whole resolution order (env → ~/.config/tanglebrain/roster.yaml → packaged) now lives. An MCP
+# client can still set it to point the delegate server at a non-default roster.
 
 
 def run_local_delegate(
@@ -90,8 +88,9 @@ def run_local_delegate(
         prompt: The self-contained sub-task to delegate to the local grunt model.
         max_tokens: Completion token cap (default 2048 — gpt-oss needs headroom for its
             internal reasoning before the final answer).
-        roster_path: Optional roster YAML path. When ``None``, falls back to the
-            ``TANGLEBRAIN_ROSTER`` env var, then the packaged default roster.
+        roster_path: Optional roster YAML path. When ``None``, the roster is resolved by
+            :func:`tanglebrain.roster.default_roster_path` (``TANGLEBRAIN_ROSTER`` env →
+            ``~/.config/tanglebrain/roster.yaml`` → the packaged generic example).
 
     Returns:
         The local tier's final response text.
@@ -101,8 +100,7 @@ def run_local_delegate(
         SelectionError: If the roster has no invocable local entry.
         AdapterError: If the local adapter cannot produce text.
     """
-    path = roster_path or os.environ.get(ROSTER_ENV_VAR)
-    roster = load_roster(path)
+    roster = load_roster(roster_path)
     entry = select_local(roster)
     adapter = build_adapter(entry)
     return adapter.run(prompt, {"max_tokens": max_tokens})

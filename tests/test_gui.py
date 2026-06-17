@@ -7,11 +7,12 @@ string, never resolved), the view shapes, run handling, and HTTP routing.
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from unittest.mock import patch
 
 from tanglebrain.gui import server, views
-from tanglebrain.roster import Invoke, Roster, RosterEntry
+from tanglebrain.roster import Invoke, Roster, RosterEntry, packaged_roster_path
 from tanglebrain.router import RouterError
 
 
@@ -26,12 +27,14 @@ def _entry(eid, tier, *, key_ref=None, model=None, kind="cli", good_at=(), orch=
 
 class ViewRosterTest(unittest.TestCase):
     def test_packaged_roster_shape(self):
-        # Reads the real packaged roster.yaml (hermetic file read, no network).
-        out = views.view_roster()
+        # Pin to the packaged example (env override) so this is independent of any operator roster
+        # at ~/.config/tanglebrain/roster.yaml on the dev machine.
+        with patch.dict(os.environ, {"TANGLEBRAIN_ROSTER": str(packaged_roster_path())}, clear=False):
+            out = views.view_roster()
         ids = {e["id"] for e in out["entries"]}
-        self.assertIn("gpt-oss-120b", ids)
+        self.assertIn("local-ollama", ids)
         self.assertIn("claude", ids)
-        local = next(e for e in out["entries"] if e["id"] == "gpt-oss-120b")
+        local = next(e for e in out["entries"] if e["id"] == "local-ollama")
         self.assertEqual(local["tier"], "local")
         self.assertIn("kind", local["invoke"])
 
