@@ -32,9 +32,16 @@ LIVE = os.environ.get("TANGLEBRAIN_LIVE") == "1"
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live endpoint test")
 class LiveEndToEndTest(unittest.TestCase):
     def test_one_request_routes_to_local_and_returns_text(self):
-        text = run_once("Reply with exactly the word: pong", max_tokens=2048)
+        # The C1 acceptance bar: the DIRECT local path (roster → local entry → openai-compat adapter
+        # → gpt-oss → text). Forces `local=True` — bare run_once routes via the frontier-first router
+        # since the C3b default flip, so it must be pinned here to actually exercise the local tier.
+        text, served = run_once(
+            "Reply with exactly the word: pong", local=True, max_tokens=2048, return_served=True
+        )
         self.assertIsInstance(text, str)
         self.assertTrue(text.strip(), "expected non-empty text from gpt-oss-120b")
+        self.assertEqual(served["tier"], "local")
+        self.assertEqual(served["model"], "gpt-oss-120b")
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live delegate test")
