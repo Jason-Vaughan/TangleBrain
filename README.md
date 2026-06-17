@@ -26,8 +26,8 @@ subscriptions instead of paying per-token."*
 `tanglebrain "…"` rotates an orchestrator sub, fails over on rate limits, and offloads grunt to
 free local gpt-oss; `tanglebrain --stats` rolls up the cloud-equivalent cost avoided; and a
 localhost knob panel (`tanglebrain-gui`) shows it all in the browser and lets you edit the pricing
-knob. The paid-API tier exists and is wired into last-resort routing, but ships **off by default**
-(issue #2 / C6a+C6b); remaining: budget display + runbook (C6c), and roster editing in the panel.
+knob. The paid-API tier is complete — gated, last-resort-routed, and visible in the panel — but ships
+**off by default** (issue #2, C6a–C6c). Remaining: roster editing in the panel (later).
 
 - ✅ **C0** — frontier-first decompose spike (shipped in coordinator, verdict KEEP).
 - ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
@@ -50,6 +50,8 @@ knob. The paid-API tier exists and is wired into last-resort routing, but ships 
   entry parses but is **never routable** until both are on.
 - ✅ **C6b** — last-resort paid-API routing: the router falls through to an enabled `api` entry only
   after every sub has failed **and** the gate is on. Off by default → the router never reaches paid.
+- ✅ **C6c** — paid-API visibility: the knob panel surfaces each entry's `enabled`/`budget_usd_month`
+  and a **Paid-API billing: ON/OFF** banner, plus a README runbook for minting a LiteLLM virtual key.
 
 Full plan: [`.claude/plans/tanglebrain.md`](.claude/plans/tanglebrain.md). The historical
 orchestration contract (frozen, superseded by the plan) lives in [`TANGLEBRAIN.md`](TANGLEBRAIN.md).
@@ -188,6 +190,32 @@ Once both gates are on, a paid entry runs either when selected explicitly (`--mo
 router's **genuine last resort** — the default `tanglebrain "…"` router falls through to an enabled
 `api` entry only after *every* orchestrator sub has failed/exhausted (C6b). It tries paid entries in
 roster order and never paid-routes a roster that has no subs to exhaust first.
+
+#### Runbook — enabling a paid key (LiteLLM-fronted)
+
+1. **Mint a budget-scoped virtual key in LiteLLM on local.** This is where the hard cap lives —
+   TangleBrain never enforces spend itself. On the local LiteLLM host:
+   ```sh
+   curl -s http://litellm.example:4000/key/generate \
+     -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H "Content-Type: application/json" \
+     -d '{"models": ["gpt-5"], "max_budget": 25, "budget_duration": "30d", "key_alias": "tanglebrain-gpt5"}'
+   ```
+   This returns a virtual key (`sk-…`) scoped to one model with a hard $25 / 30-day cap enforced
+   LiteLLM-side. (Adjust `models` / `max_budget` / `budget_duration` to taste.)
+2. **Store the virtual key on this Mac, never in the repo.** Write it `0600` and reference it by
+   path — `*.key` is gitignored:
+   ```sh
+   install -m 600 /dev/stdin ~/.config/tanglebrain/tanglebrain-gpt5.key <<< 'sk-the-returned-virtual-key'
+   ```
+3. **Add the roster entry** (uncomment/adapt the example at the bottom of
+   `tanglebrain/config/roster.yaml`): `tier: api`, `invoke.kind: api`, `base_url` = the LiteLLM
+   endpoint, `model` = the alias, `key_ref: file:~/.config/tanglebrain/tanglebrain-gpt5.key`,
+   `enabled: true`, and `budget_usd_month: 25` (display-only — must match what you set LiteLLM-side).
+4. **Flip the global gate**: set `api_billing_enabled: true` in `tanglebrain/config/settings.yaml`.
+5. **Verify** in the knob panel (`tanglebrain-gui`): the roster card shows a **Paid-API billing: ON**
+   banner and the entry's `budget: $25.00/mo` note; or run `tanglebrain --model gpt-5 "…"` for an
+   explicit paid call. To pause spend without editing keys, set the entry's `enabled: false` (a
+   per-key kill-switch) or flip the global gate back to `false`.
 
 ## Develop
 

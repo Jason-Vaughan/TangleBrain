@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     no subs to exhaust (use `--model <id>` for an explicit paid call). `Router(... settings=)` is
     injectable; it defaults to the packaged `config/settings.yaml`.
 
+- **C6c — paid-API visibility in the knob panel + runbook.** Closes #2. The `tanglebrain-gui` roster
+  card now surfaces each entry's `enabled` kill-switch (a `disabled` pill) and `budget_usd_month`
+  (a display-only `budget: $N/mo` note), and shows a **Paid-API billing: ON/OFF** banner from the
+  global gate — so an operator never misreads a paid entry's own `enabled` flag as "live" when the
+  global gate is off. New `view_settings()` view + `GET /api/settings` route (reads only
+  `config/settings.yaml`; no key file touched). All read-only — per the v1 decision, TangleBrain
+  does **not** meter or enforce spend; the hard budget cap stays LiteLLM-side on the virtual key.
+  - README gains a step-by-step **runbook** for minting a budget-scoped LiteLLM virtual key on local
+    and wiring it via `key_ref`, plus how to pause spend (per-key `enabled: false` or the global gate).
+
 ## [0.6.0] - 2026-06-16
 
 ### Added
