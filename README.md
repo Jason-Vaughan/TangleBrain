@@ -243,6 +243,13 @@ make test          # lint + run the unit test suite (hermetic; HTTP is mocked)
 make test-live     # opt-in: hit the real local endpoint your roster points at, end-to-end
 ```
 
+## Contributing
+
+Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for dev setup, branch/PR
+conventions, and good first contributions (adding a backend is usually a config edit, not a code
+change). All participation is governed by our [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), and the
+opt-in / bring-your-own-key posture is in [`DISCLAIMER.md`](DISCLAIMER.md).
+
 ## License
 
 [MIT](LICENSE).
