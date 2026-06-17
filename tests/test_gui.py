@@ -28,12 +28,12 @@ def _entry(eid, tier, *, key_ref=None, model=None, kind="cli", good_at=(), orch=
 class ViewRosterTest(unittest.TestCase):
     def test_packaged_roster_shape(self):
         # Pin to the packaged example (env override) so this is independent of any operator roster
-        # at ~/.config/tanglebrain/roster.yaml on the dev machine.
+        # at ~/.config/tanglebrain/roster.yaml on the dev machine. R2a: the packaged default ships
+        # one active entry — the free local tier (the opt-in sub/paid tiers are commented examples).
         with patch.dict(os.environ, {"TANGLEBRAIN_ROSTER": str(packaged_roster_path())}, clear=False):
             out = views.view_roster()
         ids = {e["id"] for e in out["entries"]}
-        self.assertIn("local-ollama", ids)
-        self.assertIn("claude", ids)
+        self.assertEqual(ids, {"local-ollama"})
         local = next(e for e in out["entries"] if e["id"] == "local-ollama")
         self.assertEqual(local["tier"], "local")
         self.assertIn("kind", local["invoke"])
