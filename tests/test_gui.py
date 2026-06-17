@@ -52,6 +52,36 @@ class ViewRosterTest(unittest.TestCase):
             inv = views.view_roster()["entries"][0]["invoke"]
         self.assertEqual(set(inv), {"kind", "base_url", "model", "parse", "key_ref"})
 
+    def test_surfaces_enabled_and_budget(self):
+        # C6c: the panel shows the per-key kill-switch + the display-only monthly budget.
+        paid = RosterEntry(
+            id="gpt5", tier="api",
+            invoke=Invoke(kind="api", base_url="u", model="gpt-5", key_ref="file:/k.key"),
+            enabled=False, budget_usd_month=25.0,
+        )
+        with patch("tanglebrain.gui.views.load_roster", return_value=Roster([paid])):
+            e = views.view_roster()["entries"][0]
+        self.assertFalse(e["enabled"])
+        self.assertEqual(e["budget_usd_month"], 25.0)
+
+    def test_default_entry_enabled_true_no_budget(self):
+        with patch("tanglebrain.gui.views.load_roster",
+                   return_value=Roster([_entry("claude", "sub")])):
+            e = views.view_roster()["entries"][0]
+        self.assertTrue(e["enabled"])
+        self.assertIsNone(e["budget_usd_month"])
+
+
+class ViewSettingsTest(unittest.TestCase):
+    def test_packaged_gate_is_off(self):
+        # The shipped settings.yaml keeps paid billing off — the panel must report that.
+        self.assertFalse(views.view_settings()["api_billing_enabled"])
+
+    def test_reports_gate_on_when_enabled(self):
+        from tanglebrain.settings import Settings
+        with patch("tanglebrain.gui.views.load_settings", return_value=Settings(api_billing_enabled=True)):
+            self.assertTrue(views.view_settings()["api_billing_enabled"])
+
 
 class ViewPricingTest(unittest.TestCase):
     def test_packaged_pricing(self):
@@ -157,6 +187,14 @@ class DispatchTest(unittest.TestCase):
         with patch("tanglebrain.gui.views.read_records", return_value=[]):
             status, _, _ = server.dispatch("GET", "/api/stats?t=123")
         self.assertEqual(status, 200)
+
+    def test_get_settings_json(self):
+        from tanglebrain.settings import Settings
+        with patch("tanglebrain.gui.views.load_settings", return_value=Settings(api_billing_enabled=True)):
+            status, ctype, body = server.dispatch("GET", "/api/settings")
+        self.assertEqual(status, 200)
+        self.assertIn("application/json", ctype)
+        self.assertTrue(json.loads(body)["api_billing_enabled"])
 
     def test_unknown_path_404(self):
         status, _, body = server.dispatch("GET", "/api/nope")

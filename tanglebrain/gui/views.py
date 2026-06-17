@@ -16,6 +16,7 @@ from tanglebrain.measurement import load_pricing, read_records, rollup, save_pri
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.router import RouterError
 from tanglebrain.selector import SelectionError
+from tanglebrain.settings import load_settings
 
 # Default port for the panel; registered permanently in TangleClaw PortHub for project TangleBrain.
 DEFAULT_PORT = 3250
@@ -32,7 +33,11 @@ def view_roster() -> dict:
     omitted (not needed for the panel and keep the payload focused).
 
     Returns:
-        ``{"entries": [ {id, tier, cost, good_at, can_orchestrate, invoke{...}}, ... ]}``.
+        ``{"entries": [ {id, tier, cost, good_at, can_orchestrate, enabled, budget_usd_month,
+        invoke{...}}, ... ]}``. ``enabled`` / ``budget_usd_month`` matter for ``tier: api`` entries
+        (issue #2): ``enabled`` is the per-key kill-switch and ``budget_usd_month`` a display-only
+        cap (enforced LiteLLM-side). Whether paid entries are actually routable also depends on the
+        global gate — see :func:`view_settings`.
     """
     roster = load_roster()
     entries = []
@@ -44,6 +49,8 @@ def view_roster() -> dict:
                 "cost": e.cost,
                 "good_at": list(e.good_at),
                 "can_orchestrate": e.can_orchestrate,
+                "enabled": e.enabled,
+                "budget_usd_month": e.budget_usd_month,
                 "invoke": {
                     "kind": e.invoke.kind,
                     "base_url": e.invoke.base_url,
@@ -55,6 +62,20 @@ def view_roster() -> dict:
             }
         )
     return {"entries": entries}
+
+
+def view_settings() -> dict:
+    """Build the global-settings view — the paid-API billing gate (issue #2).
+
+    ``api_billing_enabled`` is the master switch (plan §9.6): when ``false`` (the default) no
+    ``tier: api`` entry is routable regardless of its own ``enabled`` flag. The panel surfaces it so
+    an operator sees at a glance whether paid routing is live. Reads only ``config/settings.yaml`` —
+    no key file or secret is touched.
+
+    Returns:
+        ``{"api_billing_enabled": bool}``.
+    """
+    return {"api_billing_enabled": load_settings().api_billing_enabled}
 
 
 def view_pricing() -> dict:
