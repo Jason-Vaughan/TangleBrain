@@ -216,19 +216,37 @@ truth — read these, don't re-derive from this file):
   - 295 tests. Critic: ship-ready, no blockers. `roster_edit._atomic_write`/`_backup_dir` reused from
     `measurement` (package-internal).
 
-## Build outline COMPLETE — all planned work shipped; no active "next chunk"
+- ✅ **Classifier gate** *(this session — 12th chunk; 5th build chunk this session)* — **local
+  classifier gate (plan §6 evolution), OFF by default**. **Merged (PR #22); released in v0.9.0.** Built
+  **ahead of the §8 data trigger by PM direction** (no rate-limit data yet) → ships off, no behavior
+  change until enabled. Key facts:
+  - `tanglebrain/classifier.py` `classify(prompt)→"trivial"|"frontier"` via the local openai-compat
+    adapter. Rates TASK complexity (not "can the model do it"). **FAILS SAFE to frontier** on any
+    error/ambiguity. **Strict parse**: TRIVIAL only when the FIRST word token is exactly `trivial` and
+    `frontier` is absent (so prose/negation like "not trivial" → frontier — Critic-hardened).
+    `CLASSIFY_MAX_TOKENS=1024` (gpt-oss reasoning headroom; truncation just fails safe to frontier).
+  - `settings.classifier_gate_enabled` (default false; shared `_bool` validator with the billing gate).
+    `cli.run_once(gate=None|bool)`: default path only; gate-on+trivial → free local (`path=gate-local`),
+    else router. `--gate`/`--no-gate` override the setting. `--model`/`--local` bypass the gate.
+  - 316 tests. Critic: ship-able, no blockers (2 should-fix applied).
 
-**As of 2026-06-17, the entire §10 build outline (C0→C7) AND the deferred C5 GUI roster-editing item
-are shipped.** Latest release **v0.8.0**. The cost-tiered router is end-to-end: free-local-first →
-frontier-first orchestrator rotation with delegate offload → measurement/rollup → knob GUI (view +
-**editable** pricing & roster) → paid-API last resort (off by default, gated, last-resort-routed,
-visible). **No canonical next build chunk; no open feature issues.** Remaining backlog is NOT
-autonomously buildable — pick only on explicit PM direction or data:
-- **Local classifier gate** (plan §6 evolution) — ONLY if §8 measurement data shows rate-limit pressure.
-  No such data yet (router barely exercised) → premature; do not build speculatively.
-- **Real paid-key trial** — operator/PM action on **Monad** (mint a budget-scoped LiteLLM virtual key,
-  run the live paid path). Crosses the cross-session write boundary (Monad = PM repo); README runbook
-  covers the steps. The whole paid tier is hermetically tested but never run against a real paid endpoint.
+## ALL PLANNED WORK SHIPPED — project complete; no active next chunk
+
+**As of 2026-06-17: the entire §10 build outline (C0→C7), the deferred C5 GUI roster-editing item, AND
+the §6 classifier-gate evolution are all shipped.** Latest release **v0.9.0**. The cost-tiered router is
+end-to-end: optional local classifier gate → free-local-first → frontier-first orchestrator rotation
+with delegate offload → measurement/rollup → knob GUI (view + **editable** pricing & roster) → paid-API
+last resort (off by default, gated, last-resort-routed, visible). **No canonical next build chunk; no
+open feature issues.**
+
+**Remaining = NOT autonomously buildable:**
+- **Real paid-key trial — DECIDED SKIP (2026-06-17, PM).** The paid tier is hermetically tested but
+  **never run against a real paid endpoint — by design (anti-key stance)**; the hooks are in, live path
+  unverified. Filed as **issue #23** for a future operator (mint a budget-scoped LiteLLM virtual key on
+  Monad, run the live round-trip, fix any provider-shape deltas). README has a "Live status" caveat +
+  the runbook. Do NOT attempt autonomously (Monad-side, spends real money, cross-session boundary).
+- **Future tuning** — only on explicit PM direction or §8 data (e.g. turn the classifier gate on if
+  rotation stops keeping under sub rate limits; surface `classifier_gate_enabled` in the GUI if wanted).
 
 ### Original #2 plan-time context (kept for reference)
 **PLANNED 2026-06-16 → split into C6a/C6b/C6c.** Canonical build plan:
