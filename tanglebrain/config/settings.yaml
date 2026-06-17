@@ -1,0 +1,16 @@
+# TangleBrain global settings (plan §7 / §9.6) — knobs that are NOT per roster entry.
+#
+# The roster (roster.yaml) is a list of routable models; per-entry policy lives there. The few
+# truly global switches live here.
+#
+# api_billing_enabled — THE PAID-API BILLING GATE. This is the durable safety contract
+# (plan §9.6, contract invariant #3): paid billing is OFF unless this is explicitly `true`.
+#
+#   false (default) → every `tier: api` roster entry still parses and is inspectable, but is
+#                     NEVER routable — the adapter factory refuses to build it. Inert.
+#   true            → enabled `tier: api` entries become routable (still last-resort, §6), each
+#                     fronted through a budget-scoped LiteLLM virtual key (key_ref).
+#
+# The durable rule: *no paid billing without this explicit toggle.* Keep it false unless you mean it.
+
+api_billing_enabled: false

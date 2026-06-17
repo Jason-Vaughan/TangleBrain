@@ -6,8 +6,9 @@ entry edit, never a code change; this modifiability is a first-class requirement
 
 This module parses that YAML into typed objects. It parses *every* entry regardless of which
 adapters are built, so the full roster is always inspectable; whether a given entry is
-*invocable* depends on which adapters exist (``openai-compat`` + ``cli`` today; the paid-API
-adapter is gated behind ``api_billing_enabled`` and lands later — issue #2).
+*invocable* depends on which adapters exist (``openai-compat`` + ``cli``) and, for ``tier: api``
+entries, on the global ``api_billing_enabled`` gate plus the entry's own ``enabled`` flag — a
+paid entry parses here but stays inert until both are on (issue #2, see :mod:`tanglebrain.settings`).
 
 Each entry (plan §5)::
 
@@ -89,6 +90,13 @@ class RosterEntry:
         cost: Free-form cost annotation (e.g. ``free``, ``flat-rate``); informational.
         good_at: Tags describing what the entry is good at (drives task-fit routing in §6).
         can_orchestrate: Whether this entry joins the §6 orchestrator rotation.
+        enabled: Per-entry kill-switch. ``True`` by default. Currently enforced only for
+            ``tier: api`` entries (a disabled paid key is never routable, even with the global
+            ``api_billing_enabled`` gate on); informational for other tiers.
+        budget_usd_month: Optional monthly USD budget annotation for a paid key (issue #2), which
+            must be a number ``> 0`` when present. In v1 this is **displayed only** — the hard cap
+            is enforced LiteLLM-side on the virtual key, not by TangleBrain. ``None`` (the default)
+            means no budget is recorded.
     """
 
     id: str
@@ -97,6 +105,8 @@ class RosterEntry:
     cost: str | None = None
     good_at: list[str] = field(default_factory=list)
     can_orchestrate: bool = False
+    enabled: bool = True
+    budget_usd_month: float | None = None
 
 
 class Roster:
@@ -208,6 +218,20 @@ def _parse_invoke(raw: object, entry_id: str) -> Invoke:
     elif kind == "cli":
         if not cmd or not isinstance(cmd, list):
             raise RosterError(f"entry {entry_id!r}: cli invoke requires a non-empty 'cmd' list")
+    elif kind == "api":
+        # Paid API is LiteLLM-fronted (plan §7, decision #7): base_url is the LiteLLM endpoint,
+        # model the alias it exposes, and key_ref a *scoped LiteLLM virtual key* — never a raw
+        # provider key. All three are required so a paid entry can never be half-configured.
+        if not base_url or not model:
+            raise RosterError(
+                f"entry {entry_id!r}: api invoke requires 'base_url' and 'model' "
+                "(the LiteLLM-fronted endpoint + model alias)"
+            )
+        if not key_ref:
+            raise RosterError(
+                f"entry {entry_id!r}: api invoke requires 'key_ref' "
+                "(a scoped LiteLLM virtual key reference — never a raw provider key)"
+            )
 
     if not isinstance(scrub_env, list):
         raise RosterError(f"entry {entry_id!r}: invoke.scrub_env must be a list")
@@ -265,6 +289,24 @@ def _parse_entry(raw: object) -> RosterEntry:
     if not isinstance(good_at, list):
         raise RosterError(f"entry {entry_id!r}: 'good_at' must be a list")
 
+    enabled = raw.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise RosterError(
+            f"entry {entry_id!r}: 'enabled' must be a boolean (true/false), got {enabled!r}"
+        )
+
+    budget = raw.get("budget_usd_month")
+    if budget is not None:
+        # Reject bool explicitly (bool is an int subclass) — a budget of `true` is a config error.
+        if isinstance(budget, bool) or not isinstance(budget, (int, float)):
+            raise RosterError(
+                f"entry {entry_id!r}: 'budget_usd_month' must be a number, got {budget!r}"
+            )
+        if budget <= 0:
+            raise RosterError(
+                f"entry {entry_id!r}: 'budget_usd_month' must be > 0, got {budget!r}"
+            )
+
     return RosterEntry(
         id=entry_id,
         tier=tier,
@@ -272,6 +314,8 @@ def _parse_entry(raw: object) -> RosterEntry:
         cost=raw.get("cost"),
         good_at=list(good_at),
         can_orchestrate=bool(raw.get("can_orchestrate", False)),
+        enabled=enabled,
+        budget_usd_month=float(budget) if budget is not None else None,
     )
 
 

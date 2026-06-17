@@ -7,8 +7,9 @@ Each tier is a node/adapter behind one uniform interface — ``run(prompt, opts)
 """
 from __future__ import annotations
 
+from tanglebrain.adapters.api import ApiAdapter
 from tanglebrain.adapters.base import Adapter, AdapterError
 from tanglebrain.adapters.cli import CliAdapter
 from tanglebrain.adapters.openai_compat import OpenAICompatAdapter
 
-__all__ = ["Adapter", "AdapterError", "CliAdapter", "OpenAICompatAdapter"]
+__all__ = ["Adapter", "AdapterError", "ApiAdapter", "CliAdapter", "OpenAICompatAdapter"]
