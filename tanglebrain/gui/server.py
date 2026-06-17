@@ -21,6 +21,7 @@ from tanglebrain.gui.views import (
     save_pricing_view,
     view_pricing,
     view_roster,
+    view_settings,
     view_stats,
 )
 
@@ -57,7 +58,12 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
     if method == "GET":
         if path in ("/", "/index.html"):
             return 200, _HTML, _index_html()
-        view = {"/api/roster": view_roster, "/api/pricing": view_pricing, "/api/stats": view_stats}.get(path)
+        view = {
+            "/api/roster": view_roster,
+            "/api/pricing": view_pricing,
+            "/api/stats": view_stats,
+            "/api/settings": view_settings,
+        }.get(path)
         if view is not None:
             try:
                 return _json(200, view())

@@ -119,20 +119,35 @@ async function loadStats() {
 
 async function loadRoster() {
   try {
-    const d = await getJSON("/api/roster");
+    const [d, settings] = await Promise.all([
+      getJSON("/api/roster"),
+      getJSON("/api/settings").catch(() => ({})),
+    ]);
+    const billingOn = !!settings.api_billing_enabled;
+    const hasApi = (d.entries || []).some(e => e.tier === "api");
+    // Surface the paid-API billing gate so an operator never misreads a paid entry's own
+    // enabled flag as "live" — paid routing needs the global gate on too (issue #2).
+    const banner = hasApi
+      ? (billingOn
+          ? `<div class="caveat">Paid-API billing: <b>ON</b> — enabled <code>tier: api</code> entries are routable as the last resort. Real spend possible.</div>`
+          : `<div class="muted" style="margin-bottom:10px">Paid-API billing: <b>OFF</b> — every <code>tier: api</code> entry is inert regardless of its own <code>enabled</code> flag.</div>`)
+      : "";
     const rows = (d.entries || []).map(e => {
       const tags = (e.good_at || []).map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
       const orch = e.can_orchestrate ? `<span class="pill orch">orchestrator</span>` : "";
+      const disabled = e.enabled === false ? `<span class="pill">disabled</span>` : "";
       const inv = e.invoke || {};
       const ref = inv.key_ref ? `<div class="muted mono" style="font-size:.72rem">key: ${esc(inv.key_ref)}</div>` : "";
+      const budget = (e.budget_usd_month != null)
+        ? `<div class="muted mono" style="font-size:.72rem">budget: ${money(e.budget_usd_month)}/mo (LiteLLM-enforced)</div>` : "";
       return `<tr>
         <td class="mono">${esc(e.id)}</td>
         <td><span class="pill ${esc(e.tier)}">${esc(e.tier)}</span><div class="muted" style="font-size:.72rem">${esc(e.cost||"")}</div></td>
-        <td class="mono">${esc(inv.kind)}${inv.model ? " · " + esc(inv.model) : ""}${ref}</td>
-        <td>${tags} ${orch}</td>
+        <td class="mono">${esc(inv.kind)}${inv.model ? " · " + esc(inv.model) : ""}${ref}${budget}</td>
+        <td>${tags} ${orch} ${disabled}</td>
       </tr>`;
     }).join("");
-    $("rosterCard").innerHTML = `<table><thead><tr><th>id</th><th>tier</th><th>invoke</th><th>good at</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $("rosterCard").innerHTML = banner + `<table><thead><tr><th>id</th><th>tier</th><th>invoke</th><th>good at</th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { $("rosterCard").innerHTML = `<span class="err">failed to load roster</span>`; }
 }
 
