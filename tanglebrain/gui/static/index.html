@@ -133,21 +133,28 @@ async function loadRoster() {
           : `<div class="muted" style="margin-bottom:10px">Paid-API billing: <b>OFF</b> — every <code>tier: api</code> entry is inert regardless of its own <code>enabled</code> flag.</div>`)
       : "";
     const rows = (d.entries || []).map(e => {
-      const tags = (e.good_at || []).map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
-      const orch = e.can_orchestrate ? `<span class="pill orch">orchestrator</span>` : "";
-      const disabled = e.enabled === false ? `<span class="pill">disabled</span>` : "";
       const inv = e.invoke || {};
       const ref = inv.key_ref ? `<div class="muted mono" style="font-size:.72rem">key: ${esc(inv.key_ref)}</div>` : "";
-      const budget = (e.budget_usd_month != null)
-        ? `<div class="muted mono" style="font-size:.72rem">budget: ${money(e.budget_usd_month)}/mo (LiteLLM-enforced)</div>` : "";
+      const enabled = e.enabled !== false;          // view_roster always sends a bool; default on
+      const orch = !!e.can_orchestrate;
+      const goodat = (e.good_at || []).join(", ");
+      const budget = e.budget_usd_month != null ? e.budget_usd_month : "";
+      // Editable scalar fields only (enabled/can_orchestrate/good_at/budget_usd_month). Originals
+      // are stashed on the cell so saves send ONLY changed fields — no noisy default-value inserts.
       return `<tr>
         <td class="mono">${esc(e.id)}</td>
         <td><span class="pill ${esc(e.tier)}">${esc(e.tier)}</span><div class="muted" style="font-size:.72rem">${esc(e.cost||"")}</div></td>
-        <td class="mono">${esc(inv.kind)}${inv.model ? " · " + esc(inv.model) : ""}${ref}${budget}</td>
-        <td>${tags} ${orch} ${disabled}</td>
+        <td class="mono">${esc(inv.kind)}${inv.model ? " · " + esc(inv.model) : ""}${ref}</td>
+        <td class="cfg" data-id="${esc(e.id)}" data-enabled="${enabled}" data-orch="${orch}" data-budget="${esc(budget)}" data-goodat="${esc(goodat)}">
+          <label class="chk"><input type="checkbox" class="f-enabled" ${enabled ? "checked" : ""}> enabled</label>
+          <label class="chk"><input type="checkbox" class="f-orch" ${orch ? "checked" : ""}> orchestrator</label>
+          <div class="muted" style="font-size:.74rem;margin-top:4px">good at <input class="f-goodat" value="${esc(goodat)}" style="width:200px"></div>
+          <div class="muted" style="font-size:.74rem">budget $/mo <input class="f-budget" value="${esc(budget)}" placeholder="—" style="width:80px"></div>
+          <button class="rsave" style="margin-top:4px">Save</button> <span class="rmsg muted" style="font-size:.74rem"></span>
+        </td>
       </tr>`;
     }).join("");
-    $("rosterCard").innerHTML = banner + `<table><thead><tr><th>id</th><th>tier</th><th>invoke</th><th>good at</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $("rosterCard").innerHTML = banner + `<table><thead><tr><th>id</th><th>tier</th><th>invoke</th><th>config <span class="muted" style="font-weight:400">(editable)</span></th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { $("rosterCard").innerHTML = `<span class="err">failed to load roster</span>`; }
 }
 
@@ -197,6 +204,33 @@ async function savePricing() {
   }
 }
 
+async function saveRoster(cell, btn) {
+  const id = cell.getAttribute("data-id");
+  const msg = cell.querySelector(".rmsg");
+  // Current control values vs the originals stashed on the cell — send only what changed.
+  const enabled = cell.querySelector(".f-enabled").checked;
+  const orch = cell.querySelector(".f-orch").checked;
+  const goodat = cell.querySelector(".f-goodat").value.split(",").map(s => s.trim()).filter(Boolean);
+  const budgetRaw = cell.querySelector(".f-budget").value.trim();
+  const fields = {};
+  if (enabled !== (cell.getAttribute("data-enabled") === "true")) fields.enabled = enabled;
+  if (orch !== (cell.getAttribute("data-orch") === "true")) fields.can_orchestrate = orch;
+  if (goodat.join(", ") !== cell.getAttribute("data-goodat")) fields.good_at = goodat;
+  if (budgetRaw !== cell.getAttribute("data-budget")) fields.budget_usd_month = (budgetRaw === "" ? null : Number(budgetRaw));
+  if (Object.keys(fields).length === 0) { msg.textContent = "no changes"; msg.className = "rmsg muted"; return; }
+  if ("budget_usd_month" in fields && fields.budget_usd_month != null && !(fields.budget_usd_month > 0)) {
+    msg.textContent = "budget must be a positive number"; msg.className = "rmsg err"; return;
+  }
+  if (!confirm(`Overwrite config/roster.yaml — update '${id}' (${Object.keys(fields).join(", ")})? A backup is kept; commit the change in git.`)) return;
+  btn.disabled = true; msg.textContent = "saving…"; msg.className = "rmsg muted";
+  try {
+    const r = await fetch("/api/roster", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ id, fields }) });
+    const d = await r.json();
+    if (d.ok) { loadRoster(); }  // re-render from the persisted file (resets controls + originals)
+    else { msg.textContent = d.error || "save failed"; msg.className = "rmsg err"; btn.disabled = false; }
+  } catch (e) { msg.textContent = "request failed"; msg.className = "rmsg err"; btn.disabled = false; }
+}
+
 async function run() {
   const prompt = $("prompt").value.trim();
   const box = $("runResult");
@@ -225,6 +259,13 @@ async function run() {
 }
 
 $("run").addEventListener("click", run);
+// Delegated: the roster card is re-rendered on each refresh, so listen on the stable parent.
+$("rosterCard").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".rsave");
+  if (!btn) return;
+  const cell = btn.closest(".cfg");
+  if (cell) saveRoster(cell, btn);
+});
 loadStats(); loadRoster(); loadPricing();
 </script>
 </body>

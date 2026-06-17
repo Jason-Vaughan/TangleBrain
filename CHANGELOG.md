@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Editable roster in the knob panel (plan §5/§9.2).** The `tanglebrain-gui` roster card is now
+  editable for a focused set of per-entry scalar fields — `enabled`, `can_orchestrate`,
+  `budget_usd_month`, and `good_at` — each row with its own Save. Completes the deferred half of the
+  C5 knob GUI (pricing became editable in C5b).
+  - **Comment-preserving, zero new deps**: a new `tanglebrain/roster_edit.py` edits the targeted
+    value on the targeted line *in place*, so every inline comment, blank line, the nested `invoke`
+    block, and the commented paid-API example survive byte-for-byte — no YAML round-trip library.
+    Adding/removing/reordering entries and editing the `invoke` block stay hand-edits (out of scope).
+  - **Write-safety** mirrors C5b: edits are validated (and the candidate is **re-parsed with the real
+    loader before any write**, so a surgical slip can never land a malformed roster), the prior file
+    is backed up to `<state_dir>/backups/roster-<ts>.yaml`, and the write is atomic. The panel sends
+    only changed fields and confirms before overwriting the tracked `config/roster.yaml`.
+  - New `views.save_roster_view()` + `POST /api/roster`.
+
 ## [0.7.1] - 2026-06-16
 
 ### Fixed

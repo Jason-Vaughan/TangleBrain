@@ -118,8 +118,13 @@ the pricing reference, and the local spend-avoided rollup, and lets you **run a 
 router (showing which tier/model served it). The **pricing card is editable** — change the rates /
 reference label / placeholder flag and Save; it writes the tracked `tanglebrain/config/pricing.yaml`
 (strict validation, atomic write, a backup to the state dir, and the methodology header preserved),
-so the edit is git-visible for you to commit. The **roster stays read-only** (its curated inline
-comments need a comment-preserving editor — a later chunk). The panel binds `127.0.0.1` only:
+so the edit is git-visible for you to commit. The **roster is editable for a focused set of per-entry
+fields** — `enabled`, `can_orchestrate`, `budget_usd_month`, and `good_at` (each row has its own
+Save). Edits are surgical and **comment-preserving**: only the targeted value on the targeted line
+changes, so the curated inline comments and the nested `invoke` block survive byte-for-byte (same
+validate → backup → atomic-write safety as pricing; the candidate is re-parsed before any write).
+Adding/removing entries and editing the `invoke` block are still hand-edits. The panel binds
+`127.0.0.1` only:
 running a prompt spends real subscription rate-limit quota and it reads the roster, so it is never
 network-exposed. The roster view shows each entry's `key_ref` as the reference string only — secrets
 are never resolved or sent to the browser.
