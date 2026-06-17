@@ -152,5 +152,58 @@ class LoaderValidationTest(unittest.TestCase):
             roster.by_id("nope")
 
 
+class ApiEntryTest(unittest.TestCase):
+    """The paid-API tier (issue #2): api entries parse (but the loader requires full config)."""
+
+    _OK = (
+        "- id: gpt5\n  tier: api\n"
+        "  invoke: {kind: api, base_url: 'http://x/v1', model: gpt-5, key_ref: 'file:~/k.key'}\n"
+    )
+
+    def test_api_entry_parses_with_full_invoke(self):
+        roster = load_roster(write_yaml(self._OK, self))
+        entry = roster.by_id("gpt5")
+        self.assertEqual(entry.tier, "api")
+        self.assertEqual(entry.invoke.kind, "api")
+        self.assertEqual(entry.invoke.base_url, "http://x/v1")
+        self.assertEqual(entry.invoke.key_ref, "file:~/k.key")
+        # Defaults: enabled true, no budget recorded.
+        self.assertTrue(entry.enabled)
+        self.assertIsNone(entry.budget_usd_month)
+
+    def test_api_requires_base_url_and_model(self):
+        path = write_yaml(
+            "- id: a\n  tier: api\n  invoke: {kind: api, key_ref: 'file:~/k.key'}\n", self
+        )
+        with self.assertRaises(RosterError):
+            load_roster(path)
+
+    def test_api_requires_key_ref(self):
+        # A paid entry without a key reference must be rejected — never silently keyless.
+        path = write_yaml(
+            "- id: a\n  tier: api\n  invoke: {kind: api, base_url: 'http://x/v1', model: m}\n", self
+        )
+        with self.assertRaises(RosterError) as ctx:
+            load_roster(path)
+        self.assertIn("key_ref", str(ctx.exception))
+
+    def test_enabled_and_budget_parse(self):
+        path = write_yaml(self._OK + "  enabled: false\n  budget_usd_month: 25\n", self)
+        entry = load_roster(path).by_id("gpt5")
+        self.assertFalse(entry.enabled)
+        self.assertEqual(entry.budget_usd_month, 25.0)
+
+    def test_enabled_must_be_bool(self):
+        path = write_yaml(self._OK + "  enabled: yesplease\n", self)
+        with self.assertRaises(RosterError):
+            load_roster(path)
+
+    def test_budget_must_be_positive_number(self):
+        for bad in ("0", "-5", "true", "'lots'"):
+            path = write_yaml(self._OK + f"  budget_usd_month: {bad}\n", self)
+            with self.assertRaises(RosterError):
+                load_roster(path)
+
+
 if __name__ == "__main__":
     unittest.main()

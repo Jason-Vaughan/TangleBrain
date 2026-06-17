@@ -26,7 +26,8 @@ subscriptions instead of paying per-token."*
 `tanglebrain "…"` rotates an orchestrator sub, fails over on rate limits, and offloads grunt to
 free local gpt-oss; `tanglebrain --stats` rolls up the cloud-equivalent cost avoided; and a
 localhost knob panel (`tanglebrain-gui`) shows it all in the browser and lets you edit the pricing
-knob. Remaining: the gated paid-API tier (issue #2), and roster editing in the panel (later).
+knob. The paid-API tier now exists but ships **off by default** (issue #2 / C6a); remaining:
+wiring it into last-resort routing (C6b), and roster editing in the panel (later).
 
 - ✅ **C0** — frontier-first decompose spike (shipped in Monad-1, verdict KEEP).
 - ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
@@ -44,6 +45,9 @@ knob. Remaining: the gated paid-API tier (issue #2), and roster editing in the p
   pricing, and spend-avoided rollup, and run a prompt through the router.
 - ✅ **C5b** — editable pricing in the panel (validated, atomic, comment-preserving write-back to
   `pricing.yaml`). Roster editing still to come.
+- ✅ **C6a** — paid-API tier scaffolding: an `api` adapter (LiteLLM-fronted) behind a global
+  `api_billing_enabled` gate (**default off**) plus a per-entry `enabled` kill-switch. A `tier: api`
+  entry parses but is **never routable** until both are on. Last-resort routing is C6b.
 
 Full plan: [`.claude/plans/tanglebrain.md`](.claude/plans/tanglebrain.md). The historical
 orchestration contract (frozen, superseded by the plan) lives in [`TANGLEBRAIN.md`](TANGLEBRAIN.md).
@@ -157,6 +161,30 @@ gemini mcp add tanglebrain-delegate tanglebrain-delegate
 
 To point the server at a non-default roster, set `TANGLEBRAIN_ROSTER=/path/to/roster.yaml` in
 its environment.
+
+### Paid-API tier (opt-in, off by default)
+
+Paid API is the genuine last resort — it costs real money, so it is **disabled by default** and
+gated by a single explicit switch. A `tier: api` roster entry parses and is inspectable at all
+times, but it is **never routable** until you turn it on.
+
+The durable rule: *no paid billing without the explicit toggle.* Two independent gates must both be
+on for a paid entry to build:
+
+1. **Global gate** — `api_billing_enabled: true` in `tanglebrain/config/settings.yaml` (ships
+   `false`).
+2. **Per-entry switch** — `enabled: true` on the roster entry (a per-key kill-switch).
+
+Custody is **LiteLLM-fronted**: TangleBrain never holds a raw provider key. You mint a
+budget-scoped **virtual key** in LiteLLM on Monad and reference it via `key_ref` (e.g.
+`file:~/.config/monad/tanglebrain-gpt5.key`); the raw provider key stays in LiteLLM. A paid entry
+also records `budget_usd_month` for visibility — in this version the **hard budget cap is enforced
+LiteLLM-side** on the virtual key, not by TangleBrain. A commented example entry is at the bottom of
+`tanglebrain/config/roster.yaml`.
+
+> Note (C6a): the tier exists and its adapter works, but **last-resort routing is not wired yet**
+> (C6b). Today an `api` entry only runs when selected explicitly (`--model <id>`) with both gates
+> on; the router does not fall through to it automatically.
 
 ## Develop
 

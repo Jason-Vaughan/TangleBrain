@@ -78,6 +78,24 @@ class RunOnceTest(unittest.TestCase):
         with self.assertRaises(SelectionError):
             run_once("hello", model="no-such-model")
 
+    def test_model_to_paid_api_entry_is_inert_with_gate_off(self):
+        # The boundary the user actually touches: `--model <api-id>` must NOT reach a paid endpoint
+        # while billing is gated off. This exercises the REAL build_adapter -> load_settings()
+        # default-load (packaged settings.yaml ships the gate off), no mocks on the gate.
+        roster_yaml = (
+            "- id: gpt5\n  tier: api\n"
+            "  invoke: {kind: api, base_url: 'http://x/v1', model: gpt-5, key_ref: 'env:NOPE'}\n"
+        )
+        handle = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+        handle.write(roster_yaml)
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        with self.assertRaises(AdapterError) as ctx:
+            run_once("expensive please", roster_path=handle.name, model="gpt5")
+        self.assertIn("billing is disabled", str(ctx.exception))
+        # And it must not have metered a task (it never ran).
+        self.assertEqual(self._records(), [])
+
     def test_router_threads_task_hint(self):
         # The default router path passes the task hint through to Router.route.
         fake_router = MagicMock()
