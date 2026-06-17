@@ -1,5 +1,7 @@
 # TangleBrain
 
+[![CI](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml)
+
 A **local-first, config-driven router across OpenAI-compatible backends you own.** TangleBrain
 routes each request to a backend you've configured — a local model server by default, with optional
 authenticated CLIs and your own paid API keys as overflow — and keeps the whole roster of backends

@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tanglebrain --version`** prints the package version (from `tanglebrain.__version__`) and exits.
+  Closes #29.
 - **Contributor mechanics (public-OSS rollout, R2b).** `CONTRIBUTING.md` (dev setup via
   `make venv` / `make test`, branch & PR conventions, What/Why/Test-plan, and "adding a backend is a
   config edit" first-contribution framing), `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1), GitHub
@@ -37,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Continuous integration (public-OSS rollout, R3).** A GitHub Actions workflow
+  (`.github/workflows/ci.yml`) runs `make test` (the hermetic suite) on every push to `main` and on
+  pull requests, across Python 3.10/3.11/3.12. The `TANGLEBRAIN_LIVE`-gated tests stay skipped (CI has
+  no backend). README gained a CI status badge. CI immediately surfaced a test-isolation gap — three
+  `--model "claude"` CLI tests relied on the dev machine's ambient `~/.config/tanglebrain/roster.yaml`
+  (the packaged example is local-only since R2a) — now fixed to pin a self-contained roster.
 - Live e2e test (`tests/test_live.py`) pins the **direct-local** path (`run_once(..., local=True)`)
   and asserts it was served by the active roster's own local entry (roster-agnostic). Bare `run_once`
   has routed through the frontier-first router since the default flip, so the acceptance assertion had

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from tanglebrain import __version__
 from tanglebrain.adapters import AdapterError
 from tanglebrain.classifier import TRIVIAL, classify
 from tanglebrain.measurement import (
@@ -44,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Route one request to the cheapest capable tier (frontier-first by default), or "
             "print the 'spend avoided' rollup with --stats."
         ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Print the TangleBrain version and exit.",
     )
     parser.add_argument(
         "prompt",
