@@ -20,6 +20,35 @@ from tanglebrain.roster import packaged_roster_path
 from tanglebrain.selector import SelectionError
 
 
+# A self-contained roster (a local entry + a 'claude' sub) for tests that pin --model/--local to a
+# known id. Pinned via roster_path so these tests never depend on the ambient
+# ~/.config/tanglebrain/roster.yaml: the packaged example ships local-only since the sub entries
+# became opt-in/commented (R2a), so an unpinned model="claude" only resolves on a machine that
+# happens to have a real roster — which is exactly the non-hermetic gap CI caught.
+_PINNED_ROSTER_YAML = """\
+- id: local-ollama
+  tier: local
+  invoke: {kind: openai-compat, base_url: "http://localhost:11434/v1", model: "llama3.2"}
+  cost: free
+  good_at: [grunt]
+- id: claude
+  tier: sub
+  invoke: {kind: cli, cmd: ["claude"], parse: claude-json}
+  cost: flat-rate
+  good_at: [reasoning]
+  can_orchestrate: true
+"""
+
+
+def _pinned_roster(test: unittest.TestCase) -> str:
+    """Write the pinned local+claude roster to a temp file and return its path (auto-cleaned)."""
+    handle = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+    handle.write(_PINNED_ROSTER_YAML)
+    handle.close()
+    test.addCleanup(os.unlink, handle.name)
+    return handle.name
+
+
 class RunOnceTest(unittest.TestCase):
     def setUp(self):
         # Redirect the C4 usage log into a temp dir so metering side-effects stay hermetic
@@ -73,7 +102,9 @@ class RunOnceTest(unittest.TestCase):
         fake_adapter = MagicMock()
         fake_adapter.run.return_value = "claude reply"
         with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter) as build:
-            self.assertEqual(run_once("hello", model="claude"), "claude reply")
+            self.assertEqual(
+                run_once("hello", model="claude", roster_path=_pinned_roster(self)), "claude reply"
+            )
         selected = build.call_args.args[0]
         self.assertEqual(selected.id, "claude")
         self.assertEqual(selected.tier, "sub")
@@ -185,7 +216,7 @@ class RunOnceTest(unittest.TestCase):
         fake_adapter = MagicMock()
         fake_adapter.run.return_value = "claude reply"
         with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
-            run_once("summarize this", model="claude")
+            run_once("summarize this", model="claude", roster_path=_pinned_roster(self))
         records = self._records()
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["path"], "model")
@@ -224,10 +255,11 @@ class RunOnceTest(unittest.TestCase):
         # The gate lives only on the default path — an explicit --model/--local must bypass it
         # entirely (classify never called), even with gate forced on.
         fake_adapter = MagicMock(); fake_adapter.run.return_value = "x"
+        roster = _pinned_roster(self)
         with patch("tanglebrain.cli.classify") as clf, \
              patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
-            run_once("hi", model="claude", gate=True)
-            run_once("hi", local=True, gate=True)
+            run_once("hi", model="claude", gate=True, roster_path=roster)
+            run_once("hi", local=True, gate=True, roster_path=roster)
         clf.assert_not_called()
 
     def test_gate_none_uses_setting(self):
