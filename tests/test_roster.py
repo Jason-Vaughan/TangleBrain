@@ -4,12 +4,16 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from tanglebrain.roster import (
+    ROSTER_ENV_VAR,
     Roster,
     RosterError,
     default_roster_path,
     load_roster,
+    packaged_roster_path,
 )
 
 
@@ -23,29 +27,33 @@ def write_yaml(text: str, test: unittest.TestCase) -> str:
 
 
 class PackagedRosterTest(unittest.TestCase):
-    """The roster shipped with the package parses and matches plan §5."""
+    """The GENERIC example roster shipped with the package parses correctly.
+
+    Pinned to ``packaged_roster_path()`` so it tests the bundled example regardless of any
+    operator roster the dev machine may have at ``~/.config/tanglebrain/roster.yaml``.
+    """
 
     def setUp(self):
-        self.roster = load_roster()
+        self.roster = load_roster(packaged_roster_path())
 
-    def test_default_path_points_at_packaged_yaml(self):
-        self.assertTrue(default_roster_path().exists())
-        self.assertEqual(default_roster_path().name, "roster.yaml")
+    def test_packaged_path_points_at_bundled_yaml(self):
+        self.assertTrue(packaged_roster_path().exists())
+        self.assertEqual(packaged_roster_path().name, "roster.yaml")
 
     def test_has_four_entries(self):
         self.assertEqual(len(self.roster), 4)
 
     def test_entry_ids_in_declared_order(self):
         ids = [e.id for e in self.roster]
-        self.assertEqual(ids, ["gpt-oss-120b", "claude", "codex", "gemini"])
+        self.assertEqual(ids, ["local-ollama", "claude", "codex", "gemini"])
 
-    def test_local_entry_is_openai_compat_with_key_ref(self):
-        local = self.roster.by_id("gpt-oss-120b")
+    def test_local_entry_is_generic_ollama_no_key(self):
+        local = self.roster.by_id("local-ollama")
         self.assertEqual(local.tier, "local")
         self.assertEqual(local.invoke.kind, "openai-compat")
         self.assertTrue(local.invoke.base_url.endswith("/v1"))
-        self.assertEqual(local.invoke.model, "gpt-oss-120b")
-        self.assertEqual(local.invoke.key_ref, "file:~/.config/monad/tanglebrain-spike.key")
+        self.assertEqual(local.invoke.model, "llama3.2")
+        self.assertIsNone(local.invoke.key_ref)  # generic Ollama needs no auth
 
     def test_claude_entry_scrubs_anthropic_key_and_can_orchestrate(self):
         claude = self.roster.by_id("claude")
@@ -76,7 +84,33 @@ class PackagedRosterTest(unittest.TestCase):
         self.assertEqual([e.id for e in self.roster.orchestrators()], ["claude", "codex", "gemini"])
 
     def test_in_tier_local(self):
-        self.assertEqual([e.id for e in self.roster.in_tier("local")], ["gpt-oss-120b"])
+        self.assertEqual([e.id for e in self.roster.in_tier("local")], ["local-ollama"])
+
+
+class RosterDiscoveryTest(unittest.TestCase):
+    """default_roster_path() resolution order: env → ~/.config/tanglebrain → packaged."""
+
+    def test_env_var_wins(self):
+        with mock.patch.dict(os.environ, {ROSTER_ENV_VAR: "~/from/env.yaml"}, clear=False):
+            self.assertEqual(default_roster_path(), Path("~/from/env.yaml").expanduser())
+
+    def test_xdg_user_roster_when_no_env(self):
+        tmp = tempfile.mkdtemp()
+        user = Path(tmp) / "tanglebrain" / "roster.yaml"
+        user.parent.mkdir(parents=True)
+        user.write_text("- id: x\n  tier: local\n  invoke: {kind: openai-compat, base_url: u, model: m}\n")
+        env = {k: v for k, v in os.environ.items() if k != ROSTER_ENV_VAR}
+        env["XDG_CONFIG_HOME"] = tmp
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(default_roster_path(), user)
+
+    def test_falls_back_to_packaged(self):
+        # No env, and an XDG home with no tanglebrain/roster.yaml → packaged example.
+        empty = tempfile.mkdtemp()
+        env = {k: v for k, v in os.environ.items() if k != ROSTER_ENV_VAR}
+        env["XDG_CONFIG_HOME"] = empty
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(default_roster_path(), packaged_roster_path())
 
 
 class LoaderValidationTest(unittest.TestCase):

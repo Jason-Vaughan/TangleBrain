@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Generic shipped roster + external roster discovery.** The bundled `config/roster.yaml` is now a
+  **generic example** (free local tier points at Ollama on `localhost:11434`, opt-in subscription-CLI
+  entries, no maintainer infra). Your real roster lives **outside the repo** and is auto-discovered:
+  `TANGLEBRAIN_ROSTER` env → `~/.config/tanglebrain/roster.yaml` (XDG) → the packaged example. So a
+  `git pull` never clobbers your config, and the package ships nothing deployment-specific. The
+  `--roster` flag still takes precedence. Part of the public-OSS rollout.
+
+### Added
+
+- `roster.packaged_roster_path()` (the bundled example) and `roster.default_roster_path()` discovery,
+  mirroring the existing state-dir resolution pattern.
+
 ### Internal
 
-- Live e2e test (`tests/test_live.py`) now pins the **direct-local** path: it calls
-  `run_once(..., local=True)` and asserts the request was served by the local tier
-  (`tier=local`, `model=gpt-oss-120b`). Bare `run_once` has routed through the frontier-first router
-  since the C3b default flip, so the C1 acceptance assertion had quietly stopped exercising the local
-  path. Test-only; no behaviour change (#24).
+- Live e2e test (`tests/test_live.py`) pins the **direct-local** path (`run_once(..., local=True)`)
+  and asserts it was served by the active roster's own local entry (roster-agnostic). Bare `run_once`
+  has routed through the frontier-first router since the default flip, so the acceptance assertion had
+  quietly stopped exercising the local path (#24). Test-only.
 
 ## [0.9.0] - 2026-06-17
 
@@ -83,8 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   global gate is off. New `view_settings()` view + `GET /api/settings` route (reads only
   `config/settings.yaml`; no key file touched). All read-only — per the v1 decision, TangleBrain
   does **not** meter or enforce spend; the hard budget cap stays LiteLLM-side on the virtual key.
-  - README gains a step-by-step **runbook** for minting a budget-scoped LiteLLM virtual key on Monad
-    and wiring it via `key_ref`, plus how to pause spend (per-key `enabled: false` or the global gate).
+  - README gains a step-by-step **runbook** for minting a budget-scoped LiteLLM virtual key on your
+    LiteLLM gateway and wiring it via `key_ref`, plus how to pause spend (`enabled: false` or the gate).
 
 ## [0.6.0] - 2026-06-16
 
@@ -157,9 +170,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Uniform token estimation**: CLI subs expose no usable token counts, so tokens are estimated
     with a single `chars/4` heuristic over the visible prompt + response, applied identically to
     every tier — one consistent (if approximate) methodology. No adapter or routing behavior change.
-  - **Config-driven pricing** (`tanglebrain/config/pricing.yaml`) carrying Monad-1's `monad-stats`
-    `costSaved` anchor — Claude Sonnet at $3/$15 per MTok (methodology ratified 2026-06-13) — so the
-    two projects value avoided spend identically. A `placeholder` flag (false by default) makes the
+  - **Config-driven pricing** (`tanglebrain/config/pricing.yaml`) carrying a local pricing source's
+    `costSaved` anchor — Claude Sonnet at $3/$15 per MTok (methodology ratified 2026-06-13) — so
+    avoided spend is valued consistently. A `placeholder` flag (false by default) makes the
     rollup render a PLACEHOLDER caveat if the anchor is ever forked before re-ratifying.
   - **New module** `tanglebrain/measurement.py`; the router now exposes `Router.last_served` so the
     CLI metering seam can record which tier handled each task. All measurement I/O is
@@ -249,14 +262,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **C1 — repo skeleton + roster loader + openai-compat adapter.** One request now routes to
-  the free local tier (gpt-oss-120b on Monad via LiteLLM) end-to-end.
+  the free local tier (a local gpt-oss model via LiteLLM) end-to-end.
   - Python package skeleton (`tanglebrain/`), `pyproject.toml`, `Makefile`, and `tests/`
-    mirroring Monad-1 conventions (stdlib `unittest`, venv-based test target, `make lint/test`).
+    following the project's conventions (stdlib `unittest`, venv-based test target, `make lint/test`).
   - Roster config loader (`tanglebrain/roster.py`): parses the YAML roster into typed
     objects. The roster is config-driven and open-ended — adding a model is an entry edit,
     not a code change. The starting roster is `gpt-oss-120b` + the three subscription CLIs.
   - `openai-compat` adapter (`tanglebrain/adapters/openai_compat.py`) with the uniform
-    `run(prompt, opts) -> text` interface, calling the Monad LiteLLM endpoint directly.
+    `run(prompt, opts) -> text` interface, calling the local LiteLLM endpoint directly.
     Returns only the final `content` (drops `reasoning_content`); defaults `max_tokens` to
     2048 per the C0 budget lesson. Resolves the scoped key via the contract's `key_ref`.
   - Local-first selector (`tanglebrain/selector.py`) and CLI entry point
