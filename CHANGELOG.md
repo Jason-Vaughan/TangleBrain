@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Neutral positioning + local-only default roster (public-OSS rollout, R2a).** Reframed the project
+  as a *local-first, config-driven router across OpenAI-compatible backends you own*. The packaged
+  `config/roster.yaml` now ships **one active entry — the free local tier**; the subscription /
+  authenticated-CLI tier (claude/codex/gemini) ships **commented out** as an opt-in example like the
+  paid tier, so a fresh clone routes to local out of the box. README rewritten for newcomers (neutral
+  headline, capability list, `--local`-first quickstart); new `ARCHITECTURE.md` (clean-room, neutral)
+  and `DISCLAIMER.md` (subscription/CLI adapters are opt-in and your responsibility under each
+  provider's ToS; paid tier is bring-your-own-key, off by default). `PackagedRosterTest` updated to
+  the one-active-entry reality.
 - **Generic shipped roster + external roster discovery.** The bundled `config/roster.yaml` is now a
   **generic example** (free local tier points at Ollama on `localhost:11434`, opt-in subscription-CLI
   entries, no maintainer infra). Your real roster lives **outside the repo** and is auto-discovered:
