@@ -9,11 +9,11 @@ routing-evolution gate depends on later.
 Design notes:
 
 - **Tokens are estimated, not measured.** CLI subs (claude/codex/gemini) expose no usable token
-  counts, and the local tier's real ``usage`` is inflated by dropped gpt-oss reasoning tokens. So a
+  counts, and a local reasoning model's real ``usage`` is inflated by dropped reasoning tokens. So a
   single ``chars/4`` heuristic over the visible prompt + response is applied *uniformly* across all
   tiers — one consistent, if approximate, methodology (see :func:`estimate_tokens`).
-- **Pricing is config-driven** (``config/pricing.yaml``), seeded from usage-stats' ``costSaved``
-  constants so the two projects stay aligned; C5's knob GUI tunes it.
+- **Pricing is config-driven** (``config/pricing.yaml``): a reference frontier price the operator
+  tunes (the knob GUI edits it).
 - **All I/O is fault-tolerant.** A logging failure must never break the user's actual answer, and a
   corrupt log line must never break the rollup. Reads return sensible defaults; the writer swallows
   every exception. This mirrors the router's state-file idiom (:mod:`tanglebrain.router`).
@@ -46,8 +46,8 @@ class Pricing:
         reference_model: Human-readable label for the frontier model these rates represent.
         input_per_mtok: US dollars per 1,000,000 input (prompt) tokens.
         output_per_mtok: US dollars per 1,000,000 output (completion) tokens.
-        is_placeholder: ``True`` while the rates are not yet the canonical usage-stats constants;
-            the rollup renders a PLACEHOLDER caveat so no figure is mistaken for authoritative.
+        is_placeholder: ``True`` while the rates are rough/illustrative; the rollup renders a
+            PLACEHOLDER caveat so no figure is mistaken for a precise cost.
     """
 
     reference_model: str
@@ -115,12 +115,11 @@ def load_pricing(path: str | os.PathLike[str] | None = None) -> Pricing:
 # A normal save preserves the existing file's own leading comment block verbatim (see
 # :func:`_leading_comment_block`), so the curated methodology note is never replaced or drifted.
 PRICING_HEADER = """\
-# Cloud-equivalent reference pricing for the C4 "spend avoided" rollup (plan §8).
+# Cloud-equivalent reference pricing for the "spend avoided" rollup.
 #
-# Methodology mirrors coordinator's usage-stats `costSaved` (ratified 2026-06-13): for each routed
-# task, estimate what it WOULD have cost on a paid frontier API, valued at a reference model's
-# per-token price. The rollup multiplies estimated tokens (a chars/4 heuristic over the visible
-# prompt + response) by these rates. Values are US dollars per 1,000,000 tokens.
+# Methodology: for each routed task, estimate what it WOULD have cost on a paid frontier API, valued
+# at a reference model's per-token price. The rollup multiplies estimated tokens (a chars/4 heuristic
+# over the visible prompt + response) by these rates. Values are US dollars per 1,000,000 tokens.
 #
 # `placeholder: true` makes `tanglebrain --stats` flag every figure as PLACEHOLDER (use it if you
 # fork the anchor before re-ratifying with the PM). Edited via `tanglebrain-gui` or by hand.
@@ -436,7 +435,7 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
     lines.append(f"  Pricing ref:    {pricing.reference_model}")
     if pricing.is_placeholder:
         lines.append(
-            "  ⚠ pricing: PLACEHOLDER — figures are illustrative until the usage-stats "
-            "costSaved constants land in config/pricing.yaml."
+            "  ⚠ pricing: PLACEHOLDER — figures are illustrative; set real rates in "
+            "config/pricing.yaml and flip placeholder to false."
         )
     return "\n".join(lines)

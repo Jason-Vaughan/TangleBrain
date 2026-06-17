@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import main, run_once
 from tanglebrain.measurement import read_records
+from tanglebrain.roster import packaged_roster_path
 from tanglebrain.selector import SelectionError
 
 
@@ -45,10 +46,13 @@ class RunOnceTest(unittest.TestCase):
         fake_adapter = MagicMock()
         fake_adapter.run.return_value = "local reply"
         with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter) as build:
-            self.assertEqual(run_once("hello", local=True), "local reply")
+            # Pin to the packaged example so the asserted local id is machine-independent.
+            self.assertEqual(
+                run_once("hello", local=True, roster_path=str(packaged_roster_path())), "local reply"
+            )
         selected = build.call_args.args[0]
         self.assertEqual(selected.tier, "local")
-        self.assertEqual(selected.id, "gpt-oss-120b")
+        self.assertEqual(selected.id, "local-ollama")
 
     def test_max_tokens_threaded_through_local(self):
         fake_adapter = MagicMock()
@@ -146,12 +150,14 @@ class RunOnceTest(unittest.TestCase):
         fake_adapter = MagicMock()
         fake_adapter.run.return_value = "local reply"
         with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
-            result = run_once("hi", local=True, return_served=True)
+            result = run_once(
+                "hi", local=True, return_served=True, roster_path=str(packaged_roster_path())
+            )
         text, served = result
         self.assertEqual(text, "local reply")
         self.assertEqual(served["path"], "local")
         self.assertEqual(served["tier"], "local")
-        self.assertEqual(served["model"], "gpt-oss-120b")
+        self.assertEqual(served["model"], "local-ollama")
 
     def test_return_served_router_path(self):
         served_entry = MagicMock()

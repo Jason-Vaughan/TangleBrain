@@ -1,15 +1,14 @@
-"""OpenAI-compat adapter — the free local tier (plan §4, C1).
+"""OpenAI-compat adapter — the free local tier.
 
-Calls an OpenAI-compatible ``/chat/completions`` endpoint (the local LiteLLM gateway in
-front of gpt-oss-120b) and returns the final text. It calls LiteLLM **directly** — it does
-not depend on coordinator's MCP server (that was only the C0 spike vehicle).
+Calls an OpenAI-compatible ``/chat/completions`` endpoint (e.g. Ollama, or any local/self-hosted
+gateway) and returns the final text. It calls the endpoint **directly** — no MCP server in between.
 
-Behaviour mirrors the C0 spike's ``_call_litellm`` (coordinator ``openclaw-local-mcp``):
+Behaviour:
 
-- Returns only ``choices[0].message.content`` — gpt-oss's chain-of-thought lands in a
-  separate ``reasoning_content`` field and is intentionally dropped.
-- Defaults ``max_tokens`` to 2048: gpt-oss spends part of its budget on internal reasoning
-  before emitting the final answer, so a stingy cap truncates real output (the C0 lesson).
+- Returns only ``choices[0].message.content`` — some local reasoning models put chain-of-thought in
+  a separate ``reasoning_content`` field, which is intentionally dropped.
+- Defaults ``max_tokens`` to 2048: reasoning models spend part of their budget on internal reasoning
+  before emitting the final answer, so a stingy cap can truncate real output.
 - Raises on any non-2xx status, transport failure, or unexpected response shape. This layer
   does NOT retry or fall back — failures surface to the routing layer, which decides.
 """
@@ -98,7 +97,7 @@ class OpenAICompatAdapter:
         for an entry whose key file is absent does not fail until it is actually invoked.
 
         Args:
-            base_url: OpenAI-compat base URL (e.g. ``http://litellm...:4000/v1``).
+            base_url: OpenAI-compat base URL (e.g. ``http://localhost:11434/v1``).
             model: Model id/alias to request (e.g. ``gpt-oss-120b``).
             key_ref: Credential reference (``file:PATH`` | ``env:NAME`` | ``none``), or ``None``.
             timeout: Per-request timeout in seconds.

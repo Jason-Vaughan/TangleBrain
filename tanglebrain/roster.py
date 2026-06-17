@@ -34,6 +34,11 @@ import yaml
 VALID_KINDS = ("openai-compat", "cli", "api")
 VALID_TIERS = ("local", "sub", "api")
 
+# Env var pointing at an explicit roster file (highest-precedence default, ~ expanded).
+ROSTER_ENV_VAR = "TANGLEBRAIN_ROSTER"
+# The operator's own roster, kept OUTSIDE the repo (XDG config). Auto-discovered if present.
+USER_ROSTER_SUBPATH = ("tanglebrain", "roster.yaml")
+
 
 class RosterError(ValueError):
     """Raised when the roster YAML is missing, malformed, or semantically invalid.
@@ -319,21 +324,53 @@ def _parse_entry(raw: object) -> RosterEntry:
     )
 
 
-def default_roster_path() -> Path:
-    """Return the path to the roster YAML shipped with the package.
+def packaged_roster_path() -> Path:
+    """Return the path to the **generic example** roster shipped with the package.
 
     Returns:
-        The absolute path to ``tanglebrain/config/roster.yaml``.
+        The absolute path to ``tanglebrain/config/roster.yaml`` (the fallback default).
     """
     return Path(__file__).resolve().parent / "config" / "roster.yaml"
+
+
+def _user_roster_path() -> Path:
+    """The operator's own roster path under XDG config (``~/.config/tanglebrain/roster.yaml``)."""
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    root = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    return root.joinpath(*USER_ROSTER_SUBPATH)
+
+
+def default_roster_path() -> Path:
+    """Resolve the roster path used when no explicit path is given.
+
+    The shipped ``config/roster.yaml`` is only a **generic example** — an operator keeps their real
+    roster outside the repo. Resolution order (first hit wins):
+
+    1. ``TANGLEBRAIN_ROSTER`` env var (``~`` expanded) — an explicit override.
+    2. ``$XDG_CONFIG_HOME/tanglebrain/roster.yaml`` (or ``~/.config/tanglebrain/roster.yaml``) **if it
+       exists** — the operator's own roster, auto-discovered.
+    3. The packaged generic example (:func:`packaged_roster_path`).
+
+    Returns:
+        The resolved roster path (existence is checked by :func:`load_roster`, so a bad
+        ``TANGLEBRAIN_ROSTER`` surfaces a clear "not found" error rather than silently falling back).
+    """
+    env = os.environ.get(ROSTER_ENV_VAR)
+    if env:
+        return Path(env).expanduser()
+    user = _user_roster_path()
+    if user.exists():
+        return user
+    return packaged_roster_path()
 
 
 def load_roster(path: str | os.PathLike[str] | None = None) -> Roster:
     """Load and validate the roster YAML into a :class:`Roster`.
 
     Args:
-        path: Path to the roster YAML. Defaults to the packaged
-            ``tanglebrain/config/roster.yaml`` when ``None``.
+        path: Path to the roster YAML. When ``None``, the path is resolved by
+            :func:`default_roster_path` (``TANGLEBRAIN_ROSTER`` env → ``~/.config/tanglebrain/
+            roster.yaml`` → the packaged generic example).
 
     Returns:
         The parsed :class:`Roster`.

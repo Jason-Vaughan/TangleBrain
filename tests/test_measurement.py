@@ -168,7 +168,7 @@ class RollupTest(unittest.TestCase):
 
 class LoadPricingTest(unittest.TestCase):
     def test_loads_packaged_pricing(self):
-        # The packaged config/pricing.yaml carries the canonical usage-stats anchor ($3/$15).
+        # The packaged config/pricing.yaml carries the default Claude Sonnet anchor ($3/$15).
         p = load_pricing()
         self.assertIsInstance(p, Pricing)
         self.assertFalse(p.is_placeholder)

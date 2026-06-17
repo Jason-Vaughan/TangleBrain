@@ -19,7 +19,7 @@ lint: ## Smoke-check that all Python files parse cleanly.
 test: lint venv ## Lint + run the unit test suite (hermetic; HTTP is mocked).
 	@$(PY) -m unittest discover -s tests -p "test_*.py" -v
 
-test-live: venv ## Opt-in: hit the real local LiteLLM endpoint end-to-end (needs the scoped key).
+test-live: venv ## Opt-in: hit the real local endpoint your roster points at, end-to-end.
 	@TANGLEBRAIN_LIVE=1 $(PY) -m unittest tests.test_live -v
 
 clean: ## Remove the venv and build artifacts.

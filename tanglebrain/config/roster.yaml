@@ -1,34 +1,43 @@
-# TangleBrain roster (plan §5) — the editable list of routable models.
+# TangleBrain roster — a GENERIC EXAMPLE list of routable models. Edit it to your own backends.
 #
-# Add / remove / reorganize entries here; that is the modifiability requirement, first-class.
-# A future model (another OAuth CLI, an OpenRouter model, a paid API) is a new entry — never
-# a code change. Flag `can_orchestrate: true` to put an entry in the §6 orchestrator rotation.
+# This shipped file is just a starting point. Your REAL roster lives OUTSIDE the repo and is
+# auto-discovered, so a `git pull` never clobbers it. Resolution order (first hit wins):
+#   1. $TANGLEBRAIN_ROSTER                      (explicit path)
+#   2. ~/.config/tanglebrain/roster.yaml        (your roster — recommended)
+#   3. this packaged example                    (fallback)
+# Copy this file to ~/.config/tanglebrain/roster.yaml and edit it there.
+#
+# Add / remove / reorganize entries freely — adding a model is a config edit, never a code change.
+# Flag `can_orchestrate: true` to put an entry in the orchestrator rotation.
 #
 # invoke.kind ∈ {openai-compat, cli, api}.  key_ref ∈ {file:PATH, env:NAME, none} — a
-# credential *reference*, never a raw secret (see the contract's key-ref convention).
+# credential *reference*, never a raw secret.
 #
 # For `cli` entries: a literal `{prompt}` token in `cmd` is replaced with the prompt; with no
 # token the prompt is appended as the final argument. `parse` names the output parser
-# (claude-json | gemini-json | plain). `scrub_env` strips env vars from the subprocess (§7).
+# (claude-json | gemini-json | plain). `scrub_env` strips env vars from the subprocess.
 #
-# Status: the `openai-compat` local entry and all three `cli` subs are invocable. The paid-API
-# tier (kind: api) is gated behind `api_billing_enabled` (config/settings.yaml, default false) AND
-# each entry's own `enabled` flag — a `tier: api` entry parses but stays inert until both are on
-# (issue #2). A commented example is at the bottom of this file.
+# The paid-API tier (kind: api) is gated behind `api_billing_enabled` (config/settings.yaml,
+# default false) AND each entry's own `enabled` flag — it parses but stays inert until both are
+# on. A commented example is at the bottom of this file.
 
-- id: gpt-oss-120b
+# Free local tier — any OpenAI-compatible local server. This example points at Ollama on its
+# default port; run `ollama pull llama3.2` (or any model) first, or swap in your own endpoint.
+- id: local-ollama
   tier: local
   invoke:
     kind: openai-compat
-    base_url: "http://litellm.example:4000/v1"
-    model: "gpt-oss-120b"
-    # Scoped LiteLLM key (allowlist gpt-oss-120b; minted for the C0 spike, 0600 on this Mac).
-    # §5's example omitted auth, but the real endpoint requires a Bearer token — attached via
-    # the contract's key_ref mechanism so it is referenced, never embedded or committed.
-    key_ref: "file:~/.config/tanglebrain/tanglebrain-spike.key"
+    base_url: "http://localhost:11434/v1"
+    model: "llama3.2"
+    # Local Ollama needs no auth, so no key_ref. For a keyed endpoint, add e.g.
+    # key_ref: "file:~/.config/tanglebrain/keys/local.key"  (a reference, never the raw key).
   cost: free
   good_at: [grunt, code, tools]
 
+# --- OPT-IN subscription-CLI tier ---
+# These drive authenticated CLIs you already have installed and logged in (Claude Code / Codex /
+# Gemini). They are OPT-IN examples: keep only the ones you use, and using them is YOUR
+# responsibility under your providers' terms of service. Remove any you don't want.
 - id: claude
   tier: sub
   invoke:
@@ -74,20 +83,21 @@
   good_at: [long-context, structured-json]
   can_orchestrate: true
 
-# --- Paid-API tier example (issue #2) — COMMENTED OUT so it stays inert. ---
-# Paid API is the genuine last resort (§6). To enable: set api_billing_enabled: true in
-# config/settings.yaml, mint a BUDGET-SCOPED LiteLLM virtual key on local, point key_ref at it,
-# and uncomment. The raw provider key lives in LiteLLM, never here — TangleBrain only references
-# the virtual key. budget_usd_month is recorded for visibility; the hard cap is LiteLLM-side.
+# --- Paid-API tier example (bring-your-own-key overflow) — COMMENTED OUT so it stays inert. ---
+# Paid API is the genuine last resort. To enable: set api_billing_enabled: true in
+# config/settings.yaml, then uncomment and point it at any OpenAI-compatible endpoint you hold a
+# key for (OpenRouter, a self-hosted LiteLLM gateway, a provider directly, etc.). Prefer fronting
+# it through a budget-capped gateway/virtual key. key_ref is a REFERENCE — never the raw key.
+# budget_usd_month is recorded for visibility; enforce the hard cap at your gateway/provider.
 #
-# - id: gpt-5
+# - id: paid-overflow
 #   tier: api
 #   invoke:
 #     kind: api
-#     base_url: "http://litellm.example:4000/v1"   # LiteLLM endpoint (OpenAI-compat)
-#     model: "gpt-5"                                          # the LiteLLM model alias
-#     key_ref: "file:~/.config/tanglebrain/tanglebrain-gpt5.key"   # a scoped LiteLLM VIRTUAL key
-#   cost: paid                  # real $ — last resort only (§6)
+#     base_url: "https://your-openai-compatible-endpoint/v1"  # e.g. OpenRouter or your gateway
+#     model: "your-model"                                     # the model id that endpoint exposes
+#     key_ref: "env:OPENAI_API_KEY"                           # or file:~/.config/tanglebrain/keys/paid.key
+#   cost: paid                  # real $ — last resort only
 #   good_at: [reasoning, hard]
 #   enabled: true               # per-key kill-switch (false => never routable, even if billing on)
 #   budget_usd_month: 25        # display-only in v1; LiteLLM enforces the hard cap on the key

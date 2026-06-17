@@ -1,16 +1,17 @@
-"""Opt-in live end-to-end test against the real local LiteLLM endpoint.
+"""Opt-in live end-to-end tests against the real local endpoint your roster points at.
 
-Skipped by default — it needs network access to local over the tailnet and the scoped key at
-``~/.config/tanglebrain/tanglebrain-spike.key``. Run it explicitly::
+Skipped by default — they reach the local endpoint configured in the active roster (resolved via
+``TANGLEBRAIN_ROSTER`` / ``~/.config/tanglebrain/roster.yaml`` / the packaged example) and its key,
+if any. Run them explicitly::
 
     make test-live
     # or
     TANGLEBRAIN_LIVE=1 python -m unittest tests.test_live -v
 
-C1 "definition of done": one request routes roster → local → gpt-oss → text.
-C2 adds the subscription-CLI checks (each sub returns text) and the env-scrub safety proof
-(claude runs without ANTHROPIC_API_KEY). The CLI checks each additionally require their tool to
-be installed and logged in, so they skip individually when the binary is absent.
+"Definition of done": one request routes roster → local entry → openai-compat adapter → text.
+The subscription-CLI checks (each sub returns text) and the env-scrub safety proof (claude runs
+without ANTHROPIC_API_KEY) additionally require their tool to be installed and logged in, so they
+skip individually when the binary is absent.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from tanglebrain.cli import run_once
 from tanglebrain.delegate import run_local_delegate
 from tanglebrain.roster import load_roster
 from tanglebrain.router import Router
+from tanglebrain.selector import select_local
 
 LIVE = os.environ.get("TANGLEBRAIN_LIVE") == "1"
 
@@ -32,16 +34,18 @@ LIVE = os.environ.get("TANGLEBRAIN_LIVE") == "1"
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live endpoint test")
 class LiveEndToEndTest(unittest.TestCase):
     def test_one_request_routes_to_local_and_returns_text(self):
-        # The C1 acceptance bar: the DIRECT local path (roster → local entry → openai-compat adapter
-        # → gpt-oss → text). Forces `local=True` — bare run_once routes via the frontier-first router
-        # since the C3b default flip, so it must be pinned here to actually exercise the local tier.
+        # The acceptance bar: the DIRECT local path (roster → local entry → openai-compat adapter →
+        # text). Forces `local=True` — bare run_once routes via the frontier-first router since the
+        # default flip, so it must be pinned here to actually exercise the local tier. Roster-agnostic:
+        # asserts the served model is whatever the active roster's local entry is.
+        expected_local = select_local(load_roster()).id
         text, served = run_once(
             "Reply with exactly the word: pong", local=True, max_tokens=2048, return_served=True
         )
         self.assertIsInstance(text, str)
-        self.assertTrue(text.strip(), "expected non-empty text from gpt-oss-120b")
+        self.assertTrue(text.strip(), "expected non-empty text from the local endpoint")
         self.assertEqual(served["tier"], "local")
-        self.assertEqual(served["model"], "gpt-oss-120b")
+        self.assertEqual(served["model"], expected_local)
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live delegate test")

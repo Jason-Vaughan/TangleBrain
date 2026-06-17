@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 
 from tanglebrain.adapters import ApiAdapter, AdapterError, CliAdapter, OpenAICompatAdapter
-from tanglebrain.roster import Invoke, Roster, RosterEntry, load_roster
+from tanglebrain.roster import Invoke, Roster, RosterEntry, load_roster, packaged_roster_path
 from tanglebrain.selector import (
     SelectionError,
     build_adapter,
@@ -37,8 +37,8 @@ def api_entry(enabled: bool = True) -> RosterEntry:
 
 class SelectLocalTest(unittest.TestCase):
     def test_selects_local_from_packaged_roster(self):
-        entry = select_local(load_roster())
-        self.assertEqual(entry.id, "gpt-oss-120b")
+        entry = select_local(load_roster(packaged_roster_path()))
+        self.assertEqual(entry.id, "local-ollama")
 
     def test_picks_first_invocable_local(self):
         roster = Roster([cli_entry(), local_entry()])

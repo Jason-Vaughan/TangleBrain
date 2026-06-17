@@ -1,8 +1,8 @@
 """TangleBrain — a cost-tiered LLM router.
 
-Routes each task to the cheapest tier that can do it: free local (gpt-oss-120b on local via
-LiteLLM) first, flat-rate subscription CLIs (Claude / Codex / Gemini) next, paid API last. The
-optimization target is tier-fit + rate-limit spread, NOT $/token.
+Routes each task to the cheapest tier that can do it: free local (a model you run via Ollama or
+any OpenAI-compatible server) first, opt-in authenticated CLIs (Claude / Codex / Gemini) next, paid
+API last. The optimization target is tier-fit + rate-limit spread, NOT $/token.
 
 The router is frontier-first: a subscription orchestrator decomposes the task and offloads grunt
 to free local gpt-oss over an MCP delegate, rotating across the subs for rate-limit runway with

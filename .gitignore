@@ -30,12 +30,12 @@ dist/
 .venv/
 venv/
 
-# Secrets — scoped keys live outside the repo (~/.config/tanglebrain/), never in git
+# Secrets — keys live outside the repo and are referenced by key_ref, never committed
 *.key
 
 # Internal process / tooling / cross-session coordination — NOT product, stays local.
 # Principle: the public tree carries PRODUCT ONLY. These were purged from git history
-# pre-public (they carried the maintainer home path, local infra refs, and candid
+# pre-public (they carried the maintainer's home path, private infra refs, and candid
 # internal routing/cost-tier reasoning). The files remain ON DISK — TangleClaw, Prawduct,
 # and the shared-doc registrations read them locally — they're just never tracked.
 .claude/
@@ -44,6 +44,7 @@ venv/
 CLAUDE.md
 C1-BUILD-REPORT.md
 TANGLEBRAIN-STATUS.md
+TANGLEBRAIN.md
 
 # Personal config overrides — keep your real roster/settings out of git
 # (the shipped config/*.yaml stay generic; your real deployment lives in an
