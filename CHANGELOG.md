@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `tanglebrain.__version__` now derives from the installed package metadata
+  (`importlib.metadata.version`) instead of a hardcoded literal, so it always tracks
+  `pyproject.toml` and can no longer drift from the released version — it had been frozen at
+  `0.1.0` since C1 while releases moved on to 0.7.0 (#17). Falls back to `0.0.0+unknown` when
+  imported from an uninstalled source checkout.
+
 ## [0.7.0] - 2026-06-16
 
 ### Added
