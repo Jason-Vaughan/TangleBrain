@@ -243,7 +243,11 @@ building any router. Repo created at C1 if the spike says "keep."
 - **C4 — Measurement/logging (§8)** + the savings rollup (so rate-limit pressure becomes visible).
 - **C5 — Knob GUI** (thin web panel over the §5 config, TangleClaw-style) + TangleClaw entry
   integration (prompt in → final out) + runbook.
-- **Later, only if §8 data shows rate-limit pressure:** add the local classifier gate (§6 evolution).
+- **Local classifier gate (§6 evolution) — BUILT (off by default), 2026-06-17.** A cheap local
+  classify (`tanglebrain/classifier.py`) can run in front of the router: trivial → free local,
+  frontier → router. Shipped ahead of the §8 data trigger by PM direction; gated by
+  `classifier_gate_enabled` (default false) + `--gate`/`--no-gate`. Fails safe to frontier. Turn it
+  on only when §8 data shows rotation isn't keeping you under the sub rate limits.
 
 (One chunk per session, tests + docs alongside, Critic review after medium+ work.)
 

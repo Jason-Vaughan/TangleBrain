@@ -14,3 +14,15 @@
 # The durable rule: *no paid billing without this explicit toggle.* Keep it false unless you mean it.
 
 api_billing_enabled: false
+
+# classifier_gate_enabled — the §6 LOCAL CLASSIFIER GATE (default false = normal frontier-first).
+#
+#   false (default) → every request goes through the frontier-first router (orchestrator rotation).
+#   true            → a cheap local classify (free gpt-oss) runs FIRST: trivial requests are handled
+#                     directly by free local and never touch a sub; only frontier requests consume a
+#                     sub's rate-limit budget. Per CLI run, `--gate` / `--no-gate` overrides this.
+#
+# Built ahead of the §8 data trigger (turn it on only when rotation isn't enough to stay under the
+# sub rate limits). Classification fails safe to "frontier" — it never traps a hard task on local.
+
+classifier_gate_enabled: false

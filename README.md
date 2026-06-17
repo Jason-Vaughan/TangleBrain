@@ -82,9 +82,27 @@ model is a config edit, not a code change.
 # Force a specific roster entry (explicit override):
 .venv/bin/tanglebrain --model gemini "Summarize this long document."
 
+# Opt into the local classifier gate for this run (trivial → free local, else router):
+.venv/bin/tanglebrain --gate "What's the capital of France?"
+
 # Show the "spend avoided" rollup across every routed task so far:
 .venv/bin/tanglebrain --stats
 ```
+
+### Classifier gate (optional, off by default)
+
+By default every request goes through the frontier-first router, consuming a sub's rate-limit
+budget. When rotation alone isn't enough to stay under the sub limits, you can put a **cheap local
+classifier in front** (plan §6): it rates each request's complexity on free local gpt-oss and sends
+**trivial** work straight to free local (skipping the subs), while **frontier** work falls through to
+the router. Enable it persistently with `classifier_gate_enabled: true` in
+[`tanglebrain/config/settings.yaml`](tanglebrain/config/settings.yaml), or per run with `--gate` /
+`--no-gate`. It is **off by default** and **fails safe** — any classifier error or ambiguity routes
+to frontier, so a hard task is never trapped on the local tier. (Fail-safe covers the
+*classification*; a trivial-classified task that then fails to execute on local surfaces that error,
+the same as `--local` — it doesn't silently re-route.) Gated runs show up as `gate-local` in
+`--stats`. If the gate ever seems to route *everything* to frontier, the classify call is likely
+truncating — raise its token budget.
 
 ### Spend avoided (measurement)
 
