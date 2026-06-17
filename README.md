@@ -1,59 +1,51 @@
 # TangleBrain
 
-A **cost-tiered LLM router**. TangleBrain routes each task to the cheapest tier that can
-actually do it — **free local first → flat-rate subscriptions → paid API only as a last
-resort** — to drive ongoing compute cost down.
+A **local-first, config-driven router across OpenAI-compatible backends you own.** TangleBrain
+routes each request to a backend you've configured — a local model server by default, with optional
+authenticated CLIs and your own paid API keys as overflow — and keeps the whole roster of backends
+in one plain, editable config file. Adding or removing a backend is a config edit, not a code
+change.
 
-> **North star:** the optimization target is *not* `$/token`. It's tier-fit plus rate-limit
-> spread: use the free local model whenever it suffices, spread orchestration across the
-> flat-rate subscription CLIs (Claude / Codex / Gemini) to stay under each one's rate limit,
-> and reach for a paid API only when nothing cheaper will do.
+Out of the box it routes to a single **free local** backend (any OpenAI-compatible server you run,
+e.g. Ollama). Everything else is opt-in.
 
-Positioning: *"OpenRouter, but we own the routing logic and back it with our own flat-rate
-subscriptions instead of paying per-token."*
+**Status:** v0.9.0 — feature-complete, preparing for public release.
+
+## What it does
+
+- **Local-first routing** — ships pointing at a free local model server; nothing leaves your machine
+  unless you configure a backend that does.
+- **Config-driven roster** — every routable backend is one entry in a plain YAML list; add, remove,
+  or reorganize backends by editing config.
+- **Optional classifier gate** — a cheap local pre-filter can send trivial requests straight to the
+  local backend (off by default, fails safe).
+- **Pluggable CLI-backed orchestration** — drive authenticated command-line tools as orchestrators,
+  with rotation and failover across them for resilience.
+- **Local sub-task delegation** — an orchestrator can offload bulk sub-tasks to the local backend
+  through an MCP tool, then review the results.
+- **Measurement** — every routed task is logged with an estimated cloud-equivalent cost, rolled up by
+  `tanglebrain --stats`.
+- **Knob GUI** — a localhost panel to view the roster, pricing, and rollup, edit a focused set of
+  config knobs, and run a prompt.
+- **Gated paid-API tier** — bring-your-own-key overflow, off by default behind two independent
+  switches.
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for how the pieces fit together, [`CHANGELOG.md`](CHANGELOG.md)
+for development history, and [`DISCLAIMER.md`](DISCLAIMER.md) for the opt-in / bring-your-own-key
+posture.
 
 ## Tiers
 
-| Tier | Example | Marginal cost |
+| Tier | Example | Default |
 |---|---|---|
-| **Free local** | a local model via Ollama / any OpenAI-compatible server you run | $0, unlimited |
-| **Sub** | opt-in authenticated CLIs (`claude -p`, `codex exec`, `gemini -p`) | $0 at margin; rate-limit bound |
-| **Paid API** | bring-your-own-key overflow (explicit, opt-in) | per-token — last resort only |
+| **Free local** | a local model via Ollama / any OpenAI-compatible server you run | **active** |
+| **Subscription / authenticated CLI** | command-line tools you've installed and logged in (e.g. `claude -p`, `codex exec`, `gemini -p`) | opt-in (commented) |
+| **Paid API** | bring-your-own-key overflow (any OpenAI-compatible endpoint you hold a key for) | opt-in, off by default |
 
-## Status
-
-**Frontier-first routing is live end-to-end, and routed tasks now report their "spend avoided."**
-`tanglebrain "…"` rotates an orchestrator sub, fails over on rate limits, and offloads grunt to
-free local gpt-oss; `tanglebrain --stats` rolls up the cloud-equivalent cost avoided; and a
-localhost knob panel (`tanglebrain-gui`) shows it all in the browser and lets you edit the pricing
-knob. The paid-API tier is complete — gated, last-resort-routed, and visible in the panel — but ships
-**off by default** (issue #2, C6a–C6c). Remaining: roster editing in the panel (later).
-
-- ✅ **C0** — frontier-first decompose spike (validated the approach, verdict KEEP).
-- ✅ **C1** *(this repo)* — package skeleton, roster config loader, openai-compat adapter,
-  one request → local → text end-to-end.
-- ✅ **C2** — CLI adapters for the three subs (claude/codex/gemini) with `ANTHROPIC_API_KEY` scrub.
-- ✅ **C2b** — gpt-oss MCP local-delegate: a `delegate_local` MCP tool an orchestrator calls to
-  offload grunt to free local gpt-oss.
-- ✅ **C3** — frontier-first router (control plane): task-fit orchestrator selection + rotation +
-  429 failover across the subs.
-- ✅ **C3b** — orchestrators offload grunt to free local via the delegate; **frontier-first is now
-  the default** (`tanglebrain "…"`); `--local` forces the direct local tier.
-- ✅ **C4** — measurement / "spend avoided" rollup: every routed task logged, `tanglebrain --stats`
-  reports cloud-equivalent cost avoided.
-- ✅ **C5a** — knob GUI (read-only): `tanglebrain-gui` serves a localhost panel to view the roster,
-  pricing, and spend-avoided rollup, and run a prompt through the router.
-- ✅ **C5b** — editable pricing in the panel (validated, atomic, comment-preserving write-back to
-  `pricing.yaml`). Roster editing still to come.
-- ✅ **C6a** — paid-API tier scaffolding: an `api` adapter (LiteLLM-fronted) behind a global
-  `api_billing_enabled` gate (**default off**) plus a per-entry `enabled` kill-switch. A `tier: api`
-  entry parses but is **never routable** until both are on.
-- ✅ **C6b** — last-resort paid-API routing: the router falls through to an enabled `api` entry only
-  after every sub has failed **and** the gate is on. Off by default → the router never reaches paid.
-- ✅ **C6c** — paid-API visibility: the knob panel surfaces each entry's `enabled`/`budget_usd_month`
-  and a **Paid-API billing: ON/OFF** banner, plus a README runbook for minting a LiteLLM virtual key.
-
-See [`CHANGELOG.md`](CHANGELOG.md) for the development history (an `ARCHITECTURE.md` is coming).
+> **Opt-in adapters & your responsibility.** The subscription / authenticated-CLI tier and the
+> paid-API tier are **opt-in** — you enable them by editing your own roster. Driving an authenticated
+> CLI is your responsibility under that provider's Terms of Service, and the paid tier is
+> bring-your-own-key. Read [`DISCLAIMER.md`](DISCLAIMER.md) before enabling either.
 
 ## Install
 
@@ -65,39 +57,55 @@ make venv          # create .venv and install -e . (dev deps included)
 
 ## Use
 
-The roster of routable models is a plain, editable YAML list — adding or removing a model is a
+The roster of routable backends is a plain, editable YAML list — adding or removing a backend is a
 config edit, not a code change. The shipped
-[`tanglebrain/config/roster.yaml`](tanglebrain/config/roster.yaml) is only a **generic example**;
-keep your real roster **outside the repo** so updates never clobber it. It's auto-discovered in
-order: `$TANGLEBRAIN_ROSTER` → `~/.config/tanglebrain/roster.yaml` → the packaged example. Copy the
-example to `~/.config/tanglebrain/roster.yaml` and edit it there (or pass `--roster <path>`).
+[`tanglebrain/config/roster.yaml`](tanglebrain/config/roster.yaml) is only a **generic example** with
+a single active entry (a local Ollama backend); keep your real roster **outside the repo** so updates
+never clobber it. It's auto-discovered in order: `$TANGLEBRAIN_ROSTER` →
+`~/.config/tanglebrain/roster.yaml` → the packaged example. Copy the example to
+`~/.config/tanglebrain/roster.yaml` and edit it there (or pass `--roster <path>`).
 
 ```sh
-# Default: frontier-first router. Rotates the orchestrator across the subs (claude/codex/gemini)
-# for ~3x rate-limit runway, fails over on 429, and the orchestrator offloads grunt to free local:
-.venv/bin/tanglebrain "Refactor this module and add tests."
-.venv/bin/tanglebrain --task code "Refactor this function for clarity."   # task-fit hint
-
-# Force the free local tier directly ($0, no orchestration):
+# Route to the free local backend directly — works out of the box once a local server is running:
 .venv/bin/tanglebrain --local "Write a haiku about local inference."
 
-# Force a specific roster entry (explicit override):
-.venv/bin/tanglebrain --model gemini "Summarize this long document."
-
-# Opt into the local classifier gate for this run (trivial → free local, else router):
-.venv/bin/tanglebrain --gate "What's the capital of France?"
-
-# Show the "spend avoided" rollup across every routed task so far:
+# Show the cost-avoided rollup across every routed task so far:
 .venv/bin/tanglebrain --stats
 ```
 
+The default `tanglebrain "…"` (no `--local`) uses the **orchestrator router**. Since the packaged
+roster ships with no active orchestrators, that path needs at least one opt-in backend enabled first
+— see below. Until then, use `--local` for the local backend.
+
+### Orchestrator routing (opt-in)
+
+Enable one or more orchestrator backends by uncommenting an entry in your roster (subscription /
+authenticated-CLI examples are provided, commented out, in the shipped roster) and reading
+[`DISCLAIMER.md`](DISCLAIMER.md) first. With at least one orchestrator active:
+
+```sh
+# Default: route through an orchestrator. Rotates across the configured orchestrators and fails over
+# on error; an orchestrator can offload sub-tasks to the local backend (see "Local delegate"):
+.venv/bin/tanglebrain "Refactor this module and add tests."
+.venv/bin/tanglebrain --task code "Refactor this function for clarity."   # task-fit hint
+
+# Force a specific roster entry (explicit override, bypasses the router):
+.venv/bin/tanglebrain --model my-backend "Summarize this long document."
+
+# Opt into the local classifier gate for this run (trivial → local backend, else router):
+.venv/bin/tanglebrain --gate "What's the capital of France?"
+```
+
+An orchestrator is any roster entry flagged `can_orchestrate: true`. The router prefers an
+orchestrator whose `good_at` matches the `--task` hint, rotates across the eligible set for
+resilience, and on an error fails over to the next; if all fail it reports each failure.
+
 ### Classifier gate (optional, off by default)
 
-By default every request goes through the frontier-first router, consuming a sub's rate-limit
-budget. When rotation alone isn't enough to stay under the sub limits, you can put a **cheap local
-classifier in front** (plan §6): it rates each request's complexity on free local gpt-oss and sends
-**trivial** work straight to free local (skipping the subs), while **frontier** work falls through to
-the router. Enable it persistently with `classifier_gate_enabled: true` in
+By default every (non-`--local`) request goes through the router. You can put a **cheap local
+classifier in front**: it rates each request's complexity on the local backend and sends **trivial**
+work straight to the local backend, while **frontier** work falls through to the router. Enable it
+persistently with `classifier_gate_enabled: true` in
 [`tanglebrain/config/settings.yaml`](tanglebrain/config/settings.yaml), or per run with `--gate` /
 `--no-gate`. It is **off by default** and **fails safe** — any classifier error or ambiguity routes
 to frontier, so a hard task is never trapped on the local tier. (Fail-safe covers the
@@ -106,68 +114,52 @@ the same as `--local` — it doesn't silently re-route.) Gated runs show up as `
 `--stats`. If the gate ever seems to route *everything* to frontier, the classify call is likely
 truncating — raise its token budget.
 
-### Spend avoided (measurement)
+### Cost avoided (measurement)
 
 Every routed task is logged as one JSON line in an append-only usage log
 (`~/.cache/tanglebrain/usage.jsonl`, or under `TANGLEBRAIN_STATE_DIR`): path, tier, model,
 estimated tokens, and the **cloud-equivalent cost it avoided** — what the work would have cost on a
-paid frontier API. `tanglebrain --stats` rolls those records up into a single "spend avoided"
-figure, the way the north star (drive ongoing compute cost *down*) becomes visible.
+paid frontier API. `tanglebrain --stats` rolls those records up into a single figure.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is
 applied to every tier. The reference frontier price lives in
-[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) — Claude Sonnet at $3/$15 per
-MTok by default; tune it to whatever frontier model you want to compare against. A `placeholder`
-flag makes the rollup render a PLACEHOLDER caveat when the rates are rough. Logging is best-effort
-and never affects the returned answer.
+[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) — tune it to whatever frontier
+model you want to compare against. A `placeholder` flag makes the rollup render a PLACEHOLDER caveat
+when the rates are rough. Logging is best-effort and never affects the returned answer.
 
 ### Knob panel (`tanglebrain-gui`)
 
-A thin **localhost-only** web panel over the config — TangleClaw-style, zero extra dependencies
-(stdlib `http.server` + a single vanilla HTML/CSS/JS page):
+A thin **localhost-only** web panel over the config — zero extra dependencies (stdlib `http.server`
++ a single vanilla HTML/CSS/JS page):
 
 ```sh
 .venv/bin/tanglebrain-gui          # serves http://127.0.0.1:3250/  (Ctrl-C to stop)
 .venv/bin/tanglebrain-gui --port 3260   # override the port if 3250 is busy
 ```
 
-Port **3250** is registered for TangleBrain in TangleClaw PortHub. The panel **views** the roster,
-the pricing reference, and the local spend-avoided rollup, and lets you **run a prompt** through the
-router (showing which tier/model served it). The **pricing card is editable** — change the rates /
-reference label / placeholder flag and Save; it writes the tracked `tanglebrain/config/pricing.yaml`
-(strict validation, atomic write, a backup to the state dir, and the methodology header preserved),
-so the edit is git-visible for you to commit. The **roster is editable for a focused set of per-entry
-fields** — `enabled`, `can_orchestrate`, `budget_usd_month`, and `good_at` (each row has its own
-Save). Edits are surgical and **comment-preserving**: only the targeted value on the targeted line
-changes, so the curated inline comments and the nested `invoke` block survive byte-for-byte (same
-validate → backup → atomic-write safety as pricing; the candidate is re-parsed before any write).
-Adding/removing entries and editing the `invoke` block are still hand-edits. The panel binds
-`127.0.0.1` only:
-running a prompt spends real subscription rate-limit quota and it reads the roster, so it is never
-network-exposed. The roster view shows each entry's `key_ref` as the reference string only — secrets
-are never resolved or sent to the browser.
+The panel **views** the roster, the pricing reference, and the cost-avoided rollup, and lets you
+**run a prompt** through the router (showing which tier/model served it). The **pricing card is
+editable** — change the rates / reference label / placeholder flag and Save; it writes the tracked
+`tanglebrain/config/pricing.yaml` (strict validation, atomic write, a backup to the state dir, and
+the methodology header preserved), so the edit is git-visible for you to commit. The **roster is
+editable for a focused set of per-entry fields** — `enabled`, `can_orchestrate`, `budget_usd_month`,
+and `good_at` (each row has its own Save). Edits are surgical and **comment-preserving**: only the
+targeted value on the targeted line changes, so the curated inline comments and the nested `invoke`
+block survive byte-for-byte (same validate → backup → atomic-write safety as pricing; the candidate
+is re-parsed before any write). Adding/removing entries and editing the `invoke` block are still
+hand-edits. The panel binds `127.0.0.1` only: running a prompt spends real backend quota and it reads
+the roster, so it is never network-exposed. The roster view shows each entry's `key_ref` as the
+reference string only — secrets are never resolved or sent to the browser.
 
-The router gives each orchestrator the `delegate_local` tool, so a frontier sub decomposes the
-task and offloads grunt to free local gpt-oss at $0, then reviews — the cost lever behind
-frontier-first (plan §6). claude and codex are wired per-invocation; **gemini needs a one-time
-registration** so it can see the delegate:
-
-```sh
-gemini mcp add tanglebrain-delegate -- "$(pwd)/.venv/bin/python" -m tanglebrain.mcp_server
-```
-
-The adapter calls the local endpoint your roster points at directly. If that endpoint needs a key,
-the roster entry's `key_ref` references it (an env var or a `0600` file) — never hardcoded, never
-committed.
-
-### Local delegate (MCP) — let an orchestrator offload grunt to free local
+### Local delegate (MCP) — let an orchestrator offload sub-tasks to the local backend
 
 `tanglebrain-delegate` is an MCP server exposing one tool, `delegate_local(prompt, max_tokens?)`,
-that routes to the free local tier (gpt-oss-120b). A frontier orchestrator (claude/codex/gemini)
-registers it and offloads bulk sub-tasks at $0 instead of burning its own rate-limited tokens —
-the mechanism behind frontier-first decompose (plan §6). It reuses the same roster + adapter as
-the CLI above, so the endpoint and key live in one place.
+that routes to the free local tier. An orchestrator that supports MCP registers it and offloads bulk
+sub-tasks to the local backend instead of running them itself, then reviews the results — a
+decompose → delegate → review loop that is emergent from the orchestrator simply having the tool
+(no graph engine required). It reuses the same roster + adapter as the CLI above, so the endpoint
+and key live in one place.
 
 It needs the optional `mcp` dependency:
 
@@ -176,8 +168,7 @@ pip install -e ".[delegate]"        # or: make venv (installs the extra)
 tanglebrain-delegate                # serve over stdio (for a manual smoke test)
 ```
 
-Register it with an orchestrator CLI (exact flags vary by CLI version — check
-`<cli> mcp --help`):
+Register it with an orchestrator CLI (exact flags vary by CLI version — check `<cli> mcp --help`):
 
 ```sh
 # Claude Code:
@@ -187,14 +178,15 @@ gemini mcp add tanglebrain-delegate tanglebrain-delegate
 # Codex: add a stdio MCP server entry pointing at `tanglebrain-delegate` in its MCP config.
 ```
 
-To point the server at a non-default roster, set `TANGLEBRAIN_ROSTER=/path/to/roster.yaml` in
-its environment.
+To point the server at a non-default roster, set `TANGLEBRAIN_ROSTER=/path/to/roster.yaml` in its
+environment.
 
 ### Paid-API tier (opt-in, off by default)
 
 Paid API is the genuine last resort — it costs real money, so it is **disabled by default** and
 gated by a single explicit switch. A `tier: api` roster entry parses and is inspectable at all
-times, but it is **never routable** until you turn it on.
+times, but it is **never routable** until you turn it on. See [`DISCLAIMER.md`](DISCLAIMER.md) for
+the bring-your-own-key posture.
 
 The durable rule: *no paid billing without the explicit toggle.* Two independent gates must both be
 on for a paid entry to build:
@@ -212,15 +204,15 @@ gateway/provider. A commented example entry is at the bottom of `tanglebrain/con
 
 Once both gates are on, a paid entry runs either when selected explicitly (`--model <id>`) or as the
 router's **genuine last resort** — the default `tanglebrain "…"` router falls through to an enabled
-`api` entry only after *every* orchestrator sub has failed/exhausted (C6b). It tries paid entries in
-roster order and never paid-routes a roster that has no subs to exhaust first.
+`api` entry only after *every* orchestrator has failed/exhausted. It tries paid entries in roster
+order and never paid-routes a roster that has no orchestrators to exhaust first.
 
 > **Live status:** the paid tier is **hermetically tested but never run against a real paid
-> endpoint** — by design (TangleBrain is deliberately anti-key; we don't mint billable keys just to
-> test). The hooks are in place and the routing/gating/visibility are proven; the live
-> `router → ApiAdapter → virtual key → provider` round-trip is unverified until an operator wires a
-> real key. See [#23](https://github.com/Jason-Vaughan/TangleBrain/issues/23). Treat it as
-> hermetically correct but live-unproven, and file a fix if a live provider needs one.
+> endpoint** — by design (TangleBrain is deliberately bring-your-own-key; we don't mint billable keys
+> just to test). The hooks are in place and the routing/gating/visibility are proven; the live
+> `router → ApiAdapter → key → provider` round-trip is unverified until an operator wires a real key.
+> See [#23](https://github.com/Jason-Vaughan/TangleBrain/issues/23). Treat it as hermetically correct
+> but live-unproven, and file a fix if a live provider needs one.
 
 #### Runbook — enabling a paid key
 
@@ -238,7 +230,7 @@ roster order and never paid-routes a roster that has no subs to exhaust first.
    (display-only — match what you capped at the source).
 4. **Flip the global gate**: set `api_billing_enabled: true` in `tanglebrain/config/settings.yaml`.
 5. **Verify** in the knob panel (`tanglebrain-gui`): the roster card shows a **Paid-API billing: ON**
-   banner and the entry's `budget: $25.00/mo` note; or run `tanglebrain --model gpt-5 "…"` for an
+   banner and the entry's `budget: $25.00/mo` note; or run `tanglebrain --model <id> "…"` for an
    explicit paid call. To pause spend without editing keys, set the entry's `enabled: false` (a
    per-key kill-switch) or flip the global gate back to `false`.
 

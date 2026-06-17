@@ -29,8 +29,12 @@ def write_yaml(text: str, test: unittest.TestCase) -> str:
 class PackagedRosterTest(unittest.TestCase):
     """The GENERIC example roster shipped with the package parses correctly.
 
-    Pinned to ``packaged_roster_path()`` so it tests the bundled example regardless of any
-    operator roster the dev machine may have at ``~/.config/tanglebrain/roster.yaml``.
+    R2a (public-OSS rollout): the bundled default ships exactly ONE active entry — the free local
+    tier — and no orchestrators. The opt-in subscription/authenticated-CLI tier (claude/codex/gemini)
+    and the paid-API tier ship as COMMENTED examples, so a fresh clone routes to local out of the box
+    and an operator opts in by uncommenting. Pinned to ``packaged_roster_path()`` so it tests the
+    bundled example regardless of any operator roster the dev machine may have at
+    ``~/.config/tanglebrain/roster.yaml``.
     """
 
     def setUp(self):
@@ -40,12 +44,10 @@ class PackagedRosterTest(unittest.TestCase):
         self.assertTrue(packaged_roster_path().exists())
         self.assertEqual(packaged_roster_path().name, "roster.yaml")
 
-    def test_has_four_entries(self):
-        self.assertEqual(len(self.roster), 4)
-
-    def test_entry_ids_in_declared_order(self):
-        ids = [e.id for e in self.roster]
-        self.assertEqual(ids, ["local-ollama", "claude", "codex", "gemini"])
+    def test_ships_one_active_entry_the_local_tier(self):
+        # The only ACTIVE (uncommented) entry is the free local tier.
+        self.assertEqual(len(self.roster), 1)
+        self.assertEqual([e.id for e in self.roster], ["local-ollama"])
 
     def test_local_entry_is_generic_ollama_no_key(self):
         local = self.roster.by_id("local-ollama")
@@ -55,36 +57,21 @@ class PackagedRosterTest(unittest.TestCase):
         self.assertEqual(local.invoke.model, "llama3.2")
         self.assertIsNone(local.invoke.key_ref)  # generic Ollama needs no auth
 
-    def test_claude_entry_scrubs_anthropic_key_and_can_orchestrate(self):
-        claude = self.roster.by_id("claude")
-        self.assertEqual(claude.invoke.kind, "cli")
-        self.assertIn("ANTHROPIC_API_KEY", claude.invoke.scrub_env)
-        self.assertTrue(claude.can_orchestrate)
-
-    def test_cli_entries_declare_a_parser(self):
-        self.assertEqual(self.roster.by_id("claude").invoke.parse, "claude-json")
-        self.assertEqual(self.roster.by_id("codex").invoke.parse, "plain")
-        self.assertEqual(self.roster.by_id("gemini").invoke.parse, "gemini-json")
-
-    def test_gemini_cmd_marks_prompt_injection_point(self):
-        # gemini's -p needs the prompt as its value, so the cmd carries a {prompt} token.
-        self.assertIn("{prompt}", self.roster.by_id("gemini").invoke.cmd)
-
-    def test_orchestrators_declare_delegate_args(self):
-        # C3b: each orchestrator carries the per-CLI flags to inject the gpt-oss delegate.
-        for entry_id in ("claude", "codex", "gemini"):
-            self.assertTrue(
-                self.roster.by_id(entry_id).invoke.delegate_args,
-                f"{entry_id} should declare delegate_args",
-            )
-        # claude uses the proven --mcp-config path with the {delegate_mcp_json} token.
-        self.assertIn("{delegate_mcp_json}", self.roster.by_id("claude").invoke.delegate_args)
-
-    def test_orchestrators_are_the_three_subs(self):
-        self.assertEqual([e.id for e in self.roster.orchestrators()], ["claude", "codex", "gemini"])
+    def test_no_active_orchestrators_by_default(self):
+        # The sub entries are commented out, so the packaged default has nothing to rotate over.
+        # A bare `tanglebrain "…"` therefore errors out cleanly until an operator opts a sub in;
+        # `--local` works out of the box.
+        self.assertEqual(self.roster.orchestrators(), [])
 
     def test_in_tier_local(self):
         self.assertEqual([e.id for e in self.roster.in_tier("local")], ["local-ollama"])
+
+    def test_opt_in_tiers_present_as_commented_examples(self):
+        # The subscription-CLI and paid-API tiers ship as commented opt-in examples, not active
+        # entries — uncommenting one (and its tier-specific gate) is how an operator enables it.
+        raw = packaged_roster_path().read_text()
+        for marker in ("# - id: claude", "# - id: codex", "# - id: gemini", "# - id: paid-overflow"):
+            self.assertIn(marker, raw, f"{marker!r} should ship as a commented opt-in example")
 
 
 class RosterDiscoveryTest(unittest.TestCase):
