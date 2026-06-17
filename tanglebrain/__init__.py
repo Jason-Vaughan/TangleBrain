@@ -1,13 +1,13 @@
-"""TangleBrain — a cost-tiered LLM router.
+"""TangleBrain — a local-first, config-driven router across OpenAI-compatible backends you own.
 
-Routes each task to the cheapest tier that can do it: free local (a model you run via Ollama or
-any OpenAI-compatible server) first, opt-in authenticated CLIs (Claude / Codex / Gemini) next, paid
-API last. The optimization target is tier-fit + rate-limit spread, NOT $/token.
+Routes each task to the cheapest capable tier: a free local model (via Ollama or any
+OpenAI-compatible server you run) first, opt-in authenticated CLIs next, and your own paid API keys
+as a last resort.
 
-The router is frontier-first: a subscription orchestrator decomposes the task and offloads grunt
-to free local gpt-oss over an MCP delegate, rotating across the subs for rate-limit runway with
-429 failover, and falling through to a gated, **off-by-default** paid-API tier only as a genuine
-last resort. See ``.claude/plans/tanglebrain.md`` for the full design.
+The default path is frontier-first orchestration: a configured orchestrator decomposes the task and
+offloads sub-tasks to the free local backend over an MCP delegate, with rotation across the
+orchestrators and failover when one errors, falling through to a gated, **off-by-default** paid-API
+tier only as a genuine last resort. See ``ARCHITECTURE.md`` for the full design.
 
 ``__version__`` is read from the installed package metadata — the single source of truth is
 ``pyproject.toml`` — so it can never drift from the released version. When imported from a source

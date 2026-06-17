@@ -1,8 +1,8 @@
 """Tests for the CLI adapter (tanglebrain/adapters/cli.py).
 
 All subprocess execution is mocked — these tests never spawn a real CLI. The env-scrub safety
-boundary (§7) is exercised hardest: it is the rule that keeps ``claude -p`` on the flat Max
-subscription instead of the per-token paid API key.
+boundary is exercised hardest: it is the rule that keeps ``claude -p`` on its own authenticated
+session rather than an injected API key.
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def patch_run(**kwargs):
 
 
 class ScrubbedEnvTest(unittest.TestCase):
-    """The env-scrub safety boundary (§7) — the most important behaviour in this module."""
+    """The env-scrub safety boundary — the most important behaviour in this module."""
 
     def test_removes_named_var(self):
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-paid-108", "KEEP": "1"}, clear=True):
@@ -197,7 +197,7 @@ class RunTest(unittest.TestCase):
 
 
 class DelegateInjectionTest(unittest.TestCase):
-    """C3b: when inject_delegate is set, delegate_args (substituted) are appended to the command."""
+    """When inject_delegate is set, delegate_args (substituted) are appended to the command."""
 
     CLAUDE_DELEGATE = [
         "--mcp-config",

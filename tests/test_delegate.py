@@ -52,7 +52,7 @@ class RunLocalDelegateTest(unittest.TestCase):
         self.assertEqual(adapter.run.call_args.args[0], "do the grunt")
 
     def test_wires_roster_into_select_into_build(self):
-        # The three reused C1 functions must be chained: load_roster -> select_local(roster)
+        # The three reused functions must be chained: load_roster -> select_local(roster)
         # -> build_adapter(entry). Use sentinels so a mis-wire (e.g. passing roster to
         # build_adapter, or dropping select_local) is caught.
         roster_sentinel = object()

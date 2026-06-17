@@ -174,7 +174,7 @@ class LoaderValidationTest(unittest.TestCase):
 
 
 class ApiEntryTest(unittest.TestCase):
-    """The paid-API tier (issue #2): api entries parse (but the loader requires full config)."""
+    """The paid-API tier: api entries parse (but the loader requires full config)."""
 
     _OK = (
         "- id: gpt5\n  tier: api\n"

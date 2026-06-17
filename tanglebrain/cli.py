@@ -2,8 +2,8 @@
 
 Thin wiring over :func:`run_once`; the routing logic lives in the router/selector/adapters. The
 path is chosen by flag precedence ``--model`` > ``--local`` > the frontier-first router (the
-default since C3b): the router selects + rotates an orchestrator sub, fails over on errors, and
-gives it the gpt-oss delegate so it offloads grunt to free local.
+default): the router selects + rotates an orchestrator, fails over on errors, and gives it the
+local-delegate tool so it offloads sub-tasks to the free local backend.
 
 Usage::
 
@@ -95,8 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest="gate",
         action="store_true",
         default=None,
-        help="Force the §6 local classifier gate ON for this run: a cheap local classify sends "
-        "trivial requests straight to free local, only frontier ones to a sub.",
+        help="Force the local classifier gate ON for this run: a cheap local classify sends "
+        "trivial requests straight to the free local backend, and only frontier ones to an "
+        "orchestrator.",
     )
     gate_group.add_argument(
         "--no-gate",
@@ -143,12 +144,13 @@ def run_once(
     Paths, in precedence order:
 
     - ``model`` set → select that named entry explicitly (an override, not a routing decision).
-    - ``local`` true → the free local tier directly (gpt-oss), no orchestration (C1 behaviour).
-    - otherwise → the default routing path. With the §6 **classifier gate** off (the default), this
+    - ``local`` true → the free local tier directly, no orchestration.
+    - otherwise → the default routing path. With the **classifier gate** off (the default), this
       is **the frontier-first** :class:`~tanglebrain.router.Router`: task-fit orchestrator selection +
-      rotation + failover across the subs, each given the gpt-oss delegate. With the gate on, a cheap
-      local classify runs first: a *trivial* request is handled directly on free local (path
-      ``gate-local``, skipping the subs), and everything else falls through to the router.
+      rotation + failover across the orchestrators, each given the local-delegate tool. With the gate
+      on, a cheap local classify runs first: a *trivial* request is handled directly on the free local
+      backend (path ``gate-local``, skipping the orchestrators), and everything else falls through to
+      the router.
 
     Args:
         prompt: The prompt to route.
@@ -162,7 +164,7 @@ def run_once(
             ``{path, tier, model}`` for the entry that served the task (or ``None`` if unknown).
             The GUI uses this so it needn't re-read the usage log. Default ``False`` returns the
             plain text string, so existing callers (``main``) are unchanged.
-        gate: Override for the §6 classifier gate on the default path. ``None`` (default) uses the
+        gate: Override for the classifier gate on the default path. ``None`` (default) uses the
             ``classifier_gate_enabled`` setting; ``True``/``False`` force the gate on/off for this
             call. Ignored when ``model`` or ``local`` is set.
 
@@ -187,8 +189,8 @@ def run_once(
     else:
         gate_on = load_settings().classifier_gate_enabled if gate is None else gate
         if gate_on and classify(prompt, roster=roster) == TRIVIAL:
-            # §6 classifier gate: a trivial request skips the rate-limited subs and is handled
-            # directly on free local. Frontier (or any classifier failure) falls through to the router.
+            # classifier gate: a trivial request skips the orchestrators and is handled directly on
+            # the free local backend. Frontier (or any classifier failure) falls through to the router.
             path, entry = "gate-local", select_local(roster)
             text = build_adapter(entry).run(prompt, opts)
         else:

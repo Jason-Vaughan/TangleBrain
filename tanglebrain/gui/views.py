@@ -35,10 +35,10 @@ def view_roster() -> dict:
 
     Returns:
         ``{"entries": [ {id, tier, cost, good_at, can_orchestrate, enabled, budget_usd_month,
-        invoke{...}}, ... ]}``. ``enabled`` / ``budget_usd_month`` matter for ``tier: api`` entries
-        (issue #2): ``enabled`` is the per-key kill-switch and ``budget_usd_month`` a display-only
-        cap (enforced LiteLLM-side). Whether paid entries are actually routable also depends on the
-        global gate — see :func:`view_settings`.
+        invoke{...}}, ... ]}``. ``enabled`` / ``budget_usd_month`` matter for ``tier: api`` entries:
+        ``enabled`` is the per-key kill-switch and ``budget_usd_month`` a display-only cap (enforced
+        gateway-side). Whether paid entries are actually routable also depends on the global gate —
+        see :func:`view_settings`.
     """
     roster = load_roster()
     entries = []
@@ -66,9 +66,9 @@ def view_roster() -> dict:
 
 
 def view_settings() -> dict:
-    """Build the global-settings view — the paid-API billing gate (issue #2).
+    """Build the global-settings view — the paid-API billing gate.
 
-    ``api_billing_enabled`` is the master switch (plan §9.6): when ``false`` (the default) no
+    ``api_billing_enabled`` is the master switch: when ``false`` (the default) no
     ``tier: api`` entry is routable regardless of its own ``enabled`` flag. The panel surfaces it so
     an operator sees at a glance whether paid routing is live. Reads only ``config/settings.yaml`` —
     no key file or secret is touched.
@@ -95,7 +95,7 @@ def view_pricing() -> dict:
 
 
 def view_stats() -> dict:
-    """Build the spend-avoided rollup view (the local C4 ``--stats`` data).
+    """Build the spend-avoided rollup view (the local ``--stats`` data).
 
     Returns:
         ``{summary, pricing_ref, is_placeholder}`` where ``summary`` is :func:`rollup`'s dict.
@@ -136,7 +136,7 @@ def run_prompt(payload: dict) -> dict:
 
 
 def save_roster_view(payload: dict) -> dict:
-    """Apply edits to one roster entry's editable fields (plan §5 / §9.2).
+    """Apply edits to one roster entry's editable fields.
 
     Only the focused, comment-safe scalar fields are editable (see
     :mod:`tanglebrain.roster_edit`): ``enabled``, ``can_orchestrate``, ``budget_usd_month``,

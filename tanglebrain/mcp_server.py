@@ -1,11 +1,10 @@
-"""MCP server exposing TangleBrain's free local tier as a delegate tool (C2b).
+"""MCP server exposing TangleBrain's free local tier as a delegate tool.
 
-This is the "generalized gpt-oss MCP tool from C0" (plan §10): a stdio MCP server a frontier
-orchestrator (claude / codex / gemini) registers so it can offload grunt work to free local
-gpt-oss-120b mid-task — the mechanism that makes frontier-first decompose (§6) actually save
-money instead of burning a subscription's rate limit on the whole task.
+A stdio MCP server an orchestrator (e.g. claude / codex / gemini) registers so it can offload
+sub-tasks to the free local backend mid-task — the mechanism that makes frontier-first decompose
+actually offload work rather than running everything on the orchestrator itself.
 
-It is a **thin wrapper** over :func:`tanglebrain.delegate.run_local_delegate` (which reuses C1's
+It is a **thin wrapper** over :func:`tanglebrain.delegate.run_local_delegate` (which reuses the
 roster + ``OpenAICompatAdapter``): the routing logic lives there, MCP plumbing lives here. The
 tool is **sync** — FastMCP runs sync tools in a worker thread, so it can call the sync adapter
 directly without duplicating the HTTP call as async.

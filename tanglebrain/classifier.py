@@ -1,21 +1,20 @@
-"""Cheap local classifier gate (plan §6 evolution path) — OFF by default.
+"""Cheap local classifier gate — OFF by default.
 
-The §6 routing strategy is frontier-first with multi-orchestrator rotation: every request consumes a
-sub's rate-limit budget. The plan's escape valve, "only if volume demands": put a **cheap local
-classifier in front** that does one narrow job — decide whether a request is *trivial* (free local
-gpt-oss can fully handle it) or *needs-frontier* (route to the orchestrator). Trivial requests then
-skip the subs entirely, preserving rate-limit runway.
+The default routing strategy is frontier-first with orchestrator rotation. An optional escape valve:
+put a **cheap local classifier in front** that does one narrow job — decide whether a request is
+*trivial* (the free local backend can fully handle it) or *needs-frontier* (route to the
+orchestrator). Trivial requests then skip the orchestrators entirely.
 
-Two deliberate design rules from §6:
+Two deliberate design rules:
 
 - **Narrow classification, not self-judgement.** The classifier rates *task complexity*, it does not
   ask the local model "can YOU do this?" — that framing is unreliable.
 - **Fail safe toward the capable path.** Any ambiguity, parse miss, or classifier error resolves to
   ``frontier``. The gate must never trap a hard task on the local tier because the classifier was
-  unsure or broke — at worst it falls back to today's normal frontier-first routing.
+  unsure or broke — at worst it falls back to normal frontier-first routing.
 
-This is built ahead of the §8 data trigger (no rate-limit pressure observed yet), so it is inert
-unless explicitly enabled (``classifier_gate_enabled`` in settings, or ``--gate`` on the CLI).
+It is inert unless explicitly enabled (``classifier_gate_enabled`` in settings, or ``--gate`` on the
+CLI).
 """
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ from tanglebrain.selector import select_local
 TRIVIAL = "trivial"
 FRONTIER = "frontier"
 
-# gpt-oss spends part of its budget on internal reasoning (the C0 lesson), so give the classify call
+# A local reasoning model spends part of its budget on internal reasoning, so give the classify call
 # enough headroom to finish reasoning AND emit the verdict; a truncated (null) response just fails
 # safe to FRONTIER. Kept modest because this runs in front of every gated request.
 CLASSIFY_MAX_TOKENS = 1024

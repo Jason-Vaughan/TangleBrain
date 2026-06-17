@@ -1,11 +1,11 @@
-"""C1 routing stub — local-first selection.
+"""Direct selection — explicit entry / local-first resolution.
 
-**This is NOT the cost-tiered router.** The real router (plan §6) — frontier-first decompose,
-task-fit orchestrator selection, multi-orchestrator rotation, 429/limit failover — is C3.
+**This is NOT the router.** The router (:mod:`tanglebrain.router`) — frontier-first decompose,
+task-fit orchestrator selection, rotation, failover — lives in its own module.
 
-C1's job is only to prove one request routes end-to-end: pick the free local entry, build its
-adapter, run the prompt. The logic here is deliberately minimal; do not grow it into the §6
-router — that belongs in its own module so the two don't get conflated.
+This module's job is narrow: resolve a single entry (an explicit ``--model`` id, or the free local
+tier) and build its adapter. The logic here is deliberately minimal; do not grow it into the router
+— that belongs in its own module so the two don't get conflated.
 """
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ class SelectionError(RuntimeError):
 
 
 def select_local(roster: Roster) -> RosterEntry:
-    """Select the free local entry to route to (C1's only routing decision).
+    """Select the free local entry to route to.
 
     Returns the first ``local``-tier entry invoked via ``openai-compat`` — the free tier the
-    C1 adapter can actually call.
+    openai-compat adapter can actually call.
 
     Args:
         roster: The loaded roster.
@@ -43,10 +43,10 @@ def select_local(roster: Roster) -> RosterEntry:
 
 
 def select_by_id(roster: Roster, entry_id: str) -> RosterEntry:
-    """Select a roster entry by id (lets the CLI drive a named sub end-to-end).
+    """Select a roster entry by id (lets the CLI drive a named entry end-to-end).
 
-    This is **not** the §6 router — it makes no routing decision, it just resolves an explicit
-    id the caller named. The cost-tiered orchestrator selection / rotation / failover is C3.
+    This is **not** the router — it makes no routing decision, it just resolves an explicit id the
+    caller named. Orchestrator selection / rotation / failover lives in the router.
 
     Args:
         roster: The loaded roster.
@@ -72,18 +72,18 @@ def build_adapter(
 ) -> Adapter:
     """Build the adapter for a roster entry.
 
-    Supports the ``openai-compat`` (free local), ``cli`` (subscription), and ``api`` (paid,
-    LiteLLM-fronted) adapters. The paid tier is **gated**: an ``api`` entry only builds when the
+    Supports the ``openai-compat`` (free local), ``cli`` (authenticated CLI), and ``api`` (paid,
+    gateway-fronted) adapters. The paid tier is **gated**: an ``api`` entry only builds when the
     global ``api_billing_enabled`` flag is on *and* the entry's own ``enabled`` flag is on — the
-    durable "no paid billing without the explicit toggle" rule (plan §9.6, issue #2). Otherwise it
-    raises clearly rather than pretending the entry is routable, so a ``tier: api`` entry parses but
-    stays inert by default.
+    durable "no paid billing without the explicit toggle" rule. Otherwise it raises clearly rather
+    than pretending the entry is routable, so a ``tier: api`` entry parses but stays inert by
+    default.
 
     Args:
         entry: The roster entry to build an adapter for.
-        inject_delegate: For ``cli`` entries, make the gpt-oss MCP delegate available to the CLI as
-            an orchestrator (C3b) — the router sets this so an orchestrator can offload grunt to
-            free local. Ignored for non-``cli`` kinds.
+        inject_delegate: For ``cli`` entries, make the local-delegate tool available to the CLI as
+            an orchestrator — the router sets this so an orchestrator can offload sub-tasks to the
+            free local backend. Ignored for non-``cli`` kinds.
         settings: Global settings carrying the billing gate. Loaded from the packaged
             ``config/settings.yaml`` when ``None`` (and only when an ``api`` entry is actually being
             built, so non-paid builds never touch the file). Injectable for tests.
@@ -105,7 +105,7 @@ def build_adapter(
         if not settings.api_billing_enabled:
             raise AdapterError(
                 f"entry {entry.id!r} is a paid-API tier but billing is disabled "
-                "(api_billing_enabled=false in config/settings.yaml); it is inert (issue #2)"
+                "(api_billing_enabled=false in config/settings.yaml); it is inert"
             )
         if not entry.enabled:
             raise AdapterError(
