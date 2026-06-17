@@ -22,7 +22,14 @@ truth — read these, don't re-derive from this file):
   are **builders**. Do NOT write to or commit in the Monad-1 repo from here. Suggestions to
   the PM go via paste-back blocks. Shared infra (TC ports, group docs) is editable by either.
 
-## Status (as of 2026-06-16)
+## Status (as of 2026-06-17)
+
+> **Session 2026-06-16/17 (this builder session) — PROJECT REACHED FEATURE-COMPLETE.** Planned #2
+> (paid-API tier) then ran straight through the rest of the backlog (PM-directed, momentum protocol-
+> breaks): C6a→C6b→C6c (paid tier, closed #2), GUI roster editing, the #17 version-drift fix, and the
+> §6 classifier gate. Releases **v0.6.0 → v0.9.0** (each CHANGELOG-driven + GitHub release; every
+> feature via branch→PR→independent Critic review). **All planned work shipped** — see the "ALL PLANNED
+> WORK SHIPPED" section near the bottom for the (non-buildable) remainder and the next-session entry point.
 
 - ✅ **C0** — frontier-first decompose spike. Shipped as Monad-1 PR #65 (merged). Verdict KEEP.
   Carry-forward: budget local/grunt calls generously (≥2048 tokens) — gpt-oss spends budget on
