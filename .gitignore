@@ -33,11 +33,17 @@ venv/
 # Secrets — scoped keys live outside the repo (~/.config/monad/), never in git
 *.key
 
-# Agent / session tooling + internal process artifacts — NOT product, stay local.
-# Purged from git history pre-public (carried the maintainer home path + internal
-# routing/cost-tier reasoning). Files remain on disk for TangleClaw; just untracked.
+# Internal process / tooling / cross-session coordination — NOT product, stays local.
+# Principle: the public tree carries PRODUCT ONLY. These were purged from git history
+# pre-public (they carried the maintainer home path, Monad infra refs, and candid
+# internal routing/cost-tier reasoning). The files remain ON DISK — TangleClaw, Prawduct,
+# and the shared-doc registrations read them locally — they're just never tracked.
 .claude/
 .tangleclaw/
+.prawduct/
+CLAUDE.md
+C1-BUILD-REPORT.md
+TANGLEBRAIN-STATUS.md
 
 # Personal config overrides — keep your real roster/settings out of git
 # (the shipped config/*.yaml stay generic; your real deployment lives in an
