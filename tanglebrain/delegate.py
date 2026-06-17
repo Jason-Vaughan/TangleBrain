@@ -1,18 +1,18 @@
-"""Local-tier delegation logic (C2b) — the grunt offload behind the MCP tool.
+"""Local-tier delegation logic — the sub-task offload behind the MCP tool.
 
-A frontier orchestrator (claude / codex / gemini) decomposes a task and hands the bulk
-sub-tasks to TangleBrain's **free local tier** (gpt-oss-120b) at $0 marginal cost, then reviews
-the result. This module is the routing half of that: take a prompt, route it to the roster's
-local entry, return the text.
+A frontier orchestrator (e.g. claude / codex / gemini) decomposes a task and hands the bulk
+sub-tasks to TangleBrain's **free local tier** at $0 marginal cost, then reviews the result. This
+module is the routing half of that: take a prompt, route it to the roster's local entry, return the
+text.
 
 It is deliberately **free of any MCP dependency** so the delegation logic is importable and
 hermetically testable without the `mcp` SDK installed — the MCP server in
 :mod:`tanglebrain.mcp_server` is a thin wrapper over :func:`run_local_delegate`.
 
-It **reuses** C1's roster + selector + ``OpenAICompatAdapter`` rather than re-implementing the
-LiteLLM call, so the endpoint, model, and key live in exactly one place (the roster). Failures
-surface to the caller — the orchestrator decides whether to retry, fall back, or surface (no
-transparent retry/swap here), matching the adapter contract and the C0 reference.
+It **reuses** the roster + selector + ``OpenAICompatAdapter`` rather than re-implementing the call,
+so the endpoint, model, and key live in exactly one place (the roster). Failures surface to the
+caller — the orchestrator decides whether to retry, fall back, or surface (no transparent retry/swap
+here), matching the adapter contract.
 """
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ import sys
 from tanglebrain.roster import ROSTER_ENV_VAR, load_roster
 from tanglebrain.selector import build_adapter, select_local
 
-#: gpt-oss spends part of its budget on internal reasoning before the final answer, so the
-#: delegate is generous by default (the C0 budget lesson). Matches the adapter's own default.
+#: A local reasoning model spends part of its budget on internal reasoning before the final answer,
+#: so the delegate's token cap is generous by default. Matches the adapter's own default.
 DEFAULT_DELEGATE_MAX_TOKENS = 2048
 
 #: The MCP server name an orchestrator registers the delegate under. The tool an orchestrator
@@ -32,7 +32,7 @@ DELEGATE_SERVER_NAME = "tanglebrain-delegate"
 
 
 def delegate_mcp_config_json() -> str:
-    """Return the MCP-server config JSON that exposes the delegate to an orchestrator (C3b).
+    """Return the MCP-server config JSON that exposes the delegate to an orchestrator.
 
     Launches the server as ``<python> -m tanglebrain.mcp_server`` (not the ``tanglebrain-delegate``
     console script) so it resolves regardless of whether the script is on the orchestrator's PATH
@@ -55,7 +55,7 @@ def delegate_mcp_config_json() -> str:
 
 
 def delegate_substitutions() -> dict[str, str]:
-    """Return the token→value map applied to a roster entry's ``delegate_args`` (C3b).
+    """Return the token→value map applied to a roster entry's ``delegate_args``.
 
     Tokens (so per-CLI flags stay config-driven in the roster, not hardcoded in adapters):
 
@@ -85,7 +85,7 @@ def run_local_delegate(
     """Route ``prompt`` to the roster's free local tier and return its final text.
 
     Args:
-        prompt: The self-contained sub-task to delegate to the local grunt model.
+        prompt: The self-contained sub-task to delegate to the local backend.
         max_tokens: Completion token cap (default 2048 — gpt-oss needs headroom for its
             internal reasoning before the final answer).
         roster_path: Optional roster YAML path. When ``None``, the roster is resolved by

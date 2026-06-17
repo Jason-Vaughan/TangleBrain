@@ -1,11 +1,11 @@
-"""Surgical, comment-preserving roster editor (plan §5 / §9.2 — the knob-panel roster slice).
+"""Surgical, comment-preserving roster editor (the knob-panel roster slice).
 
-The knob panel (C5) lets the operator tune config from the browser; pricing became editable in C5b.
-The roster was deferred because ``roster.yaml`` carries dense inline comments (per-CLI invocation
-notes, the §-references, the paid-tier example) that a naive YAML dump would destroy. This module
-edits a **focused** set of simple per-entry fields *in place* — touching only the specific value on
-the specific line — so every comment, blank line, and the nested ``invoke`` block survive
-byte-for-byte. No new dependency (the GUI's standing zero-new-runtime-dep stance).
+The knob panel lets the operator tune config from the browser. Roster editing needs care because
+``roster.yaml`` carries dense inline comments (per-CLI invocation notes, the paid-tier example) that
+a naive YAML dump would destroy. This module edits a **focused** set of simple per-entry fields *in
+place* — touching only the specific value on the specific line — so every comment, blank line, and
+the nested ``invoke`` block survive byte-for-byte. No new dependency (the GUI's standing
+zero-new-runtime-dep stance).
 
 It deliberately does **not** add, remove, or reorder entries, nor edit the ``invoke`` block — those
 still need a hand-edit (they'd require a full comment-preserving YAML round-trip). Editable fields
@@ -17,7 +17,7 @@ are entry-level scalars only:
 
 **Safety**: every save re-parses the candidate text with the real :func:`tanglebrain.roster.load_roster`
 *before* it is written (a surgical mistake can never land a malformed roster), then backs up the
-existing file and writes atomically — mirroring C5b's pricing save.
+existing file and writes atomically — mirroring the pricing save.
 """
 from __future__ import annotations
 

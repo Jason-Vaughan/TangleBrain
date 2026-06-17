@@ -15,7 +15,7 @@ from tanglebrain.adapters import ApiAdapter, OpenAICompatAdapter
 from tanglebrain.adapters.base import AdapterError
 from tanglebrain.roster import Invoke, RosterEntry
 
-URL = "http://monad-1.example:4000/v1"
+URL = "http://litellm.example:4000/v1"
 
 
 def api_entry(key_ref: str = "file:/no/such/virtual.key") -> RosterEntry:

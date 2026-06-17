@@ -1,12 +1,12 @@
-"""Global settings loader (plan §7 / §9.6) — the paid-API billing gate.
+"""Global settings loader — the paid-API billing gate.
 
-The roster (``roster.yaml``) is a *list* of routable models; per-entry policy lives there. But a
+The roster (``roster.yaml``) is a *list* of routable backends; per-entry policy lives there. But a
 few knobs are **global**, not per-entry — chief among them the paid-API billing gate. Those live
 here, in a separate ``config/settings.yaml`` mapping, so the roster stays a bare list (folding a
 global flag into it would force a breaking list→mapping parse change across every roster reader).
 
-``api_billing_enabled`` is the durable safety contract (plan §9.6, contract invariant #3): **paid
-billing is OFF unless this flag is explicitly true.** When false, ``tier: api`` roster entries still
+``api_billing_enabled`` is the durable safety contract: **paid billing is OFF unless this flag is
+explicitly true.** When false, ``tier: api`` roster entries still
 parse and are inspectable, but :func:`tanglebrain.selector.build_adapter` refuses to build their
 adapter — they are inert. This is the single switch that makes accidental spend structurally hard.
 
@@ -34,16 +34,16 @@ class SettingsError(ValueError):
 
 @dataclass(frozen=True)
 class Settings:
-    """Global, non-per-entry TangleBrain settings (plan §7 / §9.6).
+    """Global, non-per-entry TangleBrain settings.
 
     Attributes:
         api_billing_enabled: The paid-API billing gate. ``False`` (the default) means every
             ``tier: api`` roster entry parses but is **never routable** — the adapter factory
             refuses to build it. Must be flipped to ``True`` explicitly to permit any paid spend.
-        classifier_gate_enabled: The §6 local classifier gate. ``False`` (the default) keeps the
+        classifier_gate_enabled: The local classifier gate. ``False`` (the default) keeps the
             normal frontier-first routing. When ``True``, a cheap local classify runs in front of the
-            router: trivial requests go straight to free local, only frontier requests consume a sub.
-            Built ahead of the §8 data trigger, so it stays off until an operator turns it on.
+            router: trivial requests go straight to the free local backend, only frontier requests
+            reach an orchestrator. Off until an operator turns it on.
     """
 
     api_billing_enabled: bool = False

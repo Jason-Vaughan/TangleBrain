@@ -48,11 +48,11 @@
 #     # --output-format json => one JSON object {"result": ..., "is_error": ...}; prompt appended.
 #     cmd: ["claude", "-p", "--output-format", "json"]
 #     parse: claude-json
-#     scrub_env: ["ANTHROPIC_API_KEY"]   # drive the subscription, not a per-token API key
+#     scrub_env: ["ANTHROPIC_API_KEY"]   # use the CLI's own authenticated session, not an injected key
 #     # Per-invocation delegate injection: {delegate_mcp_json} is substituted with the local-delegate
 #     # MCP server config; the tool is mcp__tanglebrain-delegate__delegate_local.
 #     delegate_args: ["--mcp-config", "{delegate_mcp_json}", "--allowedTools", "mcp__tanglebrain-delegate__delegate_local", "--strict-mcp-config"]
-#   cost: flat-rate
+#   cost: subscription
 #   good_at: [reasoning, decomposition, review]
 #   can_orchestrate: true                 # joins the orchestrator rotation
 #
@@ -66,7 +66,7 @@
 #     # Register the delegate via -c TOML overrides (codex has no per-invocation --mcp-config), plus
 #     # the approval/sandbox bypass codex exec needs to auto-run a tool call headless.
 #     delegate_args: ["-c", "mcp_servers.tanglebrain_delegate.command={delegate_mcp_command}", "-c", "mcp_servers.tanglebrain_delegate.args=[\"-m\",\"tanglebrain.mcp_server\"]", "--dangerously-bypass-approvals-and-sandbox"]
-#   cost: flat-rate
+#   cost: subscription
 #   good_at: [code, agentic-code]
 #   can_orchestrate: true
 #
@@ -81,7 +81,7 @@
 #     #   gemini mcp add tanglebrain-delegate -- <python> -m tanglebrain.mcp_server
 #     # (see README); these per-invocation flags then allow + auto-approve the tool.
 #     delegate_args: ["--allowed-mcp-server-names", "tanglebrain-delegate", "--approval-mode", "yolo"]
-#   cost: flat-rate
+#   cost: subscription
 #   good_at: [long-context, structured-json]
 #   can_orchestrate: true
 

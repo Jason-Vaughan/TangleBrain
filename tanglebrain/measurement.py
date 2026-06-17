@@ -1,15 +1,14 @@
-"""Measurement / "spend avoided" rollup (plan §8) — C4.
+"""Measurement / "spend avoided" rollup.
 
 Every routed task is logged as one JSON line in an append-only usage log, and ``tanglebrain
 --stats`` rolls those records up into a "spend avoided" figure: what the routed work *would* have
-cost on a paid frontier API, had it not gone to the free local tier or a flat-rate sub. This is how
-the north star (drive ongoing compute cost *down*) becomes visible, and it is the data the §6
-routing-evolution gate depends on later.
+cost on a paid frontier API, had it not gone to the free local tier or a subscription CLI. This
+makes the cloud-equivalent cost avoided by routing visible.
 
 Design notes:
 
-- **Tokens are estimated, not measured.** CLI subs (claude/codex/gemini) expose no usable token
-  counts, and a local reasoning model's real ``usage`` is inflated by dropped reasoning tokens. So a
+- **Tokens are estimated, not measured.** Authenticated CLIs expose no usable token counts, and a
+  local reasoning model's real ``usage`` is inflated by dropped reasoning tokens. So a
   single ``chars/4`` heuristic over the visible prompt + response is applied *uniformly* across all
   tiers — one consistent, if approximate, methodology (see :func:`estimate_tokens`).
 - **Pricing is config-driven** (``config/pricing.yaml``): a reference frontier price the operator
@@ -118,11 +117,12 @@ PRICING_HEADER = """\
 # Cloud-equivalent reference pricing for the "spend avoided" rollup.
 #
 # Methodology: for each routed task, estimate what it WOULD have cost on a paid frontier API, valued
-# at a reference model's per-token price. The rollup multiplies estimated tokens (a chars/4 heuristic
-# over the visible prompt + response) by these rates. Values are US dollars per 1,000,000 tokens.
+# at a reference model's per-million-token price. The rollup multiplies estimated tokens (a chars/4
+# heuristic over the visible prompt + response) by these rates. Values are US dollars per 1,000,000
+# tokens.
 #
 # `placeholder: true` makes `tanglebrain --stats` flag every figure as PLACEHOLDER (use it if you
-# fork the anchor before re-ratifying with the PM). Edited via `tanglebrain-gui` or by hand.
+# fork these reference rates before re-checking them). Edited via `tanglebrain-gui` or by hand.
 """
 
 
@@ -309,8 +309,8 @@ def record_task(
         in_tok = estimate_tokens(prompt)
         out_tok = estimate_tokens(response)
         equiv = cloud_equiv_usd(in_tok, out_tok, pricing)
-        # The paid-API tier (issue #2) is not built yet, so every routed task currently avoids the
-        # full cloud-equivalent. When `api` lands, those tasks incur real spend → avoided = 0.
+        # A paid `api` task incurs real spend, so it avoids nothing (avoided = 0); every other tier
+        # routes work off a paid frontier API, so it avoids the full cloud-equivalent.
         avoided = 0.0 if tier == "api" else equiv
         record = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),

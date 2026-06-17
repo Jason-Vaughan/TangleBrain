@@ -39,7 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- **Continuous integration (public-OSS rollout, R3).** A GitHub Actions workflow
+- **Neutralized code-surface framing (public-OSS rollout, R4 pre-flight).** Removed the purged
+  internal positioning from code docstrings/comments, the CLI `--help` text, the shipped
+  `config/*.yaml` comments, and test files — to match the already-neutralized Markdown docs before the
+  public flip. Scrubbed the economic/sub-evasion rationale (rate-limit "runway/spread", `$/token`,
+  per-token framing) and internal process refs (plan `§N` sections, chunk labels, `.claude/plans`
+  paths, issue/decision numbers), and renamed the test host to a generic example. The router is
+  described neutrally everywhere (rotation + failover for resilience). The "spend avoided" measurement
+  wording is kept (a product capability). Docstrings/comments/strings only — no behavior change
+  (verified by an AST-token structural diff). Closes #30. A GitHub Actions workflow
   (`.github/workflows/ci.yml`) runs `make test` (the hermetic suite) on every push to `main` and on
   pull requests, across Python 3.10/3.11/3.12. The `TANGLEBRAIN_LIVE`-gated tests stay skipped (CI has
   no backend). README gained a CI status badge. CI immediately surfaced a test-isolation gap — three

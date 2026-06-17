@@ -154,7 +154,7 @@ class OpenAICompatAdapter:
         if max_tokens < 1:
             raise AdapterError(
                 f"max_tokens must be >= 1, got {max_tokens} "
-                "(gpt-oss needs generous headroom — the C0 budget lesson)"
+                "(a local reasoning model needs generous headroom)"
             )
 
         url = f"{self.base_url}/chat/completions"

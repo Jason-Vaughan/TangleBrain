@@ -1,10 +1,10 @@
-"""CLI adapter — the subscription tier (plan §4, §7; C2).
+"""CLI adapter — the authenticated-CLI tier.
 
-Runs a subscription-CLI tool (``claude`` / ``codex`` / ``gemini``) as a subprocess and returns
-its final text, behind the uniform :class:`~tanglebrain.adapters.base.Adapter` interface. The
+Runs a configured command-line tool (e.g. ``claude`` / ``codex`` / ``gemini``) as a subprocess and
+returns its final text, behind the uniform :class:`~tanglebrain.adapters.base.Adapter` interface. The
 routing layer never sees the per-CLI differences below — it hands over a prompt and gets text.
 
-Two things vary per CLI and are config-driven from the roster (plan §5), never hardcoded here:
+Two things vary per CLI and are config-driven from the roster, never hardcoded here:
 
 - **How the prompt is passed.** A literal ``{prompt}`` token anywhere in the roster ``cmd`` is
   replaced with the prompt (e.g. gemini's ``-p {prompt}``); with no token the prompt is appended
@@ -15,9 +15,9 @@ Two things vary per CLI and are config-driven from the roster (plan §5), never 
   ``claude-json`` (single ``{"result": ...}`` object), ``gemini-json`` (``{"response": ...}``),
   or ``plain`` (stripped stdout — codex prints the answer to stdout, metadata to stderr).
 
-The safety-critical piece is **env-scrub** (§7): ``invoke.scrub_env`` names env vars stripped from
-the subprocess environment, so ``claude -p`` runs *without* ``ANTHROPIC_API_KEY`` and rides the flat
-Max subscription instead of the per-token paid API. Scrubbing operates on a **copy** of the
+The safety-critical piece is **env-scrub**: ``invoke.scrub_env`` names env vars stripped from the
+subprocess environment, so a CLI runs against its own authenticated session rather than an injected
+API key (e.g. ``claude -p`` without ``ANTHROPIC_API_KEY``). Scrubbing operates on a **copy** of the
 environment — the parent process's ``os.environ`` is never mutated.
 
 Like the openai-compat adapter, failures (non-zero exit, timeout, missing binary, unparseable
@@ -142,10 +142,10 @@ PARSERS: dict[str, Callable[[str], str]] = {
 
 
 def scrubbed_env(scrub_env: list[str]) -> dict[str, str]:
-    """Return a copy of the current environment with ``scrub_env`` names removed (§7).
+    """Return a copy of the current environment with ``scrub_env`` names removed.
 
-    This is the subscription-vs-key safety boundary: removing ``ANTHROPIC_API_KEY`` makes
-    ``claude -p`` ride the flat Max subscription, not the per-token paid API. The parent's
+    This is the session-vs-key safety boundary: removing ``ANTHROPIC_API_KEY`` makes ``claude -p``
+    run against its own authenticated session rather than an injected API key. The parent's
     ``os.environ`` is **not** mutated — only the returned copy (handed to the subprocess) is.
 
     Args:
@@ -201,12 +201,12 @@ class CliAdapter:
             cmd: The argv template (see :func:`build_argv` for ``{prompt}`` handling).
             parse: Name of the output parser (a key of :data:`PARSERS`). ``None`` uses
                 :data:`DEFAULT_PARSER` (``plain``).
-            scrub_env: Env var names to strip from the subprocess environment (§7).
-            delegate_args: Per-CLI flags that make the gpt-oss MCP delegate available to this CLI
-                as an orchestrator (C3b). A ``{delegate_mcp_json}`` token is substituted with the
+            scrub_env: Env var names to strip from the subprocess environment.
+            delegate_args: Per-CLI flags that make the local-delegate tool available to this CLI
+                as an orchestrator. A ``{delegate_mcp_json}`` token is substituted with the
                 delegate's MCP-server JSON. Only applied when ``inject_delegate`` is true.
             inject_delegate: When true, append the (substituted) ``delegate_args`` to the command
-                so the orchestrator can offload grunt to free local gpt-oss.
+                so the orchestrator can offload sub-tasks to the free local backend.
             timeout: Per-call subprocess timeout in seconds.
 
         Raises:
@@ -234,7 +234,7 @@ class CliAdapter:
 
         Args:
             entry: A roster entry whose ``invoke.kind`` is ``cli``.
-            inject_delegate: Make the gpt-oss MCP delegate available to this CLI (C3b); honors the
+            inject_delegate: Make the local-delegate tool available to this CLI; honors the
                 entry's ``invoke.delegate_args``.
             **overrides: Optional constructor overrides (``timeout``).
 

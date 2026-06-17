@@ -1,4 +1,4 @@
-"""Tests for the C4 measurement / spend-avoided layer (tanglebrain/measurement.py).
+"""Tests for the measurement / spend-avoided layer (tanglebrain/measurement.py).
 
 Fully hermetic: the usage log is a temp path and pricing is injected, so nothing touches the real
 ~/.cache or the packaged config. Covers the estimation/cost math, the fault-tolerant log I/O, and

@@ -1,16 +1,16 @@
-"""Paid-API adapter — the last-resort tier (plan §3/§7, issue #2).
+"""Paid-API adapter — the last-resort tier.
 
-**The paid-API tier rides the *same* transport as the free local tier**, on purpose. Paid APIs are
-LiteLLM-fronted (plan §7, decision #7): TangleBrain never holds a raw provider key — it references a
-scoped LiteLLM *virtual key* (via ``key_ref``) and calls LiteLLM's OpenAI-compatible
+**The paid-API tier reuses the *same* transport as the free local tier**, on purpose. Paid APIs are
+fronted through an OpenAI-compatible gateway (e.g. LiteLLM): TangleBrain never holds a raw provider
+key — it references a scoped key (via ``key_ref``) and calls the gateway's OpenAI-compatible
 ``/chat/completions`` endpoint, exactly as :class:`~tanglebrain.adapters.openai_compat.OpenAICompatAdapter`
-does for gpt-oss. So this adapter is a thin specialization of that one — the transport is identical;
-what makes the ``api`` tier different is **policy, not plumbing**:
+does for a local backend. So this adapter is a thin specialization of that one — the transport is
+identical; what makes the ``api`` tier different is **policy, not plumbing**:
 
 - it only exists behind the ``api_billing_enabled`` gate + the entry's ``enabled`` flag
   (enforced in :func:`tanglebrain.selector.build_adapter`, not here), and
-- it is routed **last resort** (§6, lands in C6b), and
-- its per-key monthly budget is capped LiteLLM-side on the virtual key.
+- it is routed **last resort**, and
+- its per-key monthly budget is capped gateway-side on the key.
 
 Subclassing keeps that "same transport, different policy" relationship explicit and avoids
 duplicating the httpx/error-handling block. If the paid tier ever needs genuinely different

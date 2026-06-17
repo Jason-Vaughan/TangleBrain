@@ -1,28 +1,27 @@
-# TangleBrain global settings (plan §7 / §9.6) — knobs that are NOT per roster entry.
+# TangleBrain global settings — knobs that are NOT per roster entry.
 #
-# The roster (roster.yaml) is a list of routable models; per-entry policy lives there. The few
+# The roster (roster.yaml) is a list of routable backends; per-entry policy lives there. The few
 # truly global switches live here.
 #
-# api_billing_enabled — THE PAID-API BILLING GATE. This is the durable safety contract
-# (plan §9.6, contract invariant #3): paid billing is OFF unless this is explicitly `true`.
+# api_billing_enabled — THE PAID-API BILLING GATE. This is the durable safety contract: paid
+# billing is OFF unless this is explicitly `true`.
 #
 #   false (default) → every `tier: api` roster entry still parses and is inspectable, but is
 #                     NEVER routable — the adapter factory refuses to build it. Inert.
-#   true            → enabled `tier: api` entries become routable (still last-resort, §6), each
-#                     fronted through a budget-scoped LiteLLM virtual key (key_ref).
+#   true            → enabled `tier: api` entries become routable (still last-resort), each
+#                     fronted through a budget-scoped key (key_ref) on an OpenAI-compatible gateway.
 #
 # The durable rule: *no paid billing without this explicit toggle.* Keep it false unless you mean it.
 
 api_billing_enabled: false
 
-# classifier_gate_enabled — the §6 LOCAL CLASSIFIER GATE (default false = normal frontier-first).
+# classifier_gate_enabled — the LOCAL CLASSIFIER GATE (default false = normal frontier-first).
 #
 #   false (default) → every request goes through the frontier-first router (orchestrator rotation).
-#   true            → a cheap local classify (free gpt-oss) runs FIRST: trivial requests are handled
-#                     directly by free local and never touch a sub; only frontier requests consume a
-#                     sub's rate-limit budget. Per CLI run, `--gate` / `--no-gate` overrides this.
+#   true            → a cheap local classify runs FIRST: trivial requests are handled directly by
+#                     the free local backend and never reach an orchestrator; only frontier requests
+#                     do. Per CLI run, `--gate` / `--no-gate` overrides this.
 #
-# Built ahead of the §8 data trigger (turn it on only when rotation isn't enough to stay under the
-# sub rate limits). Classification fails safe to "frontier" — it never traps a hard task on local.
+# Classification fails safe to "frontier" — it never traps a hard task on local.
 
 classifier_gate_enabled: false
