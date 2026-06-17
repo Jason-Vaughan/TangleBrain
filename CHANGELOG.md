@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- Live e2e test (`tests/test_live.py`) now pins the **direct-local** path: it calls
+  `run_once(..., local=True)` and asserts the request was served by the local tier
+  (`tier=local`, `model=gpt-oss-120b`). Bare `run_once` has routed through the frontier-first router
+  since the C3b default flip, so the C1 acceptance assertion had quietly stopped exercising the local
+  path. Test-only; no behaviour change (#24).
+
 ## [0.9.0] - 2026-06-17
 
 ### Added
