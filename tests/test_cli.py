@@ -344,6 +344,19 @@ class MainTest(unittest.TestCase):
                 main([])
         self.assertEqual(ctx.exception.code, 2)
 
+    def test_version_flag_prints_version_and_exits_zero(self):
+        # argparse's version action prints to stdout and exits 0; it short-circuits before routing.
+        from tanglebrain import __version__
+
+        out = io.StringIO()
+        with patch("tanglebrain.cli.run_once") as run:
+            with redirect_stdout(out):
+                with self.assertRaises(SystemExit) as ctx:
+                    main(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertIn(__version__, out.getvalue())
+        run.assert_not_called()  # --version never routes
+
 
 if __name__ == "__main__":
     unittest.main()
