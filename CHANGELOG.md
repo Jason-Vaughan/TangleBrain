@@ -39,15 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- **Neutralized code-surface framing (public-OSS rollout, R4 pre-flight).** Removed the purged
-  internal positioning from code docstrings/comments, the CLI `--help` text, the shipped
-  `config/*.yaml` comments, and test files — to match the already-neutralized Markdown docs before the
-  public flip. Scrubbed the economic/sub-evasion rationale (rate-limit "runway/spread", `$/token`,
-  per-token framing) and internal process refs (plan `§N` sections, chunk labels, `.claude/plans`
-  paths, issue/decision numbers), and renamed the test host to a generic example. The router is
-  described neutrally everywhere (rotation + failover for resilience). The "spend avoided" measurement
-  wording is kept (a product capability). Docstrings/comments/strings only — no behavior change
-  (verified by an AST-token structural diff). Closes #30. A GitHub Actions workflow
+- **Aligned code docstrings, comments, the CLI `--help` text, and shipped config comments with the
+  project's documentation.** A consistency pass so the in-code descriptions match the
+  README/ARCHITECTURE framing — the router is described as orchestrator rotation + failover for
+  resilience — and a generic example hostname replaces a deployment-specific one in the tests.
+  Docstrings/comments/strings only — no behavior change (verified by an AST-token structural diff).
+  Closes #30. A GitHub Actions workflow
   (`.github/workflows/ci.yml`) runs `make test` (the hermetic suite) on every push to `main` and on
   pull requests, across Python 3.10/3.11/3.12. The `TANGLEBRAIN_LIVE`-gated tests stay skipped (CI has
   no backend). README gained a CI status badge. CI immediately surfaced a test-isolation gap — three
@@ -219,8 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (BEHAVIOR CHANGE).** `tanglebrain "prompt"` (no flags) now routes through the frontier-first
   router instead of going straight to the local tier; pass `--local` for the old direct-to-gpt-oss
   behavior, or `--model <id>` to pin an entry. Each orchestrator is now invoked with the C2b
-  `delegate_local` tool available, so it decomposes the task and offloads grunt to free local
-  gpt-oss at $0 — this is what makes frontier-first cost-effective (plan §6). Closes #7.
+  `delegate_local` tool available, so it decomposes the task and offloads sub-tasks to the free
+  local backend — the offload behind frontier-first decompose (plan §6). Closes #7.
   - **Config-driven injection**: a new `invoke.delegate_args` roster field carries the per-CLI
     flags that register + allow the delegate, with `{delegate_mcp_json}` / `{delegate_mcp_command}`
     tokens substituted at runtime (the delegate runs as `python -m tanglebrain.mcp_server`, so it
@@ -232,8 +229,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **C3 — frontier-first router (control plane).** `tanglebrain/router.py` routes a task to a
-  frontier sub acting as orchestrator, rotating the role across the `can_orchestrate` subs for ~3×
-  the rate-limit runway, with automatic failover (plan §6).
+  frontier sub acting as orchestrator, rotating the role across the `can_orchestrate` subs with
+  automatic failover for resilience (plan §6).
   - **Task-fit selection**: a `--task <good_at-tag>` hint prefers orchestrators good at it (falling
     back to all when none match — a preference, not a gate). Auto-classification stays deferred
     (§6: "only if volume demands").
@@ -272,7 +269,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     appended as the final argument (claude, codex).
   - **Env-scrub (§7), the safety-critical piece:** `invoke.scrub_env` strips named vars from a
     *copy* of the environment handed to the subprocess (the parent `os.environ` is never
-    mutated), so `claude -p` rides the flat Max subscription instead of the per-token
+    mutated), so `claude -p` uses its own authenticated session rather than the injected
     `ANTHROPIC_API_KEY`. Proven by a live test: claude reports the key as `UNSET`.
   - Output parsers selected per entry via a new `invoke.parse` roster field: `claude-json`
     (single `{"result": ...}` object), `gemini-json` (`{"response": ...}`), and `plain`
@@ -282,7 +279,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     backwards-compatible imports).
   - `selector.build_adapter` now builds the `cli` adapter; `selector.select_by_id` plus a new
     `tanglebrain --model <id>` flag let a named sub be driven end-to-end. This is an explicit
-    override, **not** the §6 cost-tiered router (still C3).
+    override, **not** the §6 frontier-first router (still C3).
   - Roster `cmd` for claude switched from `stream-json` to `--output-format json` (a single
     parseable object). The gpt-oss MCP local-delegate (the other half of plan §10's C2 line)
     was split out to issue #4 (C2b), to land near C3 where it has a consumer.
@@ -304,8 +301,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     2048 per the C0 budget lesson. Resolves the scoped key via the contract's `key_ref`.
   - Local-first selector (`tanglebrain/selector.py`) and CLI entry point
     (`tanglebrain/cli.py`) wiring roster → local entry → adapter → text.
-  - Migrated the canonical plan (`.claude/plans/tanglebrain.md`) and the orchestration
-    contract (`TANGLEBRAIN.md`, with a SUPERSEDED banner) into this repo.
+  - Brought the project's planning and design docs into this repo (the current architecture is
+    documented in `ARCHITECTURE.md`).
   - Baseline hygiene files: `README`, `LICENSE`, `CHANGELOG`, `.gitignore`.
 
 ### Internal
