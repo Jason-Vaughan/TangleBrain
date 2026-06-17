@@ -170,9 +170,7 @@ truth — read these, don't re-derive from this file):
 
 - 🔄 **C6b** *(this session — 9th chunk; 2nd build chunk this session — protocol break for momentum,
   PM-authorized "continue now")* — **last-resort paid-API routing (§10 C6, issue #2 slice 2/3)**.
-  **PR #18 OPEN — NOT yet merged** (feature PR, manual-merge: `gh pr merge 18 --squash
-  --delete-branch`). Branch `feat/c6b-last-resort-routing`. Issue #2 stays OPEN (C6c remains). Will
-  release as **v0.7.0** (CHANGELOG `### Added` → minor). Key facts:
+  **Merged (PR #18); released in v0.7.0.** Key facts:
   - `Router.route()`: after ALL orchestrators fail, if `settings.api_billing_enabled`, try enabled
     `tier: api` entries in **roster order**. Paid success → `last_served` set (meters tier=api,
     spend_avoided=0) but **cursor NOT advanced** (api isn't in the §6 rotation). Paid failures fail
@@ -186,16 +184,35 @@ truth — read these, don't re-derive from this file):
   - 260 hermetic tests (was 259→260 after Critic nits). New `LastResortApiFallbackTest` (12 cases).
     Critic: no blockers; 2 nits applied (double-attempt guard + seeded-cursor test).
 
-## Next chunk = C6c — budget display + runbook (issue #2 closes here; 3rd/final paid-API slice)
+- ✅ **C6c** *(this session — 10th chunk; 3rd build chunk this session — protocol break for momentum)* —
+  **paid-API visibility in the knob panel + runbook (§10 C6, issue #2 slice 3/3, the closer)**. **Merged
+  (PR #19); released in v0.7.0. CLOSES issue #2.** Thin/read-only per the LiteLLM-only-v1 decision. Key facts:
+  - `gui/views.py`: `view_roster` now emits per-entry `enabled` + `budget_usd_month` (no new file read →
+    the open-patched secret-safety tests still hold). New `view_settings()` → `{api_billing_enabled}`
+    reading only `config/settings.yaml`. `gui/server.py`: `GET /api/settings`.
+  - `gui/static/index.html`: roster card shows a `disabled` pill, a `budget: $N/mo (LiteLLM-enforced)`
+    note, and a **Paid-API billing: ON/OFF** banner (from the gate). All values esc()'d; settings fetch
+    `.catch`-degrades to OFF. README gained a **runbook** (mint budget-scoped LiteLLM virtual key →
+    store 0600 → `key_ref` → flip gate → pause via `enabled:false`/gate).
+  - 265 tests. Critic: SHIP, no blockers (secret-safety/XSS/read-only all traced).
+  - ⚠️ **LESSON**: issue #2 was auto-closed prematurely earlier by the *C6b memory commit* `fe6b5b3`
+    whose prose body contained the literal `closes #2` (GitHub treats it as a keyword anywhere on the
+    default branch). Reopened, then properly closed by PR #19. **Never put `close(s)/fix(es)/resolve(s)
+    #N` in commit-message prose — only in PR bodies where the close is intended.**
 
-**FIRST merge PR #18** (`gh pr merge 18 --squash --delete-branch`) if not already, then verify issue
-#2 still OPEN (`gh issue view 2 --json state -q .state`). Read the build plan:
-`/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md` (C6c section).
-**C6c is THIN** (per the LiteLLM-only-v1 PM decision — no TB-side budget metering): surface read-only
-`budget_usd_month` + `enabled` in `--stats` and/or the GUI roster view, and write a runbook for minting
-a budget-scoped LiteLLM **virtual key** on Monad + referencing it via `key_ref`. **C6c closes issue #2**
-(`Closes #2` in the PR) — the paid-API tier is complete. Tag **v0.7.0** after C6b merges (or roll C6b+C6c
-into one v0.7.0). Still deferred/non-build: GUI roster editing (from C5; needs comment-preserving YAML).
+## Build outline COMPLETE — issue #2 (paid-API tier) shipped; no active "next chunk"
+
+**As of 2026-06-16, the entire §10 build outline (C0→C6) is shipped.** Latest release **v0.7.0**
+(paid-API tier complete). The cost-tiered router is end-to-end: free-local-first → frontier-first
+orchestrator rotation with delegate offload → measurement/rollup → knob GUI → paid-API last resort
+(off by default). **No canonical next build chunk.** Optional/deferred backlog (none scheduled — pick
+only on PM direction or data):
+- **GUI roster editing** (deferred from C5; needs a comment-preserving YAML editor for the dense roster).
+- **#17** — `tanglebrain.__version__` stale at 0.1.0 vs pyproject (small chore; derive from
+  `importlib.metadata`).
+- **Local classifier gate** (plan §6 evolution) — ONLY if §8 measurement data shows rate-limit pressure.
+- Real paid-key trial: mint a budget-scoped LiteLLM virtual key and exercise the live paid path (the
+  whole tier is hermetically tested but never run against a real paid endpoint).
 
 ### Original #2 plan-time context (kept for reference)
 **PLANNED 2026-06-16 → split into C6a/C6b/C6c.** Canonical build plan:
