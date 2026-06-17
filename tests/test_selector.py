@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from tanglebrain.adapters import AdapterError, CliAdapter, OpenAICompatAdapter
+from tanglebrain.adapters import ApiAdapter, AdapterError, CliAdapter, OpenAICompatAdapter
 from tanglebrain.roster import Invoke, Roster, RosterEntry, load_roster
 from tanglebrain.selector import (
     SelectionError,
@@ -11,6 +11,7 @@ from tanglebrain.selector import (
     select_by_id,
     select_local,
 )
+from tanglebrain.settings import Settings
 
 
 def local_entry() -> RosterEntry:
@@ -25,8 +26,13 @@ def cli_entry() -> RosterEntry:
     return RosterEntry(id="claude", tier="sub", invoke=Invoke(kind="cli", cmd=["claude"]))
 
 
-def api_entry() -> RosterEntry:
-    return RosterEntry(id="gpt-5", tier="api", invoke=Invoke(kind="api"))
+def api_entry(enabled: bool = True) -> RosterEntry:
+    return RosterEntry(
+        id="gpt-5",
+        tier="api",
+        invoke=Invoke(kind="api", base_url="http://x/v1", model="gpt-5", key_ref="none"),
+        enabled=enabled,
+    )
 
 
 class SelectLocalTest(unittest.TestCase):
@@ -70,7 +76,25 @@ class BuildAdapterTest(unittest.TestCase):
         adapter = build_adapter(cli_entry())
         self.assertIsInstance(adapter, CliAdapter)
 
-    def test_api_entry_has_no_adapter_yet(self):
+    def test_api_entry_inert_when_billing_disabled(self):
+        # Default gate is OFF — a paid entry parses but is never routable (issue #2).
+        with self.assertRaises(AdapterError) as ctx:
+            build_adapter(api_entry(), settings=Settings(api_billing_enabled=False))
+        self.assertIn("billing is disabled", str(ctx.exception))
+
+    def test_api_entry_builds_when_billing_enabled(self):
+        adapter = build_adapter(api_entry(), settings=Settings(api_billing_enabled=True))
+        self.assertIsInstance(adapter, ApiAdapter)
+
+    def test_api_entry_disabled_not_routable_even_when_billing_on(self):
+        # The per-key kill-switch overrides the global gate: enabled=false is never routable.
+        with self.assertRaises(AdapterError) as ctx:
+            build_adapter(api_entry(enabled=False), settings=Settings(api_billing_enabled=True))
+        self.assertIn("disabled", str(ctx.exception))
+
+    def test_api_gate_defaults_to_disabled_when_no_settings_injected(self):
+        # With no settings passed, build_adapter loads the packaged settings.yaml, which ships the
+        # gate OFF — so the default posture is inert without any injection.
         with self.assertRaises(AdapterError):
             build_adapter(api_entry())
 
