@@ -168,6 +168,28 @@ class SavePricingViewTest(unittest.TestCase):
         save.assert_not_called()
 
 
+class SaveRosterViewTest(unittest.TestCase):
+    def test_happy_path_returns_updated_roster(self):
+        with patch("tanglebrain.gui.views.save_roster_edits") as save, \
+             patch("tanglebrain.gui.views.load_roster",
+                   return_value=Roster([_entry("claude", "sub")])):
+            out = views.save_roster_view({"id": "claude", "fields": {"enabled": False}})
+        save.assert_called_once_with("claude", {"enabled": False})
+        self.assertTrue(out["ok"])
+        self.assertIn("entries", out["roster"])
+
+    def test_missing_id_or_fields_rejected(self):
+        for bad in ({"fields": {"enabled": False}}, {"id": "claude"}, {"id": "claude", "fields": {}}):
+            self.assertFalse(views.save_roster_view(bad)["ok"])
+
+    def test_edit_error_returned_not_raised(self):
+        from tanglebrain.roster_edit import RosterEditError
+        with patch("tanglebrain.gui.views.save_roster_edits", side_effect=RosterEditError("nope")):
+            out = views.save_roster_view({"id": "x", "fields": {"enabled": True}})
+        self.assertFalse(out["ok"])
+        self.assertIn("nope", out["error"])
+
+
 class DispatchTest(unittest.TestCase):
     def test_get_index_is_html(self):
         status, ctype, body = server.dispatch("GET", "/")
@@ -207,6 +229,21 @@ class DispatchTest(unittest.TestCase):
             status, _, out = server.dispatch("POST", "/api/run", body)
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(out)["ok"])
+
+    def test_post_roster_valid(self):
+        body = json.dumps({"id": "claude", "fields": {"enabled": False}}).encode()
+        with patch("tanglebrain.gui.views.save_roster_edits"), \
+             patch("tanglebrain.gui.views.load_roster",
+                   return_value=Roster([_entry("claude", "sub")])):
+            status, _, out = server.dispatch("POST", "/api/roster", body)
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(out)["ok"])
+
+    def test_post_roster_bad_request_400(self):
+        body = json.dumps({"id": "claude"}).encode()  # no fields
+        status, _, out = server.dispatch("POST", "/api/roster", body)
+        self.assertEqual(status, 400)
+        self.assertFalse(json.loads(out)["ok"])
 
     def test_post_pricing_valid(self):
         body = json.dumps({"reference_model": "M", "input_per_mtok": 1.0,
