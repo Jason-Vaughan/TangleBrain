@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **C6b — last-resort paid-API routing.** The frontier-first router can now fall through to a paid
+  `tier: api` entry as a genuine last resort (plan §6): **only** after *every* `can_orchestrate` sub
+  has failed/exhausted, and **only** when the `api_billing_enabled` gate is on. With the gate off
+  (the default) the router never reaches a paid tier — behavior is unchanged. Part of #2.
+  - Enabled `api` entries are tried in roster order; a paid success is surfaced on
+    `Router.last_served` (so the run is metered `tier=api`, `spend_avoided=0`) but does **not**
+    advance the orchestrator rotation cursor. Paid failures fail over to the next `api` entry and
+    are listed in the `RouterError` with the same `[rate-limit]` annotation as orchestrators.
+  - The router requires at least one orchestrator to be present — it never paid-routes a roster with
+    no subs to exhaust (use `--model <id>` for an explicit paid call). `Router(... settings=)` is
+    injectable; it defaults to the packaged `config/settings.yaml`.
+
 ## [0.6.0] - 2026-06-16
 
 ### Added

@@ -31,6 +31,7 @@ from tanglebrain.adapters import AdapterError
 from tanglebrain.adapters.base import Adapter
 from tanglebrain.roster import RosterEntry, Roster
 from tanglebrain.selector import build_adapter
+from tanglebrain.settings import Settings, load_settings
 
 STATE_DIR_ENV = "TANGLEBRAIN_STATE_DIR"
 DEFAULT_STATE_SUBDIR = ".cache/tanglebrain"
@@ -117,6 +118,7 @@ class Router:
         state_path: str | os.PathLike[str] | None = None,
         adapter_factory: Callable[..., Adapter] = build_adapter,
         inject_delegate: bool = True,
+        settings: Settings | None = None,
     ) -> None:
         """Configure the router.
 
@@ -130,11 +132,16 @@ class Router:
             inject_delegate: Make the gpt-oss MCP delegate available to each orchestrator (C3b), so
                 it offloads grunt to free local — the frontier-first cost lever. On by default; set
                 false to route to bare orchestrators (e.g. for debugging).
+            settings: Global settings carrying the paid-API billing gate (C6b). Loaded from the
+                packaged ``config/settings.yaml`` when ``None``. The router consults
+                ``api_billing_enabled`` to decide whether the last-resort paid-API fallback is live;
+                with the gate off (the default) the router never reaches a paid tier.
         """
         self.roster = roster
         self.state_path = Path(state_path) if state_path is not None else default_state_path()
         self._adapter_factory = adapter_factory
         self.inject_delegate = inject_delegate
+        self.settings = settings if settings is not None else load_settings()
         # The entry that served the most recent successful route(), or None before any success.
         # Surfaced so the CLI's measurement seam (C4) can record which tier/model handled a task
         # without changing route()'s str return type.
@@ -155,6 +162,11 @@ class Router:
         over to the next. On success, advance the persisted cursor past the served orchestrator so
         the next request starts elsewhere (load-spread).
 
+        Last resort (C6b): if **every** orchestrator fails and the paid-API billing gate is on
+        (``settings.api_billing_enabled``), fall through to the enabled ``tier: api`` entries in
+        roster order — the genuine last resort (plan §6). With the gate off (the default) the router
+        never reaches a paid tier. A paid success does not advance the orchestrator rotation cursor.
+
         Args:
             prompt: The task prompt.
             task: Optional task-fit hint — a ``good_at`` tag (e.g. ``code``, ``reasoning``,
@@ -162,10 +174,12 @@ class Router:
             opts: Optional per-call adapter options (passed straight through to ``adapter.run``).
 
         Returns:
-            The serving orchestrator's response text.
+            The serving entry's response text (an orchestrator, or a paid-API fallback when the gate
+            is on and all orchestrators failed). The served entry is exposed on ``last_served``.
 
         Raises:
-            RouterError: If the roster has no orchestrator-capable entry, or all tried failed.
+            RouterError: If the roster has no orchestrator-capable entry, or every candidate tried
+                (all orchestrators, plus any enabled paid-API fallback) failed.
         """
         orchestrators = self.roster.orchestrators()
         if not orchestrators:
@@ -195,8 +209,31 @@ class Router:
             self.last_served = entry
             return text
 
+        # C6b — last-resort paid-API fallback. Only after EVERY orchestrator has failed, and only
+        # when billing is explicitly enabled, fall through to a paid `api` entry (plan §6: paid API
+        # is the genuine last resort). With the gate off — the default — this block is skipped
+        # entirely, so the router can never reach a paid tier. Enabled paid entries are tried in
+        # roster order; a paid success does NOT advance the orchestrator rotation cursor (api is not
+        # part of the §6 rotation). This requires at least one orchestrator above — the router never
+        # paid-routes a roster that has no subs to exhaust (use ``--model`` for an explicit paid call).
+        if self.settings.api_billing_enabled:
+            attempted = {eid for eid, _ in failures}
+            for entry in self.roster.in_tier("api"):
+                # Skip disabled entries, and any already tried above (a degenerate roster could flag
+                # a paid entry ``can_orchestrate: true``, putting it in the rotation — don't re-run it).
+                if not entry.enabled or entry.id in attempted:
+                    continue
+                adapter = self._adapter_factory(entry, inject_delegate=self.inject_delegate)
+                try:
+                    text = adapter.run(prompt, opts)
+                except AdapterError as exc:
+                    failures.append((entry.id, str(exc)))
+                    continue
+                self.last_served = entry
+                return text
+
         detail = "; ".join(
             f"{eid}{' [rate-limit]' if _looks_like_rate_limit(msg) else ''}: {msg}"
             for eid, msg in failures
         )
-        raise RouterError(f"all {len(failures)} orchestrator(s) failed: {detail}")
+        raise RouterError(f"all {len(failures)} candidate(s) failed: {detail}")
