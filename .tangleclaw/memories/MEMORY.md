@@ -200,19 +200,35 @@ truth — read these, don't re-derive from this file):
     default branch). Reopened, then properly closed by PR #19. **Never put `close(s)/fix(es)/resolve(s)
     #N` in commit-message prose — only in PR bodies where the close is intended.**
 
-## Build outline COMPLETE — issue #2 (paid-API tier) shipped; no active "next chunk"
+- ✅ **C7 (post-#2 deferred item)** *(this session — 11th chunk; 4th build chunk this session)* —
+  **editable roster in the knob panel (plan §5/§9.2; the deferred half of C5)**. **Merged (PR #21);
+  released in v0.8.0.** Closed the last GUI gap. Key facts:
+  - **PM decision**: no-dep **surgical** comment-preserving edit (NOT ruamel.yaml — kept the GUI's
+    zero-new-runtime-dep stance). New `tanglebrain/roster_edit.py` edits the targeted value on the
+    targeted line in place → all comments, the nested `invoke` block, the commented api example
+    survive byte-for-byte. Editable fields ONLY: `enabled`, `can_orchestrate`, `budget_usd_month`
+    (cleared→line removed), `good_at`. NO add/remove/reorder entries, NO invoke editing (still hand-edits).
+  - Write-safety mirrors C5b: validate → **re-parse candidate with real `load_roster` before any write**
+    (surgical slip can't land a malformed roster) → backup `<state_dir>/backups/roster-<ts>.yaml` →
+    atomic. `views.save_roster_view` + `POST /api/roster`; panel sends only changed fields, confirms.
+  - Insert-absent-field lands at **block END** (after all the entry's lines) so it never splices a
+    block-style key from its continuation (Critic should-fix). Non-finite budget rejected (nit).
+  - 295 tests. Critic: ship-ready, no blockers. `roster_edit._atomic_write`/`_backup_dir` reused from
+    `measurement` (package-internal).
 
-**As of 2026-06-16, the entire §10 build outline (C0→C6) is shipped.** Latest release **v0.7.0**
-(paid-API tier complete). The cost-tiered router is end-to-end: free-local-first → frontier-first
-orchestrator rotation with delegate offload → measurement/rollup → knob GUI → paid-API last resort
-(off by default). **No canonical next build chunk.** Optional/deferred backlog (none scheduled — pick
-only on PM direction or data):
-- **GUI roster editing** (deferred from C5; needs a comment-preserving YAML editor for the dense roster).
-- **#17** — `tanglebrain.__version__` stale at 0.1.0 vs pyproject (small chore; derive from
-  `importlib.metadata`).
+## Build outline COMPLETE — all planned work shipped; no active "next chunk"
+
+**As of 2026-06-17, the entire §10 build outline (C0→C7) AND the deferred C5 GUI roster-editing item
+are shipped.** Latest release **v0.8.0**. The cost-tiered router is end-to-end: free-local-first →
+frontier-first orchestrator rotation with delegate offload → measurement/rollup → knob GUI (view +
+**editable** pricing & roster) → paid-API last resort (off by default, gated, last-resort-routed,
+visible). **No canonical next build chunk; no open feature issues.** Remaining backlog is NOT
+autonomously buildable — pick only on explicit PM direction or data:
 - **Local classifier gate** (plan §6 evolution) — ONLY if §8 measurement data shows rate-limit pressure.
-- Real paid-key trial: mint a budget-scoped LiteLLM virtual key and exercise the live paid path (the
-  whole tier is hermetically tested but never run against a real paid endpoint).
+  No such data yet (router barely exercised) → premature; do not build speculatively.
+- **Real paid-key trial** — operator/PM action on **Monad** (mint a budget-scoped LiteLLM virtual key,
+  run the live paid path). Crosses the cross-session write boundary (Monad = PM repo); README runbook
+  covers the steps. The whole paid tier is hermetically tested but never run against a real paid endpoint.
 
 ### Original #2 plan-time context (kept for reference)
 **PLANNED 2026-06-16 → split into C6a/C6b/C6c.** Canonical build plan:
