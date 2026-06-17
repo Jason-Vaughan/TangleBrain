@@ -23,6 +23,7 @@ from tanglebrain.router import (
     _write_cursor,
     default_state_path,
 )
+from tanglebrain.settings import Settings
 
 
 def orch(entry_id: str, good_at=()) -> RosterEntry:
@@ -39,6 +40,16 @@ def orch(entry_id: str, good_at=()) -> RosterEntry:
 def worker(entry_id: str) -> RosterEntry:
     """A non-orchestrator entry (the local tier)."""
     return RosterEntry(id=entry_id, tier="local", invoke=Invoke(kind="openai-compat", base_url="u", model="m"))
+
+
+def api(entry_id: str, enabled: bool = True) -> RosterEntry:
+    """A paid-API tier entry (the last-resort fallback, C6b)."""
+    return RosterEntry(
+        id=entry_id,
+        tier="api",
+        invoke=Invoke(kind="api", base_url="u", model="m", key_ref="none"),
+        enabled=enabled,
+    )
 
 
 def factory(outcomes: dict[str, tuple[str, str]]):
@@ -223,6 +234,117 @@ class FailoverTest(RouterTestBase):
 
         Router(self.roster, state_path=self.state, adapter_factory=fac, inject_delegate=False).route("q")
         self.assertFalse(any(seen.values()))
+
+
+class LastResortApiFallbackTest(RouterTestBase):
+    """C6b: paid-API entries are the genuine last resort — reached only after every orchestrator
+    fails AND the billing gate is on. Off by default, so the router never reaches a paid tier."""
+
+    def mk(self, roster, outcomes, billing=True):
+        return Router(
+            roster,
+            state_path=self.state,
+            adapter_factory=factory(outcomes),
+            settings=Settings(api_billing_enabled=billing),
+        )
+
+    _ALL_SUBS_FAIL = {"claude": ("err", "e"), "codex": ("err", "e"), "gemini": ("err", "e")}
+
+    def test_falls_through_to_api_when_all_orchestrators_fail(self):
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"), api("gpt5")])
+        r = self.mk(roster, {**self._ALL_SUBS_FAIL, "gpt5": ("ok", "paid-answer")})
+        self.assertEqual(r.route("q"), "paid-answer")
+        self.assertEqual(r.last_served.id, "gpt5")
+        self.assertEqual(r.last_served.tier, "api")
+
+    def test_api_not_reached_when_gate_off(self):
+        # gpt5 WOULD succeed, but with billing off the router must never attempt it.
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"), api("gpt5")])
+        r = self.mk(roster, {**self._ALL_SUBS_FAIL, "gpt5": ("ok", "paid")}, billing=False)
+        with self.assertRaises(RouterError) as ctx:
+            r.route("q")
+        self.assertNotIn("gpt5", str(ctx.exception))  # never even tried
+
+    def test_api_not_reached_when_an_orchestrator_succeeds(self):
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"), api("gpt5")])
+        r = self.mk(
+            roster,
+            {"claude": ("ok", "from-claude"), "codex": ("ok", "x"), "gemini": ("ok", "x"),
+             "gpt5": ("err", "should-not-run")},
+        )
+        self.assertEqual(r.route("q"), "from-claude")
+        self.assertEqual(r.last_served.id, "claude")
+
+    def test_disabled_api_entry_is_skipped(self):
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"),
+                         api("paid-off", enabled=False), api("paid-on")])
+        r = self.mk(roster, {**self._ALL_SUBS_FAIL, "paid-off": ("ok", "NO"), "paid-on": ("ok", "YES")})
+        self.assertEqual(r.route("q"), "YES")
+        self.assertEqual(r.last_served.id, "paid-on")
+
+    def test_api_entries_tried_in_roster_order(self):
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"), api("first"), api("second")])
+        r = self.mk(roster, {**self._ALL_SUBS_FAIL, "first": ("ok", "FIRST"), "second": ("ok", "SECOND")})
+        self.assertEqual(r.route("q"), "FIRST")
+
+    def test_api_failure_fails_over_to_next_api(self):
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"), api("first"), api("second")])
+        r = self.mk(roster, {**self._ALL_SUBS_FAIL, "first": ("err", "paid boom"), "second": ("ok", "SECOND")})
+        self.assertEqual(r.route("q"), "SECOND")
+
+    def test_all_fail_including_api_raises_and_lists_api_with_rate_limit(self):
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"), api("gpt5")])
+        r = self.mk(roster, {"claude": ("err", "e1"), "codex": ("err", "e2"),
+                             "gemini": ("err", "e3"), "gpt5": ("err", "HTTP 429 quota")})
+        with self.assertRaises(RouterError) as ctx:
+            r.route("q")
+        msg = str(ctx.exception)
+        self.assertIn("gpt5", msg)
+        self.assertIn("[rate-limit]", msg)  # api failures get the same annotation as orchestrators
+
+    def test_api_success_does_not_advance_orchestrator_cursor(self):
+        # Seed a non-zero cursor so this proves "unchanged", not "coincidentally 0" (a missing
+        # state file also reads 0). After a paid success the orchestrator cursor must be untouched.
+        _write_cursor(self.state, 2)
+        roster = Roster([orch("claude"), orch("codex"), orch("gemini"), api("gpt5")])
+        r = self.mk(roster, {**self._ALL_SUBS_FAIL, "gpt5": ("ok", "paid")})
+        r.route("q")
+        self.assertEqual(_read_cursor(self.state), 2)  # unchanged — api is not in the rotation
+
+    def test_api_orchestrator_is_not_double_attempted(self):
+        # Degenerate config: a paid entry flagged can_orchestrate is in the rotation. With the gate
+        # on it must be tried ONCE (as an orchestrator), not again in the api fallback block.
+        calls = {"claude": 0}
+
+        def fac(entry, inject_delegate=False):
+            adapter = MagicMock()
+
+            def run(p, o, _id=entry.id):
+                calls[_id] = calls.get(_id, 0) + 1
+                raise AdapterError("boom")
+
+            adapter.run.side_effect = run
+            return adapter
+
+        paid_orch = RosterEntry(
+            id="claude", tier="api",
+            invoke=Invoke(kind="api", base_url="u", model="m", key_ref="none"),
+            can_orchestrate=True,
+        )
+        roster = Roster([paid_orch, orch("codex")])
+        r = Router(roster, state_path=self.state, adapter_factory=fac,
+                   settings=Settings(api_billing_enabled=True))
+        with self.assertRaises(RouterError):
+            r.route("q")
+        self.assertEqual(calls["claude"], 1)  # not re-run by the fallback loop
+
+    def test_no_orchestrators_never_paid_routes(self):
+        # A roster with only a paid entry + gate on must still raise — never silently paid-route.
+        # (use --model for an explicit paid call; the router needs subs to exhaust first.)
+        roster = Roster([api("gpt5")])
+        r = self.mk(roster, {"gpt5": ("ok", "paid")})
+        with self.assertRaises(RouterError):
+            r.route("q")
 
 
 class RateLimitClassifierTest(unittest.TestCase):
