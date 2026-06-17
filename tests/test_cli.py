@@ -186,6 +186,55 @@ class RunOnceTest(unittest.TestCase):
         self.assertEqual(records[0]["tier"], "sub")
         self.assertEqual(records[0]["model"], "claude")
 
+    def test_gate_trivial_routes_to_local(self):
+        # §6 gate on + classifier says trivial → served by free local (path 'gate-local'), no Router.
+        fake_adapter = MagicMock(); fake_adapter.run.return_value = "local ans"
+        with patch("tanglebrain.cli.classify", return_value="trivial") as clf, \
+             patch("tanglebrain.cli.build_adapter", return_value=fake_adapter), \
+             patch("tanglebrain.cli.Router") as RouterCls:
+            text, served = run_once("2+2?", gate=True, return_served=True)
+        self.assertEqual(text, "local ans")
+        self.assertEqual(served["path"], "gate-local")
+        self.assertEqual(served["tier"], "local")
+        RouterCls.assert_not_called()
+        clf.assert_called_once()
+
+    def test_gate_frontier_falls_through_to_router(self):
+        served_entry = MagicMock(); served_entry.tier = "sub"; served_entry.id = "claude"
+        fake_router = MagicMock(); fake_router.route.return_value = "routed"; fake_router.last_served = served_entry
+        with patch("tanglebrain.cli.classify", return_value="frontier"), \
+             patch("tanglebrain.cli.Router", return_value=fake_router):
+            text, served = run_once("design a system", gate=True, return_served=True)
+        self.assertEqual(text, "routed")
+        self.assertEqual(served["path"], "router")
+
+    def test_gate_false_skips_classifier(self):
+        fake_router = MagicMock(); fake_router.route.return_value = "routed"; fake_router.last_served = None
+        with patch("tanglebrain.cli.classify") as clf, patch("tanglebrain.cli.Router", return_value=fake_router):
+            run_once("hi", gate=False)
+        clf.assert_not_called()
+
+    def test_gate_not_consulted_for_model_or_local(self):
+        # The gate lives only on the default path — an explicit --model/--local must bypass it
+        # entirely (classify never called), even with gate forced on.
+        fake_adapter = MagicMock(); fake_adapter.run.return_value = "x"
+        with patch("tanglebrain.cli.classify") as clf, \
+             patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            run_once("hi", model="claude", gate=True)
+            run_once("hi", local=True, gate=True)
+        clf.assert_not_called()
+
+    def test_gate_none_uses_setting(self):
+        from tanglebrain.settings import Settings
+        fake_adapter = MagicMock(); fake_adapter.run.return_value = "x"
+        with patch("tanglebrain.cli.load_settings", return_value=Settings(classifier_gate_enabled=True)), \
+             patch("tanglebrain.cli.classify", return_value="trivial"), \
+             patch("tanglebrain.cli.build_adapter", return_value=fake_adapter), \
+             patch("tanglebrain.cli.Router") as RouterCls:
+            _, served = run_once("2+2?", return_served=True)  # gate defaults None → reads the setting
+        self.assertEqual(served["path"], "gate-local")
+        RouterCls.assert_not_called()
+
     def test_router_path_records_served_entry(self):
         # The router surfaces last_served; run_once records that tier/model.
         served = MagicMock()
@@ -237,6 +286,19 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertFalse(run.call_args.kwargs["local"])
         self.assertIsNone(run.call_args.kwargs["model"])
+        self.assertIsNone(run.call_args.kwargs["gate"])  # no --gate/--no-gate → defer to the setting
+
+    def test_gate_flag_threaded(self):
+        with patch("tanglebrain.cli.run_once", return_value="ok") as run:
+            with redirect_stdout(io.StringIO()):
+                main(["--gate", "hi"])
+        self.assertIs(run.call_args.kwargs["gate"], True)
+
+    def test_no_gate_flag_threaded(self):
+        with patch("tanglebrain.cli.run_once", return_value="ok") as run:
+            with redirect_stdout(io.StringIO()):
+                main(["--no-gate", "hi"])
+        self.assertIs(run.call_args.kwargs["gate"], False)
 
     def test_router_error_returns_one_and_writes_stderr(self):
         from tanglebrain.router import RouterError
