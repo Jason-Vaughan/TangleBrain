@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Contributor mechanics (public-OSS rollout, R2b).** `CONTRIBUTING.md` (dev setup via
+  `make venv` / `make test`, branch & PR conventions, What/Why/Test-plan, and "adding a backend is a
+  config edit" first-contribution framing), `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1), GitHub
+  issue templates (`bug`, `feature`, `add a backend/adapter`), and a pull-request template with a
+  What/Why/Test-plan body and a docs-updated checklist. README gained a Contributing section.
 - `roster.packaged_roster_path()` (the bundled example) and `roster.default_roster_path()` discovery,
   mirroring the existing state-dir resolution pattern.
 
