@@ -168,17 +168,34 @@ truth — read these, don't re-derive from this file):
   - 250 hermetic tests pass (was 249). New: `test_settings.py`, `test_api_adapter.py`, api roster tests,
     gated selector matrix, a CLI-boundary test (`--model <api>` inert + meters nothing, gate off).
 
-## Next chunk = C6b — last-resort routing (issue #2 still OPEN; 2nd of 3 paid-API slices)
+- 🔄 **C6b** *(this session — 9th chunk; 2nd build chunk this session — protocol break for momentum,
+  PM-authorized "continue now")* — **last-resort paid-API routing (§10 C6, issue #2 slice 2/3)**.
+  **PR #18 OPEN — NOT yet merged** (feature PR, manual-merge: `gh pr merge 18 --squash
+  --delete-branch`). Branch `feat/c6b-last-resort-routing`. Issue #2 stays OPEN (C6c remains). Will
+  release as **v0.7.0** (CHANGELOG `### Added` → minor). Key facts:
+  - `Router.route()`: after ALL orchestrators fail, if `settings.api_billing_enabled`, try enabled
+    `tier: api` entries in **roster order**. Paid success → `last_served` set (meters tier=api,
+    spend_avoided=0) but **cursor NOT advanced** (api isn't in the §6 rotation). Paid failures fail
+    over + are listed in `RouterError` with the same `[rate-limit]` annotation.
+  - **In-session design decision**: gate lives in the Router (`self.settings`, injectable; defaults
+    to packaged settings.yaml) so the api block is only *attempted* when billing on → clean failover
+    log. `build_adapter` still independently gates the `--model` path (defense in depth; same file in
+    prod so no divergence — Critic-verified). **Requires ≥1 orchestrator** (never paid-routes a
+    no-subs roster; `--model` is the explicit paid path). **Skips already-attempted ids** so a
+    degenerate `api`+`can_orchestrate` entry isn't double-run.
+  - 260 hermetic tests (was 259→260 after Critic nits). New `LastResortApiFallbackTest` (12 cases).
+    Critic: no blockers; 2 nits applied (double-attempt guard + seeded-cursor test).
 
-**C6a is merged to main; verify issue #2 still OPEN** (`gh issue view 2 --json state -q .state`) before
-starting. Read the build plan:
-`/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md` (C6b section).
-**C6b** = wire the `api` tier into `Router` as genuine last resort — only after all `can_orchestrate`
-subs are exhausted/failed (and gate-on), fall through to an enabled `api` entry. Preserve failover +
-rate-limit annotation; keep the router a deterministic control plane (no auto-classification). Then
-**C6c** (thin): surface `budget_usd_month`/`enabled` in `--stats`/GUI (read-only) + a LiteLLM
-virtual-key runbook. Issue #2 closes when C6b (+ maybe C6c) lands. Still deferred/non-build: GUI roster
-editing (from C5; needs comment-preserving YAML).
+## Next chunk = C6c — budget display + runbook (issue #2 closes here; 3rd/final paid-API slice)
+
+**FIRST merge PR #18** (`gh pr merge 18 --squash --delete-branch`) if not already, then verify issue
+#2 still OPEN (`gh issue view 2 --json state -q .state`). Read the build plan:
+`/Users/jasonvaughan/Documents/Projects/TangleBrain/.claude/plans/c6-paid-api-tier.md` (C6c section).
+**C6c is THIN** (per the LiteLLM-only-v1 PM decision — no TB-side budget metering): surface read-only
+`budget_usd_month` + `enabled` in `--stats` and/or the GUI roster view, and write a runbook for minting
+a budget-scoped LiteLLM **virtual key** on Monad + referencing it via `key_ref`. **C6c closes issue #2**
+(`Closes #2` in the PR) — the paid-API tier is complete. Tag **v0.7.0** after C6b merges (or roll C6b+C6c
+into one v0.7.0). Still deferred/non-build: GUI roster editing (from C5; needs comment-preserving YAML).
 
 ### Original #2 plan-time context (kept for reference)
 **PLANNED 2026-06-16 → split into C6a/C6b/C6c.** Canonical build plan:
