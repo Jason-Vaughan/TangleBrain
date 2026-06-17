@@ -14,6 +14,7 @@ from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import run_once
 from tanglebrain.measurement import load_pricing, read_records, rollup, save_pricing, validate_pricing
 from tanglebrain.roster import RosterError, load_roster
+from tanglebrain.roster_edit import RosterEditError, save_roster_edits
 from tanglebrain.router import RouterError
 from tanglebrain.selector import SelectionError
 from tanglebrain.settings import load_settings
@@ -132,6 +133,33 @@ def run_prompt(payload: dict) -> dict:
         return {"ok": False, "error": str(exc)}
 
     return {"ok": True, "text": text, "served": served}
+
+
+def save_roster_view(payload: dict) -> dict:
+    """Apply edits to one roster entry's editable fields (plan §5 / §9.2).
+
+    Only the focused, comment-safe scalar fields are editable (see
+    :mod:`tanglebrain.roster_edit`): ``enabled``, ``can_orchestrate``, ``budget_usd_month``,
+    ``good_at``. Entries are never added/removed/reordered here and the ``invoke`` block is not
+    editable — those stay hand-edits. The write is validated, backed up, and atomic.
+
+    Args:
+        payload: ``{id, fields: {field: value, ...}}``.
+
+    Returns:
+        ``{"ok": True, "roster": {...}}`` with the re-read roster view on success, or
+        ``{"ok": False, "error": ...}`` if the id/fields are missing or an edit is rejected
+        (nothing is written on failure).
+    """
+    entry_id = (payload or {}).get("id")
+    fields = (payload or {}).get("fields")
+    if not entry_id or not isinstance(fields, dict) or not fields:
+        return {"ok": False, "error": "id and a non-empty 'fields' object are required"}
+    try:
+        save_roster_edits(str(entry_id), fields)
+    except RosterEditError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "roster": view_roster()}
 
 
 def save_pricing_view(payload: dict) -> dict:

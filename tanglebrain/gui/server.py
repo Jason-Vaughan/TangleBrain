@@ -19,6 +19,7 @@ from tanglebrain.gui.views import (
     DEFAULT_PORT,
     run_prompt,
     save_pricing_view,
+    save_roster_view,
     view_pricing,
     view_roster,
     view_settings,
@@ -72,7 +73,11 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
         return _json(404, {"error": "not found"})
 
     if method == "POST":
-        action = {"/api/run": run_prompt, "/api/pricing": save_pricing_view}.get(path)
+        action = {
+            "/api/run": run_prompt,
+            "/api/pricing": save_pricing_view,
+            "/api/roster": save_roster_view,
+        }.get(path)
         if action is not None:
             try:
                 payload = json.loads(body.decode("utf-8")) if body else {}
