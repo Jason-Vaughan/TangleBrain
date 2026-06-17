@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-16
+
 ### Added
 
 - **C6a — paid-API tier scaffolding (off by default).** A new `api` adapter and the global billing
