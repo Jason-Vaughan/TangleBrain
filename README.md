@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Jason-Vaughan/project-assets/main/tanglebrain-logo-512.png" alt="TangleBrain logo" width="180">
+</p>
+
 # TangleBrain
 
 [![CI](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml)

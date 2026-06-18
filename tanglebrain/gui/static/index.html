@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TangleBrain — knob panel</title>
+<link rel="icon" type="image/png" href="/logo.png">
 <style>
   :root {
     --primary: #8BC34A; --primary-bright: #9CCC65; --primary-dark: #558B2F;
@@ -19,6 +20,7 @@
   }
   .wrap { max-width: 920px; margin: 0 auto; }
   header { text-align: center; padding: 8px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  header .logo { width: 72px; height: 72px; display: block; margin: 0 auto 10px; }
   header h1 { margin: 0; font-size: 1.5rem; letter-spacing: .5px; }
   header h1 .accent { color: var(--primary); }
   header .sub { color: var(--text-muted); font-size: .8rem; margin-top: 4px; }
@@ -63,8 +65,9 @@
 <body>
 <div class="wrap">
   <header>
+    <img class="logo" src="/logo.png" alt="TangleBrain logo">
     <h1>Tangle<span class="accent">Brain</span> · knob panel</h1>
-    <div class="sub">read-only — cost-tiered router config &amp; local spend-avoided rollup</div>
+    <div class="sub">roster &amp; pricing config · local spend-avoided rollup</div>
   </header>
 
   <h2>Run a prompt</h2>

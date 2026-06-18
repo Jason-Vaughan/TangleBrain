@@ -36,4 +36,4 @@ include = ["tanglebrain*"]
 
 [tool.setuptools.package-data]
 tanglebrain = ["config/*.yaml"]
-"tanglebrain.gui" = ["static/*.html"]
+"tanglebrain.gui" = ["static/*.html", "static/*.png"]
