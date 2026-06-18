@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Project logo.** A snake-and-circuit-brain mark now brands the README (hosted in the
+  `project-assets` repo) and the knob panel — `tanglebrain-gui` ships a packaged copy, serves it at
+  `/logo.png`, and uses it as the page header + favicon.
+
+### Changed
+
+- **Knob-panel header copy.** The panel subtitle now reads "roster & pricing config · local
+  spend-avoided rollup" (was a stale "read-only — cost-tiered router config …"; the panel has been
+  editable since the pricing/roster knobs landed).
+
+## [0.10.0] - 2026-06-17
+
+First public release.
+
 ### Changed
 
 - **Neutral positioning + local-only default roster (public-OSS rollout, R2a).** Reframed the project

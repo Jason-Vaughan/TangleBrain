@@ -28,11 +28,17 @@ from tanglebrain.gui.views import (
 
 _JSON = "application/json; charset=utf-8"
 _HTML = "text/html; charset=utf-8"
+_PNG = "image/png"
 
 
 def _index_html() -> bytes:
     """Read the packaged single-file panel (``tanglebrain/gui/static/index.html``)."""
     return (resources.files("tanglebrain.gui") / "static" / "index.html").read_bytes()
+
+
+def _logo_png() -> bytes:
+    """Read the packaged panel logo (``tanglebrain/gui/static/logo.png``)."""
+    return (resources.files("tanglebrain.gui") / "static" / "logo.png").read_bytes()
 
 
 def _json(status: int, obj: object) -> tuple[int, str, bytes]:
@@ -59,6 +65,8 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
     if method == "GET":
         if path in ("/", "/index.html"):
             return 200, _HTML, _index_html()
+        if path == "/logo.png":
+            return 200, _PNG, _logo_png()
         view = {
             "/api/roster": view_roster,
             "/api/pricing": view_pricing,

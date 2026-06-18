@@ -200,6 +200,13 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("text/html", ctype)
         self.assertIn(b"TangleBrain", body)
 
+    def test_get_logo_is_png(self):
+        status, ctype, body = server.dispatch("GET", "/logo.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(ctype, "image/png")
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))  # PNG magic
+        self.assertGreater(len(body), 0)
+
     def test_get_roster_json(self):
         with patch("tanglebrain.gui.views.load_roster",
                    return_value=Roster([_entry("local", "local", kind="openai-compat", model="m")])):
