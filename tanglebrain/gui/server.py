@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT,
-        help=f"Port to bind (default {DEFAULT_PORT}, registered in PortHub).",
+        help=f"Port to bind (default {DEFAULT_PORT}).",
     )
     args = parser.parse_args(argv)
 
