@@ -76,7 +76,28 @@ class McpServerTest(unittest.TestCase):
         props = self._tool("delegate").inputSchema.get("properties", {})
         self.assertIn("prompt", props)
         self.assertIn("target", props)
+        self.assertIn("task", props)
         self.assertIn("max_tokens", props)
+
+    def test_invoking_delegate_threads_task(self):
+        with patch("tanglebrain.mcp_server.run_delegate", return_value="ok") as routed:
+            run(self.server.mcp.call_tool("delegate", {"prompt": "q", "task": "code"}))
+        self.assertEqual(routed.call_args.kwargs.get("task"), "code")
+
+    def test_delegate_returns_handback_instruction_on_no_fit(self):
+        # A NoDelegateFit must be CAUGHT and returned as a normal tool result (not surfaced as an
+        # error), so the orchestrator is told to handle it itself rather than seeing a tool failure.
+        from tanglebrain.delegate import NoDelegateFit
+
+        with patch(
+            "tanglebrain.mcp_server.run_delegate",
+            side_effect=NoDelegateFit("no delegate target is good_at 'code'; available: grunt"),
+        ):
+            result = run(self.server.mcp.call_tool("delegate", {"prompt": "q", "task": "code"}))
+        texts = [c.text for c in result[0] if getattr(c, "type", None) == "text"]
+        joined = " ".join(texts)
+        # Returned as a normal tool result carrying the hand-back instruction — not a raised error.
+        self.assertIn("Handle this sub-task yourself", joined)
 
     def test_delegate_description_has_target_menu_header(self):
         # The description is built from the roster at server startup; whatever roster the test

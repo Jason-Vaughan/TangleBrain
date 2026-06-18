@@ -10,7 +10,9 @@
 # Add / remove / reorganize entries freely — adding a model is a config edit, never a code change.
 # Flag `can_orchestrate: true` to put an entry in the orchestrator rotation. Flag
 # `can_delegate: true` to make an entry a delegate target an orchestrator can hand a sub-task to
-# (via the `delegate` MCP tool); the free local model is always available as the default target.
+# (via the `delegate` MCP tool), either by naming its id or by capability — `delegate(task: code)`
+# picks the cheapest `can_delegate` entry whose `good_at` lists that tag (local before sub; paid
+# `api` is never auto-selected). The free local model is always available as the default target.
 #
 # invoke.kind ∈ {openai-compat, cli, api}.  key_ref ∈ {file:PATH, env:NAME, none} — a
 # credential *reference*, never a raw secret.

@@ -80,6 +80,18 @@ class LiveGeneralizedDelegateTest(unittest.TestCase):
         self.assertIsInstance(text, str)
         self.assertTrue(text.strip(), f"expected non-empty text from delegate target {target!r}")
 
+    def test_capability_leg_routes_by_good_at(self):
+        # Capability route: pick any good_at tag a non-api can_delegate target advertises and route
+        # by `task=` (TangleBrain selects the cheapest fit). Skips if no routable target is configured.
+        caps = sorted(
+            {tag for t in delegate_targets() if t["tier"] in ("local", "sub") for tag in t["good_at"]}
+        )
+        if not caps:
+            self.skipTest("no local/sub can_delegate target with good_at tags in the active roster")
+        text = run_delegate("Reply with exactly the word: pong", task=caps[0])
+        self.assertIsInstance(text, str)
+        self.assertTrue(text.strip(), f"expected non-empty text routing by task={caps[0]!r}")
+
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live orchestrated-delegation test")
 class LiveDelegateInjectionTest(unittest.TestCase):

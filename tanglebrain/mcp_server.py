@@ -37,6 +37,7 @@ from mcp.server.fastmcp import FastMCP
 
 from tanglebrain.delegate import (
     DEFAULT_DELEGATE_MAX_TOKENS,
+    NoDelegateFit,
     _render_target_menu,
     delegate_targets as _list_delegate_targets,
     run_delegate,
@@ -57,10 +58,14 @@ def _delegate_tool_description() -> str:
     """
     header = (
         "Delegate a self-contained sub-task to a CONFIGURED backend and return its text.\n\n"
-        "Use this to route a sub-task to a specific cheaper or better-fit backend, instead of the "
-        "default free local model. Pass `target` = one of the configured target ids listed below; "
-        "omit `target` (or use the delegate_local tool) to use the free local model. Pick a target "
-        "by its `good_at` fit. Hand the result back for review rather than trusting it blind.\n\n"
+        "Two ways to choose where it goes (in precedence order):\n"
+        "  - `target` = one of the configured target ids listed below (explicit; wins if both given).\n"
+        "  - `task` = a capability tag (a `good_at` value, e.g. `code`, `summarization`); TangleBrain "
+        "picks the cheapest configured backend good_at that capability for you. If none fits, the "
+        "tool tells you to handle the sub-task yourself — you are the most capable backend here.\n"
+        "Omit both (or use the delegate_local tool) to use the free local model. Paid backends are "
+        "never auto-selected by `task` — reach one only by naming it explicitly as `target`.\n"
+        "Hand the result back for review rather than trusting it blind.\n\n"
         "Configured delegate targets:\n"
     )
     try:
@@ -105,29 +110,41 @@ def delegate_local(prompt: str, max_tokens: int = DEFAULT_DELEGATE_MAX_TOKENS) -
 def delegate(
     prompt: str,
     target: str | None = None,
+    task: str | None = None,
     max_tokens: int = DEFAULT_DELEGATE_MAX_TOKENS,
 ) -> str:
     """Delegate a sub-task to a configured backend (see the tool description for the target menu).
 
-    The generalized delegate: ``target`` is the id of a configured ``can_delegate`` backend, or
-    omitted/``None`` to use the free local model (same as the ``delegate_local`` tool). Targeting a
-    paid (``api``) backend stays gated behind the operator's billing flag — it raises if billing is
-    off rather than spending silently. The menu in this tool's description is from server startup;
-    call ``delegate_targets`` for the live menu. The dynamic description is the authoritative target
-    list handed to the model.
+    Choose where the sub-task goes by precedence: explicit ``target`` id (wins if both are given) →
+    ``task`` capability (TangleBrain picks the cheapest configured backend ``good_at`` it; paid
+    backends are never auto-selected) → the free local model when both are omitted. Targeting a paid
+    (``api``) backend by id stays gated behind the operator's billing flag — it raises if billing is
+    off rather than spending silently.
+
+    When ``task`` is given but no configured backend fits it, this does **not** error — it returns a
+    short instruction telling you (the orchestrator) to handle the sub-task yourself, since you are
+    the most capable backend available. Call ``delegate_targets`` for the live menu.
 
     Args:
         prompt: The self-contained sub-task to delegate. Give it everything it needs — the target
             backend has no access to your conversation context.
-        target: The id of a configured ``can_delegate`` backend, or ``None`` for the free local
-            model. Must be one of the ids in the target menu.
+        target: The id of a configured ``can_delegate`` backend (explicit; takes precedence over
+            ``task``), or ``None``.
+        task: A capability tag (a ``good_at`` value) to route by fit when no ``target`` is given.
         max_tokens: Completion token cap (default 2048 — a local reasoning model needs headroom for
             its internal reasoning before emitting the final answer).
 
     Returns:
-        The target backend's final response text.
+        The target backend's final response text, or — when ``task`` matches no configured backend —
+        a short instruction to handle the sub-task yourself.
     """
-    return run_delegate(prompt, target=target, max_tokens=max_tokens)
+    try:
+        return run_delegate(prompt, target=target, task=task, max_tokens=max_tokens)
+    except NoDelegateFit as exc:
+        return (
+            f"[tanglebrain] {exc}. Handle this sub-task yourself — you are the most capable "
+            "backend available here."
+        )
 
 
 @mcp.tool()
