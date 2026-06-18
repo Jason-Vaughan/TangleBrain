@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`pyproject.toml` package description carried the purged "cost-tiered / flat-rate subscriptions"
-  framing** that the public-rollout neutralization scrubbed everywhere else (#42). The package
-  metadata — rendered on the repo and any package index — now matches the neutral positioning used in
-  the README and `ARCHITECTURE.md`: *"A local-first, config-driven LLM router across OpenAI-compatible
-  backends you own."*
+- **`pyproject.toml` package metadata carried the purged "cost-tiered / flat-rate subscriptions"
+  framing** that the public-rollout neutralization scrubbed everywhere else (#42). Both the `description`
+  and the `cost-tiered` entry in `keywords` (→ `local-llm`) — the metadata rendered on the repo and any
+  package index — now match the neutral positioning used in the README and `ARCHITECTURE.md`:
+  *"A local-first, config-driven LLM router across OpenAI-compatible backends you own."*
 
 ## [0.14.0] - 2026-06-18
 
