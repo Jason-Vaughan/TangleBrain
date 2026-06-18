@@ -17,7 +17,10 @@ from tanglebrain.delegate import (
     DEFAULT_DELEGATE_MAX_TOKENS,
     DELEGATE_SERVER_NAME,
     ROSTER_ENV_VAR,
+    NoDelegateFit,
     _render_target_menu,
+    _select_by_capability,
+    available_capabilities,
     delegate_mcp_config_json,
     delegate_substitutions,
     delegate_targets,
@@ -37,6 +40,13 @@ def _entry(entry_id, tier="sub", good_at=None, cost=None, kind="openai-compat", 
         can_delegate=can_delegate,
         invoke=SimpleNamespace(kind=kind),
     )
+
+
+def _roster_of(*entries):
+    """A roster stand-in whose ``delegate_targets()`` returns the given (already can_delegate) entries."""
+    roster = MagicMock()
+    roster.delegate_targets.return_value = list(entries)
+    return roster
 
 
 class DelegateMcpConfigTest(unittest.TestCase):
@@ -214,6 +224,96 @@ class RunDelegateTargetTest(unittest.TestCase):
         ):
             with self.assertRaises(AdapterError):
                 run_delegate("q", target="paid")
+
+
+class SelectByCapabilityTest(unittest.TestCase):
+    """Capability-routed selection: cheapest good_at fit, api excluded, no-fit signals NoDelegateFit."""
+
+    def test_single_match_selected(self):
+        roster = _roster_of(_entry("sub-a", tier="sub", good_at=["code"]))
+        self.assertEqual(_select_by_capability(roster, "code").id, "sub-a")
+
+    def test_cheapest_tier_wins_local_over_sub(self):
+        # Both fit `code`; local (rank 0) must beat sub (rank 1) regardless of declared order.
+        roster = _roster_of(
+            _entry("sub-a", tier="sub", good_at=["code"]),
+            _entry("local-a", tier="local", good_at=["code"]),
+        )
+        self.assertEqual(_select_by_capability(roster, "code").id, "local-a")
+
+    def test_declared_order_breaks_ties_within_a_tier(self):
+        roster = _roster_of(
+            _entry("sub-a", tier="sub", good_at=["code"]),
+            _entry("sub-b", tier="sub", good_at=["code"]),
+        )
+        self.assertEqual(_select_by_capability(roster, "code").id, "sub-a")
+
+    def test_api_target_never_auto_selected(self):
+        # An api target is the ONLY good_at match — it must still be excluded (paid never auto-routed),
+        # so this is a no-fit, not a selection.
+        roster = _roster_of(_entry("paid", tier="api", kind="api", good_at=["code"]))
+        with self.assertRaises(NoDelegateFit):
+            _select_by_capability(roster, "code")
+
+    def test_no_match_raises_nodelegatefit_with_available_caps(self):
+        roster = _roster_of(_entry("sub-a", tier="sub", good_at=["grunt"]))
+        with self.assertRaises(NoDelegateFit) as ctx:
+            _select_by_capability(roster, "code")
+        msg = str(ctx.exception)
+        self.assertIn("code", msg)
+        self.assertIn("grunt", msg)  # lists available capabilities
+
+    def test_available_capabilities_sorted_unique_excludes_api(self):
+        roster = _roster_of(
+            _entry("local-a", tier="local", good_at=["grunt", "code"]),
+            _entry("sub-a", tier="sub", good_at=["code", "summarization"]),
+            _entry("paid", tier="api", kind="api", good_at=["hard"]),  # excluded
+        )
+        self.assertEqual(available_capabilities(roster), ["code", "grunt", "summarization"])
+
+
+class RunDelegateCapabilityTest(unittest.TestCase):
+    """run_delegate routing by task, plus target>task precedence."""
+
+    def test_task_routes_to_selected_leaf(self):
+        entry = _entry("sub-a", tier="sub", good_at=["code"])
+        roster = _roster_of(entry)
+        adapter = MagicMock()
+        adapter.run.return_value = "coded"
+        with patch("tanglebrain.delegate.load_roster", return_value=roster), patch(
+            "tanglebrain.delegate.build_adapter", return_value=adapter
+        ) as build:
+            out = run_delegate("write code", task="code")
+        self.assertEqual(out, "coded")
+        self.assertIs(build.call_args.args[0], entry)
+        self.assertEqual(build.call_args.kwargs.get("inject_delegate"), False)
+
+    def test_target_wins_over_task(self):
+        # When both are given, the explicit target id is used and capability selection is not consulted.
+        target_entry = _entry("explicit", can_delegate=True)
+        roster = MagicMock()
+        roster.by_id.return_value = target_entry
+        adapter = MagicMock()
+        adapter.run.return_value = "x"
+        with patch("tanglebrain.delegate.load_roster", return_value=roster), patch(
+            "tanglebrain.delegate.build_adapter", return_value=adapter
+        ) as build:
+            run_delegate("q", target="explicit", task="code")
+        roster.by_id.assert_called_once_with("explicit")
+        roster.delegate_targets.assert_not_called()  # capability path not taken
+        self.assertIs(build.call_args.args[0], target_entry)
+
+    def test_task_no_fit_propagates_nodelegatefit(self):
+        roster = _roster_of(_entry("sub-a", tier="sub", good_at=["grunt"]))
+        with patch("tanglebrain.delegate.load_roster", return_value=roster):
+            with self.assertRaises(NoDelegateFit):
+                run_delegate("q", task="code")
+
+    def test_nodelegatefit_is_not_a_selectionerror(self):
+        # Load-bearing invariant: NoDelegateFit is a routing SIGNAL, not a refusal. It must NOT be a
+        # SelectionError subclass, or the MCP boundary's NoDelegateFit handler (and any `except
+        # SelectionError`) would conflate "no fit, you handle it" with "bad target id" errors.
+        self.assertFalse(issubclass(NoDelegateFit, SelectionError))
 
 
 class DelegateTargetsMenuTest(unittest.TestCase):

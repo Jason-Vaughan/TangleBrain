@@ -123,19 +123,27 @@ of the system, so endpoints and key references live in exactly one place. MCP is
 extra (`pip install -e ".[delegate]"`). Three tools:
 
 - `delegate_local(prompt, max_tokens?)` — route to the free local tier (the $0 default).
-- `delegate(prompt, target?, max_tokens?)` — route to a *configured* backend by id. `target` is any
-  roster entry flagged `can_delegate: true` (mirrors `can_orchestrate`); omit it for local. The
-  target is built as a **leaf** (`inject_delegate=False`) so it never receives its own delegate tool
-  — no recursive delegation. `api` targets flow through the same billing gate as the rest of the
-  system, so a paid target stays inert unless billing is enabled.
+- `delegate(prompt, target?, task?, max_tokens?)` — route to a *configured* backend. Precedence
+  `target` > `task` > local:
+  - `target` — an explicit roster id flagged `can_delegate: true` (mirrors `can_orchestrate`); the
+    model names the backend.
+  - `task` — a capability tag; `_select_by_capability` picks the cheapest `can_delegate` target whose
+    `good_at` contains it (`TIER_RANK` `local` < `sub`, ties by declared order), mirroring the
+    request-level router's task-fit at the sub-task level. **`api` is never auto-selected by `task`**
+    (the ratified paid-is-last-resort-never-preferred invariant). No fit raises `NoDelegateFit` — a
+    *signal*, not an error: the MCP tool catches it and returns an instruction for the orchestrator to
+    handle the sub-task itself.
+  - The selected target is built as a **leaf** (`inject_delegate=False`) — no recursive delegation.
+    `api` targets named explicitly flow through the same billing gate, so a paid target stays inert
+    unless billing is enabled.
 - `delegate_targets()` — the configured menu (`id`, `tier`, `good_at`, `cost`, `kind`), so the
-  orchestrator picks a target by fit. The `delegate` tool's description enumerates the menu, built
-  once at server startup.
+  orchestrator can also route explicitly by fit. The `delegate` tool's description enumerates the
+  menu, built once at server startup.
 
-This is the first slice of a [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39):
-the orchestrator now sees a menu and routes a sub-task to any configured backend, but selection is
-the model's (not yet automated per-sub-task), dispatch is sequential, and non-local delegate spend is
-not yet metered.
+These are the first two slices of a [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39):
+the orchestrator routes a sub-task to any configured backend, by id or by capability. Still ahead:
+parallel fan-out (`delegate_many`), an explicit synthesis/reduce step, and orchestration-tree
+observability (which also adds the deferred non-local delegate metering). Dispatch is sequential today.
 
 ### Measurement — per-task records (`measurement.py`)
 

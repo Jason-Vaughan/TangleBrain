@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Capability-routed delegation.** The `delegate` MCP tool gains a **`task`** parameter: instead of
+  naming a backend id, an orchestrator can ask for a *capability* (a `good_at` tag, e.g. `code`) and
+  TangleBrain selects the **cheapest `can_delegate` backend** good_at it (`local` before `sub`, ties
+  by declared order) — sub-task-level task-fit mirroring the request-level router. Precedence is
+  `target` (explicit id) > `task` (capability) > free local default. **Paid `api` backends are never
+  auto-selected by `task`** (the ratified paid-is-last-resort invariant; reach one only via an
+  explicit `target`). When no backend fits a `task`, the tool **hands the sub-task back to the
+  orchestrator to do itself** — a returned instruction, not an error (a new `NoDelegateFit` signal
+  caught at the MCP boundary). Second slice of the scatter-gather roadmap (#39).
+
 ## [0.11.0] - 2026-06-18
 
 ### Added

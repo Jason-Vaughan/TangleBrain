@@ -196,12 +196,20 @@ adapters as the CLI above, so endpoints and keys live in one place. It exposes t
 
 - **`delegate_local(prompt, max_tokens?)`** — route a sub-task to the free local tier (the $0
   default).
-- **`delegate(prompt, target?, max_tokens?)`** — route a sub-task to a *configured* backend by id.
-  `target` is the id of any roster entry flagged `can_delegate: true`; omit it to use the free local
-  model. This is how an orchestrator sends some work to a cheaper or better-fit backend (not just
-  local) — it picks a target by the menu's `good_at` fit. A target is invoked as a leaf (it never
-  gets its own delegate tool — no recursion); `api` targets still obey the billing gate, so a paid
-  target raises rather than spending while billing is off.
+- **`delegate(prompt, target?, task?, max_tokens?)`** — route a sub-task to a *configured* backend,
+  two ways (precedence: `target` > `task` > local):
+  - **`target`** — an explicit roster id flagged `can_delegate: true`. The orchestrator names the
+    exact backend.
+  - **`task`** — a capability tag (a `good_at` value, e.g. `code`). TangleBrain picks the **cheapest
+    `can_delegate` backend** good_at it (`local` before `sub`); the orchestrator just says *what kind
+    of work it is* and doesn't need to know ids. **Paid `api` backends are never auto-selected by
+    `task`** (reach one only by naming it as `target`). If nothing fits, the tool hands the sub-task
+    **back to the orchestrator to do itself** — not an error, just a signal that it's the most capable
+    backend available.
+
+  A target is invoked as a leaf (it never gets its own delegate tool — no recursion); `api` targets
+  named explicitly still obey the billing gate, so a paid target raises rather than spending while
+  billing is off.
 - **`delegate_targets()`** — list the configured targets (`id`, `tier`, `good_at`, `cost`, `kind`)
   so the orchestrator can decide based on what's available. The `delegate` tool's description also
   enumerates them (built at server startup; the tool reflects the live roster).
