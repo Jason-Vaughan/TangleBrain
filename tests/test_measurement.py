@@ -309,5 +309,99 @@ class DefaultLogPathTest(unittest.TestCase):
             self.assertEqual(default_log_path(), Path("/tmp/tb-test/usage.jsonl"))
 
 
+class DelegateObservabilityTest(unittest.TestCase):
+    """kind='delegate' records: written, kept out of the headline, rolled up separately, thread-safe."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.log = str(Path(self.tmp) / "usage.jsonl")
+
+    def _read(self):
+        return read_records(self.log)
+
+    def test_record_defaults_to_task_kind(self):
+        record_task(path="router", entry=FakeEntry("claude", "sub"),
+                    prompt="hi", response="yo", log_path=self.log, pricing=FIXED)
+        self.assertEqual(self._read()[0]["kind"], "task")
+
+    def test_record_delegate_kind(self):
+        record_task(path="delegate", entry=FakeEntry("local-x", "local"),
+                    prompt="hi", response="yo", kind="delegate", log_path=self.log, pricing=FIXED)
+        self.assertEqual(self._read()[0]["kind"], "delegate")
+
+    def test_rollup_excludes_delegates_from_headline(self):
+        records = [
+            {"kind": "task", "tier": "sub", "in_tokens_est": 10, "out_tokens_est": 10,
+             "cloud_equiv_usd": 1.0, "spend_avoided_usd": 1.0},
+            {"kind": "delegate", "model": "local-x", "in_tokens_est": 100, "out_tokens_est": 200,
+             "cloud_equiv_usd": 5.0, "spend_avoided_usd": 5.0},
+        ]
+        s = rollup(records)
+        # Headline counts the one task only — delegate tokens/spend must NOT inflate it.
+        self.assertEqual(s["tasks"], 1)
+        self.assertEqual(s["by_tier"], {"sub": 1})
+        self.assertEqual(s["in_tokens_est"], 10)
+        self.assertEqual(s["out_tokens_est"], 10)
+        self.assertAlmostEqual(s["spend_avoided_usd"], 1.0)
+        # Delegate sub-rollup is separate + informational.
+        d = s["delegates"]
+        self.assertEqual(d["count"], 1)
+        self.assertEqual(
+            d["by_backend"],
+            {"local-x": {"count": 1, "in_tokens_est": 100, "out_tokens_est": 200}},
+        )
+        self.assertEqual(d["in_tokens_est"], 100)
+        self.assertEqual(d["out_tokens_est"], 200)
+        self.assertAlmostEqual(d["cloud_equiv_usd"], 5.0)
+
+    def test_kindless_record_counts_as_task(self):
+        s = rollup([{"tier": "local", "in_tokens_est": 4, "spend_avoided_usd": 0.2}])
+        self.assertEqual(s["tasks"], 1)
+        self.assertEqual(s["delegates"]["count"], 0)
+
+    def test_by_backend_aggregates_multiple(self):
+        records = [
+            {"kind": "delegate", "model": "local-x", "in_tokens_est": 10, "out_tokens_est": 5},
+            {"kind": "delegate", "model": "local-x", "in_tokens_est": 20, "out_tokens_est": 5},
+            {"kind": "delegate", "model": "cheap-sub", "in_tokens_est": 1, "out_tokens_est": 1},
+        ]
+        d = rollup(records)["delegates"]
+        self.assertEqual(d["count"], 3)
+        self.assertEqual(d["by_backend"]["local-x"]["count"], 2)
+        self.assertEqual(d["by_backend"]["local-x"]["in_tokens_est"], 30)
+        self.assertEqual(d["by_backend"]["cheap-sub"]["count"], 1)
+
+    def test_format_shows_delegate_section_when_present(self):
+        s = rollup([
+            {"kind": "task", "tier": "sub", "in_tokens_est": 1, "out_tokens_est": 1,
+             "cloud_equiv_usd": 0.1, "spend_avoided_usd": 0.1},
+            {"kind": "delegate", "model": "local-x", "in_tokens_est": 50, "out_tokens_est": 50,
+             "cloud_equiv_usd": 2.0},
+        ])
+        out = format_rollup(s, FIXED)
+        self.assertIn("Delegated sub-tasks", out)
+        self.assertIn("local-x", out)
+
+    def test_format_omits_delegate_section_when_absent(self):
+        s = rollup([{"kind": "task", "tier": "sub", "spend_avoided_usd": 0.1}])
+        self.assertNotIn("Delegated sub-tasks", format_rollup(s, FIXED))
+
+    def test_concurrent_appends_are_serialized(self):
+        import threading
+
+        def worker(n):
+            record_task(path="delegate", entry=FakeEntry(f"m{n}", "local"),
+                        prompt="p", response="r", kind="delegate", log_path=self.log, pricing=FIXED)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        recs = self._read()
+        self.assertEqual(len(recs), 20)  # 20 well-formed lines — no interleaved/corrupted writes
+        self.assertTrue(all(r.get("kind") == "delegate" for r in recs))
+
+
 if __name__ == "__main__":
     unittest.main()

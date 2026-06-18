@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Delegate observability + metering (scatter-gather roadmap #39, slice 6).** Delegated sub-calls
+  are now metered: every `run_delegate` execution (including each `delegate_many` item — metered at one
+  seam) is logged as a `kind: delegate` usage record with its served backend + estimated tokens.
+  `tanglebrain --stats` and the knob panel gain a **"Delegated sub-tasks" breakdown by backend** (count,
+  est tokens, informational cloud-equiv). Delegate records are kept **out of the "spend avoided"
+  headline** so a sub-call's saving is never double-counted against its parent task, and concurrent
+  fan-out appends are serialized by a process-level lock. Records carry a new `kind` field
+  (`task`/`delegate`; older records read as `task`). The per-parent-task tree (cross-process linkage)
+  is deferred. Closes the deferred metering noted since the measurement layer landed.
+
 ### Internal
 
 - **Documented the synthesis/reduce pattern (scatter-gather roadmap #39, slice 4).** README +

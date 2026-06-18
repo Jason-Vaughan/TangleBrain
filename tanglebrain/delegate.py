@@ -24,6 +24,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
+from tanglebrain.measurement import record_task
 from tanglebrain.roster import ROSTER_ENV_VAR, Roster, RosterEntry, load_roster
 from tanglebrain.selector import SelectionError, build_adapter, select_local
 from tanglebrain.settings import Settings, load_settings
@@ -231,8 +232,9 @@ def run_delegate(
     The selected target is built as a **leaf** (``inject_delegate=False``) — a delegate target never
     receives its own delegate tool, so there is no recursive delegation. ``api`` targets (reachable
     only via explicit ``target``) flow through the existing billing gate in
-    :func:`tanglebrain.selector.build_adapter`; ``cli`` targets keep their env-scrub. Non-local
-    delegate spend is **not metered** in this version (consistent with the existing delegate posture).
+    :func:`tanglebrain.selector.build_adapter`; ``cli`` targets keep their env-scrub. Each sub-call is
+    **metered** as a ``kind="delegate"`` usage record, kept out of the spend-avoided headline (see
+    :func:`tanglebrain.measurement.rollup`).
 
     Args:
         prompt: The self-contained sub-task to delegate. Give it everything it needs — the target
@@ -265,7 +267,16 @@ def run_delegate(
     else:
         entry = select_local(roster)
     adapter = build_adapter(entry, inject_delegate=False)
-    return adapter.run(prompt, {"max_tokens": max_tokens})
+    text = adapter.run(prompt, {"max_tokens": max_tokens})
+    # Meter the sub-call for orchestration-tree observability. Tagged kind="delegate" so the rollup
+    # keeps it OUT of the spend-avoided headline (the parent task already credits the whole job) and
+    # in a separate by-backend breakdown. record_task never raises; the extra guard is belt-and-
+    # suspenders — metering must never break a delegation.
+    try:
+        record_task(path="delegate", entry=entry, prompt=prompt, response=text, kind="delegate")
+    except Exception:
+        pass
+    return text
 
 
 #: Concurrency cap to use only when :func:`os.cpu_count` can't report a core count (rare).
@@ -361,7 +372,8 @@ def run_delegate_many(
 
     Partial failure never sinks the batch: each result carries a ``status`` (``ok`` / ``no_fit`` /
     ``error``), and results are returned **ordered by input index** even though workers finish out of
-    order. Non-local delegate spend is **not metered** (consistent with the rest of the delegate).
+    order. Each dispatched sub-call is metered (via :func:`run_delegate`) as a ``kind="delegate"``
+    usage record, kept out of the spend-avoided headline.
 
     Args:
         tasks: A list of task descriptors, each a mapping ``{prompt, target?, task?, max_tokens?}``.

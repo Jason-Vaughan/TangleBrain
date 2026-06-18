@@ -109,6 +109,21 @@ class ViewStatsTest(unittest.TestCase):
         self.assertAlmostEqual(out["summary"]["spend_avoided_usd"], 1.5)
         self.assertIn("is_placeholder", out)
 
+    def test_includes_delegate_breakdown(self):
+        recs = [
+            {"kind": "task", "tier": "sub", "in_tokens_est": 5, "out_tokens_est": 5,
+             "cloud_equiv_usd": 0.5, "spend_avoided_usd": 0.5},
+            {"kind": "delegate", "model": "local-x", "in_tokens_est": 40, "out_tokens_est": 60,
+             "cloud_equiv_usd": 2.0},
+        ]
+        with patch("tanglebrain.gui.views.read_records", return_value=recs):
+            out = views.view_stats()
+        # Headline stays task-only; delegates surface separately for the panel's fan-out breakdown.
+        self.assertEqual(out["summary"]["tasks"], 1)
+        delegates = out["summary"]["delegates"]
+        self.assertEqual(delegates["count"], 1)
+        self.assertEqual(delegates["by_backend"]["local-x"]["count"], 1)
+
 
 class RunPromptTest(unittest.TestCase):
     def test_happy_path_reports_served(self):

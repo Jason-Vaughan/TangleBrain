@@ -116,6 +116,18 @@ async function loadStats() {
       <div class="stat"><div class="label">Est. tokens (in / out)</div><div class="value mono" style="font-size:.95rem">${(s.in_tokens_est||0).toLocaleString()} / ${(s.out_tokens_est||0).toLocaleString()}</div></div>
     </div>`;
     if (d.is_placeholder) html += `<div class="caveat">⚠ pricing: PLACEHOLDER — figures illustrative until the anchor is ratified.</div>`;
+    const dg = s.delegates || {};
+    if (dg.count) {
+      const backends = Object.entries(dg.by_backend || {}).map(([k, v]) => `${esc(k)} ${v.count || 0}`).join(", ") || "—";
+      html += `<h3 style="margin:1rem 0 .4rem">Delegated sub-tasks <span class="muted">(offloaded by orchestrators)</span></h3>
+      <div class="stat-grid">
+        <div class="stat"><div class="label">Sub-tasks</div><div class="value">${dg.count}</div></div>
+        <div class="stat"><div class="label">By backend</div><div class="value mono" style="font-size:.95rem">${backends}</div></div>
+        <div class="stat"><div class="label">Est. tokens (in / out)</div><div class="value mono" style="font-size:.95rem">${(dg.in_tokens_est||0).toLocaleString()} / ${(dg.out_tokens_est||0).toLocaleString()}</div></div>
+        <div class="stat"><div class="label">Cloud-equiv</div><div class="value mono" style="font-size:.95rem">${money(dg.cloud_equiv_usd)}</div></div>
+      </div>
+      <div class="caveat">Informational — delegate spend is already credited within its parent task's “spend avoided”.</div>`;
+    }
     $("statsCard").innerHTML = html;
   } catch (e) { $("statsCard").innerHTML = `<span class="err">failed to load stats</span>`; }
 }

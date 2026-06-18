@@ -225,10 +225,11 @@ adapters as the CLI above, so endpoints and keys live in one place. It exposes f
 
 Make a backend a delegate target by flagging its roster entry `can_delegate: true` (mirrors
 `can_orchestrate`). The shipped example flags the local tier, so the menu is non-empty out of the
-box. **Note:** non-local delegate spend is **not metered** in this version — orchestration-tree
-observability is on the [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39).
-Any non-local target is opt-in and your responsibility under that provider's terms — see
-[DISCLAIMER.md](DISCLAIMER.md).
+box. **Delegated sub-calls are now metered**: each is logged as a `kind: delegate` usage record, and
+`tanglebrain --stats` (and the knob panel) show a "Delegated sub-tasks" breakdown by backend (count,
+est tokens, informational cloud-equiv). These are kept **out of** the "spend avoided" headline so a
+sub-call's saving is never double-counted against its parent task. Any non-local target is opt-in and
+your responsibility under that provider's terms — see [DISCLAIMER.md](DISCLAIMER.md).
 
 **Synthesising fan-out results.** The full pattern is decompose → fan out (`delegate_many`) →
 **reduce** → answer. TangleBrain ships the dispatch primitives but deliberately does *not* own the
