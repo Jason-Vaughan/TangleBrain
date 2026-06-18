@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tanglebrain"
 version = "0.14.0"
-description = "A cost-tiered LLM router: free local first, flat-rate subscriptions next, paid API last."
+description = "A local-first, config-driven LLM router across OpenAI-compatible backends you own."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
