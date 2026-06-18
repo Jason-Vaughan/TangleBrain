@@ -155,8 +155,9 @@ out concurrently. The **reduce step is deliberately not TangleBrain's** — the 
 the `delegate_many` results itself (it holds the original task context that makes for good synthesis),
 and offloads the stitch with an ordinary `delegate(task=…)` call when the reduction is mechanical and
 large. No dedicated reducer tool: the existing primitives cover it, and frontier-side synthesis is the
-better default until usage proves otherwise. Still ahead: orchestration-tree observability (which also
-adds the deferred non-local delegate metering) — whose data would tell us if a reducer ever earns code.
+better default until usage proves otherwise. Delegated sub-calls are now **metered** (see Measurement
+below) — the deferred observability landed as a by-backend breakdown; a per-parent-task tree (linking
+each delegation to its top-level task across processes) is the remaining stretch.
 
 ### Measurement — per-task records (`measurement.py`)
 
@@ -168,6 +169,16 @@ Tokens are *estimated* with a uniform `chars/4` heuristic over the visible promp
 authenticated CLIs expose no usable counts), so one consistent approximate methodology applies to
 every tier. All measurement I/O is best-effort: logging never breaks routing, and a corrupt record
 never breaks the rollup.
+
+Records carry a `kind`: `"task"` for a top-level routed request (what the spend-avoided headline
+counts) or `"delegate"` for a sub-call offloaded through `run_delegate` (every delegation, including
+each `delegate_many` item, is metered at that single seam). The rollup keeps delegate records **out of
+the headline** — the parent task already credits the whole job, so counting the sub-calls again would
+double-count the saving — and aggregates them **separately** into a by-backend breakdown (count, est
+tokens, informational cloud-equiv) surfaced in `--stats` and the GUI. Concurrent appends (delegate_many
+fans out across threads) are serialized by a process-level lock. Linking each delegation to its
+*specific* parent task across processes (a true tree) is deferred — it needs a task-id propagated
+through the orchestrator CLIs to the MCP child, which can't be verified hermetically.
 
 ### Knob GUI — localhost panel (`gui/`)
 

@@ -72,6 +72,12 @@ class DelegateMcpConfigTest(unittest.TestCase):
 
 
 class RunLocalDelegateTest(unittest.TestCase):
+    def setUp(self):
+        # run_delegate now meters via record_task; stub it so these tests never touch the real log.
+        patcher = patch("tanglebrain.delegate.record_task")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_returns_adapter_text(self):
         adapter = MagicMock()
         adapter.run.return_value = "grunt result"
@@ -166,6 +172,11 @@ class RunLocalDelegateTest(unittest.TestCase):
 
 class RunDelegateTargetTest(unittest.TestCase):
     """The generalized delegate: ``run_delegate(target=...)`` resolution, opt-in, and no-recursion."""
+
+    def setUp(self):
+        patcher = patch("tanglebrain.delegate.record_task")
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_target_none_uses_local_as_a_leaf(self):
         # target=None must still route to the local tier AND build it as a leaf (inject_delegate
@@ -279,6 +290,11 @@ class SelectByCapabilityTest(unittest.TestCase):
 
 class RunDelegateCapabilityTest(unittest.TestCase):
     """run_delegate routing by task, plus target>task precedence."""
+
+    def setUp(self):
+        patcher = patch("tanglebrain.delegate.record_task")
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_task_routes_to_selected_leaf(self):
         entry = _entry("sub-a", tier="sub", good_at=["code"])
@@ -483,6 +499,41 @@ class RunDelegateManyTest(unittest.TestCase):
         ):
             run_delegate_many([{"prompt": "a"}], settings=Settings(delegate_max_concurrency=3))
         self.assertEqual(captured["max_workers"], 3)
+
+
+class DelegateMeteringTest(unittest.TestCase):
+    """run_delegate meters each sub-call as a kind='delegate' usage record (observability)."""
+
+    def test_records_delegate_kind(self):
+        entry = _entry("local-x", tier="local", can_delegate=True)
+        adapter = MagicMock()
+        adapter.run.return_value = "result-text"
+        with patch("tanglebrain.delegate.load_roster", return_value=MagicMock()), patch(
+            "tanglebrain.delegate.select_local", return_value=entry
+        ), patch("tanglebrain.delegate.build_adapter", return_value=adapter), patch(
+            "tanglebrain.delegate.record_task"
+        ) as rec:
+            out = run_delegate("do it")
+        self.assertEqual(out, "result-text")
+        rec.assert_called_once()
+        kw = rec.call_args.kwargs
+        self.assertEqual(kw["kind"], "delegate")
+        self.assertEqual(kw["path"], "delegate")
+        self.assertIs(kw["entry"], entry)
+        self.assertEqual(kw["prompt"], "do it")
+        self.assertEqual(kw["response"], "result-text")
+
+    def test_metering_failure_never_breaks_delegation(self):
+        entry = _entry("local-x", tier="local")
+        adapter = MagicMock()
+        adapter.run.return_value = "answer"
+        with patch("tanglebrain.delegate.load_roster", return_value=MagicMock()), patch(
+            "tanglebrain.delegate.select_local", return_value=entry
+        ), patch("tanglebrain.delegate.build_adapter", return_value=adapter), patch(
+            "tanglebrain.delegate.record_task", side_effect=RuntimeError("log boom")
+        ):
+            out = run_delegate("q")
+        self.assertEqual(out, "answer")  # metering error swallowed, answer still returned
 
 
 if __name__ == "__main__":

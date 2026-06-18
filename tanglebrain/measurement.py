@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,11 @@ import yaml
 from tanglebrain.router import DEFAULT_STATE_SUBDIR, STATE_DIR_ENV
 
 LOG_FILENAME = "usage.jsonl"
+
+# Serializes appends to the usage log so concurrent writers in one process (delegate_many fans
+# sub-tasks out across threads) can't interleave bytes mid-line. Per-process only; cross-process
+# appends rely on the OS's O_APPEND atomicity for short lines, as before.
+_LOG_LOCK = threading.Lock()
 
 # Chars per token for the uniform estimation heuristic. ~4 chars/token is the standard rough
 # approximation for English-ish text across modern BPE tokenizers; good enough for an *estimate*.
@@ -286,17 +292,25 @@ def record_task(
     entry: object,
     prompt: str,
     response: str,
+    kind: str = "task",
     log_path: str | os.PathLike[str] | None = None,
     pricing: Pricing | None = None,
 ) -> None:
-    """Append one usage record for a routed task. Never raises — a logging failure is dropped.
+    """Append one usage record for a routed task or a delegated sub-call. Never raises.
+
+    A logging failure is dropped — measurement is a side-effect that must never affect the returned
+    answer.
 
     Args:
-        path: Which execution path served the task — ``router`` | ``local`` | ``model``.
+        path: Which execution path served the work — ``router`` | ``local`` | ``model`` |
+            ``delegate``.
         entry: The served :class:`~tanglebrain.roster.RosterEntry` (read for ``tier``/``id``); may
             be ``None`` (e.g. the router didn't surface one), in which case both are ``"unknown"``.
-        prompt: The task prompt (for input-token estimation).
+        prompt: The prompt (for input-token estimation).
         response: The returned response text (for output-token estimation).
+        kind: ``"task"`` for a top-level routed task (the default; what the spend-avoided headline
+            counts) or ``"delegate"`` for a delegated sub-call. Delegate records are rolled up
+            **separately** so a sub-call's saving is never double-counted against its parent task.
         log_path: Override the usage-log path (tests inject a temp path). Defaults to
             :func:`default_log_path`.
         pricing: Override the pricing. Defaults to :func:`load_pricing`.
@@ -314,6 +328,7 @@ def record_task(
         avoided = 0.0 if tier == "api" else equiv
         record = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "kind": str(kind),
             "path": str(path),
             "tier": str(tier),
             "model": str(model),
@@ -325,8 +340,9 @@ def record_task(
         }
         target = Path(log_path) if log_path is not None else default_log_path()
         target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record) + "\n")
+        with _LOG_LOCK:
+            with target.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record) + "\n")
     except Exception:
         # Measurement is a side-effect: a failure here must never affect the returned answer.
         return
@@ -385,7 +401,11 @@ def rollup(records: list[dict]) -> dict:
     Returns:
         A dict with: ``tasks`` (int), ``by_tier`` (tier → count), ``in_tokens_est`` /
         ``out_tokens_est`` (summed estimates), and ``cloud_equiv_usd`` / ``spend_avoided_usd``
-        (summed dollars).
+        (summed dollars) — all over **top-level tasks only** — plus ``delegates``, a separate
+        sub-rollup of delegated sub-calls ``{count, by_backend: {model: {count, in_tokens_est,
+        out_tokens_est}}, in_tokens_est, out_tokens_est, cloud_equiv_usd}``. Delegate records are
+        kept out of the headline so a sub-call's saving is never double-counted against its parent
+        task; their cloud-equiv is informational. A record without a ``kind`` field counts as a task.
     """
     summary: dict = {
         "tasks": 0,
@@ -395,16 +415,40 @@ def rollup(records: list[dict]) -> dict:
         "cloud_equiv_usd": 0.0,
         "spend_avoided_usd": 0.0,
     }
+    delegates: dict = {
+        "count": 0,
+        "by_backend": {},
+        "in_tokens_est": 0,
+        "out_tokens_est": 0,
+        "cloud_equiv_usd": 0.0,
+    }
     for r in records:
+        in_tok = _as_int(r.get("in_tokens_est"))
+        out_tok = _as_int(r.get("out_tokens_est"))
+        if str(r.get("kind", "task")) == "delegate":
+            delegates["count"] += 1
+            model = str(r.get("model", "unknown"))
+            backend = delegates["by_backend"].setdefault(
+                model, {"count": 0, "in_tokens_est": 0, "out_tokens_est": 0}
+            )
+            backend["count"] += 1
+            backend["in_tokens_est"] += in_tok
+            backend["out_tokens_est"] += out_tok
+            delegates["in_tokens_est"] += in_tok
+            delegates["out_tokens_est"] += out_tok
+            delegates["cloud_equiv_usd"] += _as_float(r.get("cloud_equiv_usd"))
+            continue
         summary["tasks"] += 1
         tier = str(r.get("tier", "unknown"))
         summary["by_tier"][tier] = summary["by_tier"].get(tier, 0) + 1
-        summary["in_tokens_est"] += _as_int(r.get("in_tokens_est"))
-        summary["out_tokens_est"] += _as_int(r.get("out_tokens_est"))
+        summary["in_tokens_est"] += in_tok
+        summary["out_tokens_est"] += out_tok
         summary["cloud_equiv_usd"] += _as_float(r.get("cloud_equiv_usd"))
         summary["spend_avoided_usd"] += _as_float(r.get("spend_avoided_usd"))
     summary["cloud_equiv_usd"] = round(summary["cloud_equiv_usd"], 4)
     summary["spend_avoided_usd"] = round(summary["spend_avoided_usd"], 4)
+    delegates["cloud_equiv_usd"] = round(delegates["cloud_equiv_usd"], 4)
+    summary["delegates"] = delegates
     return summary
 
 
@@ -437,5 +481,25 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
         lines.append(
             "  ⚠ pricing: PLACEHOLDER — figures are illustrative; set real rates in "
             "config/pricing.yaml and flip placeholder to false."
+        )
+
+    delegates = summary.get("delegates") or {}
+    if delegates.get("count"):
+        lines.append("")
+        lines.append("  Delegated sub-tasks (offloaded by orchestrators)")
+        lines.append(f"    Count:        {delegates.get('count', 0)}")
+        by_backend = delegates.get("by_backend") or {}
+        if by_backend:
+            backends = ", ".join(
+                f"{model} {info.get('count', 0)}" for model, info in sorted(by_backend.items())
+            )
+            lines.append(f"    By backend:   {backends}")
+        lines.append(
+            f"    Est. tokens:  in {delegates.get('in_tokens_est', 0):,} / "
+            f"out {delegates.get('out_tokens_est', 0):,}"
+        )
+        lines.append(
+            f"    Cloud-equiv:  ${delegates.get('cloud_equiv_usd', 0.0):,.2f} "
+            "(informational — already credited within parent tasks)"
         )
     return "\n".join(lines)

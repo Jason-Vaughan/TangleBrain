@@ -44,8 +44,8 @@
 # e.g. a cheaper sub or a better-fit model. Flag any entry `can_delegate: true` and it joins the
 # menu the `delegate` tool advertises; the model picks a target by its `good_at` fit. A target is
 # invoked as a leaf (it never gets its own delegate tool — no recursion). `api` targets still obey
-# the billing gate; non-local delegate spend is not metered in this version. This example is an
-# openai-compat backend; uncomment + point it at one you hold.
+# the billing gate; delegated sub-calls are metered separately (see `tanglebrain --stats`). This
+# example is an openai-compat backend; uncomment + point it at one you hold.
 #
 # - id: cheap-remote
 #   tier: sub

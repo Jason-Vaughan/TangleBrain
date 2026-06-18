@@ -110,6 +110,21 @@ class LiveGeneralizedDelegateTest(unittest.TestCase):
         self.assertTrue(all(r["status"] == "ok" for r in results), results)
         self.assertTrue(all(r["text"].strip() for r in results))
 
+    def test_fan_out_writes_delegate_usage_records(self):
+        # Observability: the fan-out meters each sub-call as a kind='delegate' usage record. Pin a
+        # temp state dir so the real ~/.cache log is untouched.
+        import tempfile
+        from tanglebrain.measurement import read_records, rollup
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": tmp}, clear=False):
+                run_delegate_many(
+                    [{"prompt": "Reply with exactly: a"}, {"prompt": "Reply with exactly: b"}]
+                )
+                summary = rollup(read_records())
+        self.assertEqual(summary["delegates"]["count"], 2)
+        self.assertEqual(summary["tasks"], 0)  # delegates are not headline tasks
+
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live orchestrated-delegation test")
 class LiveDelegateInjectionTest(unittest.TestCase):
