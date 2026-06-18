@@ -19,7 +19,7 @@ from tanglebrain.router import RouterError
 from tanglebrain.selector import SelectionError
 from tanglebrain.settings import load_settings
 
-# Default port for the panel; registered permanently in TangleClaw PortHub for project TangleBrain.
+# Default panel port (3250).
 DEFAULT_PORT = 3250
 
 # Exceptions that represent an expected, user-facing failure of a run (mirrors cli.main()).

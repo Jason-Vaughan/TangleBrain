@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Dropped local-tooling references from product files.** Neutralized cosmetic mentions of the
+  local development tooling in `CHANGELOG.md`, `tanglebrain/gui/views.py`, `tanglebrain/gui/server.py`
+  (the `--port` help text), and the `.gitignore` comment — they described the maintainer's local
+  workflow, not the product. No behavior change.
 - **Aligned code docstrings, comments, the CLI `--help` text, and shipped config comments with the
   project's documentation.** A consistency pass so the in-code descriptions match the
   README/ARCHITECTURE framing — the router is described as orchestrator rotation + failover for
@@ -172,9 +176,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **C5a — knob GUI (read-only panel), TangleClaw-style.** A new `tanglebrain-gui` console script
-  serves a thin, **localhost-only** web panel (stdlib `http.server` + a single vanilla HTML/CSS/JS
-  page — zero new runtime dependencies) on port 3250 (registered in TangleClaw PortHub). The panel:
+- **C5a — knob GUI (read-only panel), a simple dark-themed panel.** A new `tanglebrain-gui` console
+  script serves a thin, **localhost-only** web panel (stdlib `http.server` + a single vanilla
+  HTML/CSS/JS page — zero new runtime dependencies) on port 3250. The panel:
   views the live roster (§5), the pricing reference, and the local C4 spend-avoided rollup, and runs
   a prompt through the router (prompt in → final out), showing which tier/model served it (read from
   the C4 usage log; panel runs are metered automatically). First slice of plan §10's "C5 — Knob GUI".
