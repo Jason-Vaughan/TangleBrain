@@ -25,3 +25,15 @@ api_billing_enabled: false
 # Classification fails safe to "frontier" — it never traps a hard task on local.
 
 classifier_gate_enabled: false
+
+# delegate_max_concurrency — cap on how many sub-tasks `delegate_many` fans out AT ONCE.
+#
+#   unset (default) → TangleBrain derives the cap from this machine (os.cpu_count()).
+#   <positive int>  → pin the cap. The TRUE limit is your backend's parallelism, which TangleBrain
+#                     can't portably detect — set this to match it (e.g. your local model server's
+#                     OLLAMA_NUM_PARALLEL, or your provider's safe concurrent-request budget).
+#
+# A per-call `max_concurrency` argument may LOWER this but never exceed it. Left unset below so the
+# derived default applies out of the box.
+#
+# delegate_max_concurrency: 4

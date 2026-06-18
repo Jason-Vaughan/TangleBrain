@@ -20,10 +20,13 @@ here), matching the adapter contract.
 from __future__ import annotations
 
 import json
+import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from tanglebrain.roster import ROSTER_ENV_VAR, Roster, RosterEntry, load_roster
 from tanglebrain.selector import SelectionError, build_adapter, select_local
+from tanglebrain.settings import Settings, load_settings
 
 #: A local reasoning model spends part of its budget on internal reasoning before the final answer,
 #: so the delegate's token cap is generous by default. Matches the adapter's own default.
@@ -263,6 +266,141 @@ def run_delegate(
         entry = select_local(roster)
     adapter = build_adapter(entry, inject_delegate=False)
     return adapter.run(prompt, {"max_tokens": max_tokens})
+
+
+#: Concurrency cap to use only when :func:`os.cpu_count` can't report a core count (rare).
+DEFAULT_CONCURRENCY_FALLBACK = 4
+
+
+def _default_concurrency() -> int:
+    """Derive the default fan-out concurrency from this machine's core count.
+
+    The true limit on concurrent delegation is the *backend's* parallelism (e.g. a local model
+    server's ``OLLAMA_NUM_PARALLEL``), which TangleBrain can't portably introspect — so the default
+    is a system-derived proxy that scales with the machine. An operator who knows their backend pins
+    the real number via ``settings.delegate_max_concurrency``.
+
+    Returns:
+        ``os.cpu_count()``, or :data:`DEFAULT_CONCURRENCY_FALLBACK` if the OS won't report it.
+    """
+    return os.cpu_count() or DEFAULT_CONCURRENCY_FALLBACK
+
+
+def _effective_concurrency(settings: Settings, max_concurrency: int | None) -> int:
+    """Resolve the concurrency cap: operator setting (or derived) default, optionally lowered.
+
+    Args:
+        settings: Global settings; ``delegate_max_concurrency`` pins the cap when set.
+        max_concurrency: Optional per-call override that may **lower** the cap, never raise it.
+
+    Returns:
+        The number of workers to use — at least 1.
+    """
+    base = settings.delegate_max_concurrency or _default_concurrency()
+    if max_concurrency is not None:
+        base = min(base, max_concurrency)
+    return max(1, base)
+
+
+def _run_one_of_many(item: object, index: int, roster_path: str | None) -> dict:
+    """Run a single ``delegate_many`` item and map its outcome to a per-item result dict.
+
+    Never raises — every failure mode becomes a result with a ``status`` so one bad sub-task can't
+    sink the batch.
+
+    Args:
+        item: One task descriptor, expected to be a mapping with a ``prompt`` (str) and optional
+            ``target`` / ``task`` / ``max_tokens``.
+        index: The item's position in the input list (echoed back for correlation).
+        roster_path: Optional roster path threaded to :func:`run_delegate`.
+
+    Returns:
+        ``{"index", "status", ...}`` — ``status`` is ``ok`` (+``text``), ``no_fit`` (+``message``),
+        or ``error`` (+``error``).
+    """
+    if not isinstance(item, dict) or not isinstance(item.get("prompt"), str):
+        return {
+            "index": index,
+            "status": "error",
+            "error": "each task must be a mapping with a string 'prompt'",
+        }
+    try:
+        text = run_delegate(
+            item["prompt"],
+            target=item.get("target"),
+            task=item.get("task"),
+            max_tokens=item.get("max_tokens", DEFAULT_DELEGATE_MAX_TOKENS),
+            roster_path=roster_path,
+        )
+        return {"index": index, "status": "ok", "text": text}
+    except NoDelegateFit as exc:
+        return {
+            "index": index,
+            "status": "no_fit",
+            "message": (
+                f"{exc}. Handle this sub-task yourself — you are the most capable backend available."
+            ),
+        }
+    except Exception as exc:  # AdapterError / SelectionError / RosterError / anything: isolate it
+        return {"index": index, "status": "error", "error": str(exc)}
+
+
+def run_delegate_many(
+    tasks: list,
+    max_concurrency: int | None = None,
+    roster_path: str | None = None,
+    settings: Settings | None = None,
+) -> list[dict]:
+    """Fan out several sub-tasks concurrently and collect their results in input order.
+
+    The parallel-dispatch primitive: each item is routed independently via :func:`run_delegate` (so a
+    batch can mix targets — grunt to local, code to a sub), run on a thread pool, and collected.
+    Concurrency is bounded by :func:`_effective_concurrency` (operator setting or system-derived
+    default, optionally lowered per call). This is **dispatch + collect only** — synthesising the
+    results is the orchestrator's job.
+
+    Partial failure never sinks the batch: each result carries a ``status`` (``ok`` / ``no_fit`` /
+    ``error``), and results are returned **ordered by input index** even though workers finish out of
+    order. Non-local delegate spend is **not metered** (consistent with the rest of the delegate).
+
+    Args:
+        tasks: A list of task descriptors, each a mapping ``{prompt, target?, task?, max_tokens?}``.
+        max_concurrency: Optional per-call cap that may lower (never exceed) the effective concurrency.
+        roster_path: Optional roster YAML path, threaded to each :func:`run_delegate`.
+        settings: Global settings (for the concurrency cap). Defaults to :func:`load_settings`.
+
+    Returns:
+        One result dict per input task, in input order:
+        ``{"index", "status": "ok"|"no_fit"|"error", "text"|"message"|"error"}``.
+
+    Raises:
+        ValueError: If ``tasks`` is not a list (a batch-level precondition). Per-item failures do
+            **not** raise — they surface as ``status: "error"`` entries.
+    """
+    if not isinstance(tasks, list):
+        raise ValueError(f"tasks must be a list of task mappings, got {type(tasks).__name__}")
+    if not tasks:
+        return []
+    if settings is None:
+        settings = load_settings()
+
+    workers = _effective_concurrency(settings, max_concurrency)
+    results: list[dict | None] = [None] * len(tasks)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_run_one_of_many, item, i, roster_path): i
+            for i, item in enumerate(tasks)
+        }
+        for future in futures:
+            index = futures[future]
+            results[index] = future.result()
+    # Every index is filled by exactly one worker (one future per task, _run_one_of_many never
+    # raises). Preserve batch length + order; surface an (impossible) hole as a loud error entry
+    # rather than silently shrinking the result list.
+    return [
+        r if r is not None else {"index": i, "status": "error", "error": "internal: no result produced"}
+        for i, r in enumerate(results)
+    ]
 
 
 def delegate_targets(roster_path: str | None = None) -> list[dict]:

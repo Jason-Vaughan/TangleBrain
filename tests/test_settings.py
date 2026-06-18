@@ -81,6 +81,22 @@ class LoadSettingsTest(unittest.TestCase):
     def test_packaged_settings_ship_classifier_gate_off(self):
         self.assertFalse(load_settings().classifier_gate_enabled)
 
+    def test_delegate_max_concurrency_defaults_none(self):
+        self.assertIsNone(load_settings(write_yaml("", self)).delegate_max_concurrency)
+        self.assertIsNone(load_settings("/no/such.yaml").delegate_max_concurrency)
+        self.assertIsNone(load_settings().delegate_max_concurrency)  # packaged ships it unset
+
+    def test_delegate_max_concurrency_parses_positive_int(self):
+        self.assertEqual(
+            load_settings(write_yaml("delegate_max_concurrency: 6\n", self)).delegate_max_concurrency,
+            6,
+        )
+
+    def test_delegate_max_concurrency_rejects_bad_values(self):
+        for bad in ("0", "-2", "true", "2.5", "'lots'"):
+            with self.assertRaises(SettingsError):
+                load_settings(write_yaml(f"delegate_max_concurrency: {bad}\n", self))
+
 
 if __name__ == "__main__":
     unittest.main()

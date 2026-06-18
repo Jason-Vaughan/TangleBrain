@@ -192,7 +192,7 @@ reference string only — secrets are never resolved or sent to the browser.
 `tanglebrain-delegate` is an MCP server that lets an orchestrator offload bulk sub-tasks instead of
 running them itself, then review the results — a decompose → delegate → review loop that is emergent
 from the orchestrator simply having the tool (no graph engine required). It reuses the same roster +
-adapters as the CLI above, so endpoints and keys live in one place. It exposes three tools:
+adapters as the CLI above, so endpoints and keys live in one place. It exposes four tools:
 
 - **`delegate_local(prompt, max_tokens?)`** — route a sub-task to the free local tier (the $0
   default).
@@ -210,6 +210,15 @@ adapters as the CLI above, so endpoints and keys live in one place. It exposes t
   A target is invoked as a leaf (it never gets its own delegate tool — no recursion); `api` targets
   named explicitly still obey the billing gate, so a paid target raises rather than spending while
   billing is off.
+- **`delegate_many(tasks, max_concurrency?)`** — fan **several sub-tasks out concurrently** in one
+  call and collect them, instead of delegating one at a time. Each item is `{prompt, target?, task?,
+  max_tokens?}` (same routing as `delegate`), so a batch can mix backends. Returns a JSON array, one
+  entry per task **in input order**, each `{index, status}` — `ok` (+`text`), `no_fit` (+`message`),
+  or `error` (+`error`); a failing sub-task never sinks the others. Concurrency is bounded
+  automatically from the host (`os.cpu_count()`), overridable by the operator
+  (`delegate_max_concurrency` in `settings.yaml` — pin it to your backend's real parallelism, e.g.
+  `OLLAMA_NUM_PARALLEL`) and lowerable per call. Dispatch + collect only — the orchestrator
+  synthesises the results.
 - **`delegate_targets()`** — list the configured targets (`id`, `tier`, `good_at`, `cost`, `kind`)
   so the orchestrator can decide based on what's available. The `delegate` tool's description also
   enumerates them (built at server startup; the tool reflects the live roster).

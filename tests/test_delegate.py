@@ -14,10 +14,13 @@ import json
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.delegate import (
+    DEFAULT_CONCURRENCY_FALLBACK,
     DEFAULT_DELEGATE_MAX_TOKENS,
     DELEGATE_SERVER_NAME,
     ROSTER_ENV_VAR,
     NoDelegateFit,
+    _default_concurrency,
+    _effective_concurrency,
     _render_target_menu,
     _select_by_capability,
     available_capabilities,
@@ -25,9 +28,11 @@ from tanglebrain.delegate import (
     delegate_substitutions,
     delegate_targets,
     run_delegate,
+    run_delegate_many,
     run_local_delegate,
 )
 from tanglebrain.selector import SelectionError
+from tanglebrain.settings import Settings
 
 
 def _entry(entry_id, tier="sub", good_at=None, cost=None, kind="openai-compat", can_delegate=True):
@@ -350,6 +355,134 @@ class DelegateTargetsMenuTest(unittest.TestCase):
     def test_render_menu_empty_has_note(self):
         rendered = _render_target_menu([])
         self.assertIn("no additional delegate targets", rendered)
+
+
+class FanOutConcurrencyTest(unittest.TestCase):
+    """Concurrency-cap resolution for delegate_many: system-derived default, operator + per-call."""
+
+    def test_default_concurrency_uses_cpu_count(self):
+        with patch("tanglebrain.delegate.os.cpu_count", return_value=11):
+            self.assertEqual(_default_concurrency(), 11)
+
+    def test_default_concurrency_fallback_when_cpu_count_none(self):
+        with patch("tanglebrain.delegate.os.cpu_count", return_value=None):
+            self.assertEqual(_default_concurrency(), DEFAULT_CONCURRENCY_FALLBACK)
+
+    def test_operator_setting_wins_over_derived(self):
+        with patch("tanglebrain.delegate._default_concurrency", return_value=99):
+            self.assertEqual(_effective_concurrency(Settings(delegate_max_concurrency=3), None), 3)
+
+    def test_derived_used_when_setting_unset(self):
+        with patch("tanglebrain.delegate._default_concurrency", return_value=7):
+            self.assertEqual(_effective_concurrency(Settings(), None), 7)
+
+    def test_per_call_lowers_but_cannot_exceed(self):
+        s = Settings(delegate_max_concurrency=5)
+        self.assertEqual(_effective_concurrency(s, 2), 2)
+        self.assertEqual(_effective_concurrency(s, 100), 5)
+
+    def test_clamps_to_at_least_one(self):
+        self.assertEqual(_effective_concurrency(Settings(delegate_max_concurrency=5), 0), 1)
+
+
+class RunDelegateManyTest(unittest.TestCase):
+    """The parallel fan-out primitive: input-order results, per-item routing, partial-failure isolation."""
+
+    def _patches(self, fake_run_delegate):
+        return patch("tanglebrain.delegate.run_delegate", side_effect=fake_run_delegate), patch(
+            "tanglebrain.delegate.load_settings", return_value=Settings()
+        )
+
+    def test_empty_list_returns_empty(self):
+        self.assertEqual(run_delegate_many([]), [])
+
+    def test_non_list_raises(self):
+        with self.assertRaises(ValueError):
+            run_delegate_many("not a list")
+
+    def test_results_in_input_order(self):
+        run_dp, load = self._patches(lambda prompt, **kw: f"out:{prompt}")
+        with run_dp, load:
+            out = run_delegate_many([{"prompt": "a"}, {"prompt": "b"}, {"prompt": "c"}])
+        self.assertEqual([r["index"] for r in out], [0, 1, 2])
+        self.assertEqual([r["text"] for r in out], ["out:a", "out:b", "out:c"])
+        self.assertTrue(all(r["status"] == "ok" for r in out))
+
+    def test_per_item_routing_threaded_through(self):
+        calls = {}
+
+        def fake(prompt, **kw):
+            calls[prompt] = kw
+            return "x"
+
+        run_dp, load = self._patches(fake)
+        with run_dp, load:
+            run_delegate_many(
+                [
+                    {"prompt": "p1", "target": "sub-a"},
+                    {"prompt": "p2", "task": "code", "max_tokens": 256},
+                ]
+            )
+        self.assertEqual(calls["p1"]["target"], "sub-a")
+        self.assertIsNone(calls["p1"]["task"])
+        self.assertEqual(calls["p1"]["max_tokens"], DEFAULT_DELEGATE_MAX_TOKENS)  # item default
+        self.assertEqual(calls["p2"]["task"], "code")
+        self.assertEqual(calls["p2"]["max_tokens"], 256)
+
+    def test_partial_failure_isolated(self):
+        def fake(prompt, **kw):
+            if prompt == "bad":
+                raise AdapterError("backend down")
+            return "ok-text"
+
+        run_dp, load = self._patches(fake)
+        with run_dp, load:
+            out = run_delegate_many([{"prompt": "good"}, {"prompt": "bad"}, {"prompt": "good2"}])
+        self.assertEqual(out[0]["status"], "ok")
+        self.assertEqual(out[1]["status"], "error")
+        self.assertIn("backend down", out[1]["error"])
+        self.assertEqual(out[2]["status"], "ok")
+
+    def test_no_fit_item_reported(self):
+        run_dp, load = self._patches(
+            lambda prompt, **kw: (_ for _ in ()).throw(NoDelegateFit("no target good_at 'x'"))
+        )
+        with run_dp, load:
+            out = run_delegate_many([{"prompt": "p", "task": "x"}])
+        self.assertEqual(out[0]["status"], "no_fit")
+        self.assertIn("yourself", out[0]["message"])
+
+    def test_malformed_items_do_not_sink_batch(self):
+        run_dp, load = self._patches(lambda prompt, **kw: "ok")
+        with run_dp, load:
+            out = run_delegate_many([{"prompt": "good"}, {"no_prompt": 1}, "notadict"])
+        self.assertEqual(out[0]["status"], "ok")
+        self.assertEqual(out[1]["status"], "error")
+        self.assertEqual(out[2]["status"], "error")
+
+    def test_concurrency_cap_passed_to_executor(self):
+        captured = {}
+
+        class FakeExecutor:
+            def __init__(self, max_workers=None):
+                captured["max_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def submit(self, fn, *args):
+                future = MagicMock()
+                future.result.return_value = fn(*args)
+                return future
+
+        with patch("tanglebrain.delegate.run_delegate", side_effect=lambda prompt, **kw: "x"), patch(
+            "tanglebrain.delegate.ThreadPoolExecutor", FakeExecutor
+        ):
+            run_delegate_many([{"prompt": "a"}], settings=Settings(delegate_max_concurrency=3))
+        self.assertEqual(captured["max_workers"], 3)
 
 
 if __name__ == "__main__":
