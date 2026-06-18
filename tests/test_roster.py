@@ -226,5 +226,44 @@ class ApiEntryTest(unittest.TestCase):
                 load_roster(path)
 
 
+class CanDelegateTest(unittest.TestCase):
+    """The ``can_delegate`` flag + ``Roster.delegate_targets()`` (the delegate-target menu)."""
+
+    def test_defaults_false(self):
+        path = write_yaml(
+            "- id: m\n  tier: local\n"
+            "  invoke: {kind: openai-compat, base_url: 'http://x/v1', model: m}\n",
+            self,
+        )
+        self.assertFalse(load_roster(path).by_id("m").can_delegate)
+
+    def test_parses_true(self):
+        path = write_yaml(
+            "- id: m\n  tier: local\n  can_delegate: true\n"
+            "  invoke: {kind: openai-compat, base_url: 'http://x/v1', model: m}\n",
+            self,
+        )
+        self.assertTrue(load_roster(path).by_id("m").can_delegate)
+
+    def test_delegate_targets_filters_and_preserves_order(self):
+        path = write_yaml(
+            "- id: a\n  tier: local\n  can_delegate: true\n"
+            "  invoke: {kind: openai-compat, base_url: 'http://x/v1', model: a}\n"
+            "- id: b\n  tier: sub\n"
+            "  invoke: {kind: openai-compat, base_url: 'http://x/v1', model: b}\n"
+            "- id: c\n  tier: sub\n  can_delegate: true\n"
+            "  invoke: {kind: openai-compat, base_url: 'http://x/v1', model: c}\n",
+            self,
+        )
+        targets = load_roster(path).delegate_targets()
+        self.assertEqual([e.id for e in targets], ["a", "c"])  # b excluded, a-before-c order kept
+
+    def test_packaged_local_is_a_delegate_target(self):
+        # The shipped example flags the local tier `can_delegate: true` so the menu is non-empty
+        # out of the box and `delegate(target="local-ollama")` works.
+        roster = load_roster(packaged_roster_path())
+        self.assertEqual([e.id for e in roster.delegate_targets()], ["local-ollama"])
+
+
 if __name__ == "__main__":
     unittest.main()

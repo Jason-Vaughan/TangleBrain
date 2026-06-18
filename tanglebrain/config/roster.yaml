@@ -8,7 +8,9 @@
 # Copy this file to ~/.config/tanglebrain/roster.yaml and edit it there.
 #
 # Add / remove / reorganize entries freely — adding a model is a config edit, never a code change.
-# Flag `can_orchestrate: true` to put an entry in the orchestrator rotation.
+# Flag `can_orchestrate: true` to put an entry in the orchestrator rotation. Flag
+# `can_delegate: true` to make an entry a delegate target an orchestrator can hand a sub-task to
+# (via the `delegate` MCP tool); the free local model is always available as the default target.
 #
 # invoke.kind ∈ {openai-compat, cli, api}.  key_ref ∈ {file:PATH, env:NAME, none} — a
 # credential *reference*, never a raw secret.
@@ -33,6 +35,26 @@
     # key_ref: "file:~/.config/tanglebrain/keys/local.key"  (a reference, never the raw key).
   cost: free
   good_at: [grunt, code, tools]
+  can_delegate: true            # an orchestrator may target this backend by id via the delegate tool
+
+# --- OPT-IN delegate target (non-local) — COMMENTED OUT so it stays inert. ---
+# A delegate target is a backend an orchestrator can hand a *sub-task* to (not the whole request) —
+# e.g. a cheaper sub or a better-fit model. Flag any entry `can_delegate: true` and it joins the
+# menu the `delegate` tool advertises; the model picks a target by its `good_at` fit. A target is
+# invoked as a leaf (it never gets its own delegate tool — no recursion). `api` targets still obey
+# the billing gate; non-local delegate spend is not metered in this version. This example is an
+# openai-compat backend; uncomment + point it at one you hold.
+#
+# - id: cheap-remote
+#   tier: sub
+#   invoke:
+#     kind: openai-compat
+#     base_url: "https://your-openai-compatible-endpoint/v1"
+#     model: "a-cheaper-model"
+#     key_ref: "file:~/.config/tanglebrain/keys/cheap.key"   # a reference, never the raw key
+#   cost: cheap
+#   good_at: [grunt, summarization, extraction]
+#   can_delegate: true
 
 # --- OPT-IN subscription / authenticated-CLI tier — COMMENTED OUT so it stays inert. ---
 # These entries drive authenticated CLIs you already have installed and logged in (Claude Code /

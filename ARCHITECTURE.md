@@ -33,7 +33,7 @@ bring-your-own-key posture lives in [`DISCLAIMER.md`](DISCLAIMER.md).
   openai-compat            cli adapter                  api adapter
   (local server)        (authenticated CLI)        (gated paid backend)
         │                       │                            │
-        │            local-delegate (MCP) ◀── orchestrator offloads sub-tasks
+        │            delegate (MCP) ◀── orchestrator offloads sub-tasks to a configured target
         ▼                       ▼                            ▼
             ┌──────────────────────────────────────────────┐
             │   measurement: append one record per task     │
@@ -114,15 +114,28 @@ whatever the roster declares.
 `Router.last_served` surfaces the entry that served a request so the CLI can meter it without
 changing `route()`'s return type.
 
-### Local-delegate — sub-task offload (`mcp_server.py`, `delegate.py`)
+### Delegate — sub-task offload (`mcp_server.py`, `delegate.py`)
 
-`tanglebrain-delegate` is an MCP server exposing one tool, `delegate_local(prompt, max_tokens?)`,
-that routes to the free local tier. An orchestrator that supports MCP can register it and offload
-bulk sub-tasks to the local backend, then review the results — a decompose → delegate → review loop
-that is emergent from the orchestrator simply *having* the tool (no graph engine required). The
-delegate reuses the same roster + openai-compat adapter as the rest of the system, so the local
-endpoint and its key reference live in exactly one place. MCP is an optional install extra
-(`pip install -e ".[delegate]"`).
+`tanglebrain-delegate` is an MCP server an orchestrator registers to offload bulk sub-tasks, then
+review the results — a decompose → delegate → review loop that is emergent from the orchestrator
+simply *having* the tool (no graph engine required). It reuses the same roster + adapters as the rest
+of the system, so endpoints and key references live in exactly one place. MCP is an optional install
+extra (`pip install -e ".[delegate]"`). Three tools:
+
+- `delegate_local(prompt, max_tokens?)` — route to the free local tier (the $0 default).
+- `delegate(prompt, target?, max_tokens?)` — route to a *configured* backend by id. `target` is any
+  roster entry flagged `can_delegate: true` (mirrors `can_orchestrate`); omit it for local. The
+  target is built as a **leaf** (`inject_delegate=False`) so it never receives its own delegate tool
+  — no recursive delegation. `api` targets flow through the same billing gate as the rest of the
+  system, so a paid target stays inert unless billing is enabled.
+- `delegate_targets()` — the configured menu (`id`, `tier`, `good_at`, `cost`, `kind`), so the
+  orchestrator picks a target by fit. The `delegate` tool's description enumerates the menu, built
+  once at server startup.
+
+This is the first slice of a [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39):
+the orchestrator now sees a menu and routes a sub-task to any configured backend, but selection is
+the model's (not yet automated per-sub-task), dispatch is sequential, and non-local delegate spend is
+not yet metered.
 
 ### Measurement — per-task records (`measurement.py`)
 
@@ -165,7 +178,7 @@ strictly (a non-bool value can never coincidentally enable a feature):
 |---|---|---|
 | `tanglebrain` | `cli.py` | Route a prompt (default), or `--local` / `--model <id>` / `--gate` / `--stats`. |
 | `tanglebrain-gui` | `gui/server.py` | Serve the localhost knob panel. |
-| `tanglebrain-delegate` | `mcp_server.py` | Serve the `delegate_local` MCP tool over stdio. |
+| `tanglebrain-delegate` | `mcp_server.py` | Serve the `delegate_local` / `delegate` / `delegate_targets` MCP tools over stdio. |
 
 ## Design notes
 

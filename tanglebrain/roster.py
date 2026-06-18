@@ -20,7 +20,8 @@ Each entry::
 
 ``invoke.kind`` is one of ``openai-compat`` | ``cli`` | ``api``. ``scrub_env`` enforces the
 session-vs-key safety rule per adapter. ``can_orchestrate`` flags an entry as eligible for the
-orchestrator rotation. ``key_ref`` references a credential without embedding it:
+orchestrator rotation; ``can_delegate`` flags it as an eligible delegate target an orchestrator
+may offload a sub-task to. ``key_ref`` references a credential without embedding it:
 ``file:PATH`` | ``env:NAME`` | ``none``.
 """
 from __future__ import annotations
@@ -95,6 +96,11 @@ class RosterEntry:
         cost: Free-form cost annotation (e.g. ``free``, ``paid``); informational.
         good_at: Tags describing what the entry is good at (drives task-fit routing).
         can_orchestrate: Whether this entry joins the orchestrator rotation.
+        can_delegate: Whether this entry is an eligible **delegate target** — a backend an
+            orchestrator may hand a sub-task to via the generalized ``delegate`` tool. Explicit
+            opt-in (default ``False``), mirroring ``can_orchestrate``; nothing is delegable unless
+            declared. The free local tier remains the default target regardless of this flag (the
+            ``delegate_local`` tool / ``target=None`` path resolves it directly).
         enabled: Per-entry kill-switch. ``True`` by default. Currently enforced only for
             ``tier: api`` entries (a disabled paid key is never routable, even with the global
             ``api_billing_enabled`` gate on); informational for other tiers.
@@ -110,6 +116,7 @@ class RosterEntry:
     cost: str | None = None
     good_at: list[str] = field(default_factory=list)
     can_orchestrate: bool = False
+    can_delegate: bool = False
     enabled: bool = True
     budget_usd_month: float | None = None
 
@@ -182,6 +189,18 @@ class Roster:
             The orchestrator-capable entries, in declared order.
         """
         return [e for e in self._entries if e.can_orchestrate]
+
+    def delegate_targets(self) -> list[RosterEntry]:
+        """Return the entries flagged ``can_delegate`` (the delegate-target menu).
+
+        These are the backends an orchestrator may hand a sub-task to via the generalized
+        ``delegate`` tool — the configured, opt-in menu. The free local default target is resolved
+        separately (see :func:`tanglebrain.selector.select_local`) and need not be flagged.
+
+        Returns:
+            The delegate-eligible entries, in declared order.
+        """
+        return [e for e in self._entries if e.can_delegate]
 
 
 def _parse_invoke(raw: object, entry_id: str) -> Invoke:
@@ -319,6 +338,7 @@ def _parse_entry(raw: object) -> RosterEntry:
         cost=raw.get("cost"),
         good_at=list(good_at),
         can_orchestrate=bool(raw.get("can_orchestrate", False)),
+        can_delegate=bool(raw.get("can_delegate", False)),
         enabled=enabled,
         budget_usd_month=float(budget) if budget is not None else None,
     )

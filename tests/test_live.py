@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 from tanglebrain.adapters.cli import CliAdapter, scrubbed_env
 from tanglebrain.cli import run_once
-from tanglebrain.delegate import run_local_delegate
+from tanglebrain.delegate import delegate_targets, run_delegate, run_local_delegate
 from tanglebrain.roster import load_roster
 from tanglebrain.router import Router
 from tanglebrain.selector import select_local
@@ -56,6 +56,29 @@ class LiveDelegateTest(unittest.TestCase):
         text = run_local_delegate("Reply with exactly the word: pong")
         self.assertIsInstance(text, str)
         self.assertTrue(text.strip(), "expected non-empty text from the local delegate")
+
+
+@unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live generalized-delegate test")
+class LiveGeneralizedDelegateTest(unittest.TestCase):
+    """The #38 acceptance: one sub-task to local, another to a configured non-local target.
+
+    The non-local leg needs a ``can_delegate: true`` target whose tier isn't ``local`` in the active
+    roster (e.g. a cheaper sub). If none is configured, the non-local leg is skipped with a note —
+    flag a target ``can_delegate: true`` in your roster to exercise it.
+    """
+
+    def test_default_leg_routes_to_local(self):
+        text = run_delegate("Reply with exactly the word: pong", target=None)
+        self.assertTrue(text.strip(), "expected non-empty text from the default (local) delegate")
+
+    def test_targeted_leg_routes_to_configured_backend(self):
+        non_local = [t for t in delegate_targets() if t["tier"] != "local"]
+        if not non_local:
+            self.skipTest("no non-local can_delegate target in the active roster")
+        target = non_local[0]["id"]
+        text = run_delegate("Reply with exactly the word: pong", target=target)
+        self.assertIsInstance(text, str)
+        self.assertTrue(text.strip(), f"expected non-empty text from delegate target {target!r}")
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live orchestrated-delegation test")

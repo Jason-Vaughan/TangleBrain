@@ -64,6 +64,47 @@ class McpServerTest(unittest.TestCase):
             run(self.server.mcp.call_tool("delegate_local", {"prompt": "q", "max_tokens": 256}))
         self.assertEqual(delegated.call_args.kwargs.get("max_tokens"), 256)
 
+    def _tool(self, name):
+        return next(t for t in run(self.server.mcp.list_tools()) if t.name == name)
+
+    def test_generalized_delegate_tools_registered(self):
+        names = [t.name for t in run(self.server.mcp.list_tools())]
+        self.assertIn("delegate", names)
+        self.assertIn("delegate_targets", names)
+
+    def test_delegate_advertises_target_param(self):
+        props = self._tool("delegate").inputSchema.get("properties", {})
+        self.assertIn("prompt", props)
+        self.assertIn("target", props)
+        self.assertIn("max_tokens", props)
+
+    def test_delegate_description_has_target_menu_header(self):
+        # The description is built from the roster at server startup; whatever roster the test
+        # machine resolves, the menu header is always present (the menu body may vary / be empty).
+        self.assertIn("Configured delegate targets", self._tool("delegate").description or "")
+
+    def test_invoking_delegate_routes_to_run_delegate(self):
+        with patch("tanglebrain.mcp_server.run_delegate", return_value="routed text") as routed:
+            result = run(
+                self.server.mcp.call_tool("delegate", {"prompt": "do it", "target": "cheap"})
+            )
+        texts = [c.text for c in result[0] if getattr(c, "type", None) == "text"]
+        self.assertIn("routed text", texts)
+        routed.assert_called_once()
+        self.assertEqual(routed.call_args.args[0], "do it")
+        self.assertEqual(routed.call_args.kwargs.get("target"), "cheap")
+        self.assertEqual(routed.call_args.kwargs.get("max_tokens"), 2048)
+
+    def test_invoking_delegate_targets_returns_json_menu(self):
+        menu = [{"id": "cheap", "tier": "sub", "good_at": ["code"], "cost": "cheap",
+                 "kind": "openai-compat"}]
+        with patch("tanglebrain.mcp_server._list_delegate_targets", return_value=menu):
+            result = run(self.server.mcp.call_tool("delegate_targets", {}))
+        import json
+
+        texts = [c.text for c in result[0] if getattr(c, "type", None) == "text"]
+        self.assertEqual(json.loads(texts[0]), menu)
+
 
 if __name__ == "__main__":
     unittest.main()
