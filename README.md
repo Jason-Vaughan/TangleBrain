@@ -6,16 +6,36 @@
 
 [![CI](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml)
 
-A **local-first, config-driven router across OpenAI-compatible backends you own.** TangleBrain
-routes each request to a backend you've configured — a local model server by default, with optional
-authenticated CLIs and your own paid API keys as overflow — and keeps the whole roster of backends
-in one plain, editable config file. Adding or removing a backend is a config edit, not a code
-change.
+A **local-first, config-driven router across OpenAI-compatible backends you own.**
 
-Out of the box it routes to a single **free local** backend (any OpenAI-compatible server you run,
-e.g. Ollama). Everything else is opt-in.
+## The Problem: Cloud-by-Default Routing
 
-**Status:** v0.9.0 — feature-complete, preparing for public release.
+Most AI tooling sends **every** request to a paid cloud API by default — even the trivial ones, even
+when you already run capable models on hardware you own. The spend accrues invisibly, you're coupled
+to a single provider's endpoint, and the moment you want to blend a local model, an authenticated CLI
+you already pay for, and a bring-your-own-key API, you end up hand-wiring glue and editing source just
+to change *where* a request goes. There's no single, plain place to declare "here are the backends I
+have — route across them, in this order," and no measurement of what you're actually spending versus
+avoiding.
+
+**This is routing debt: vendor lock-in, invisible spend, and routing logic that lives in code instead
+of config.**
+
+## The Solution: A Local-First Router You Own
+
+TangleBrain keeps the whole roster of backends in one editable YAML file and routes each request to
+the backend you've configured — a free local model server by default, with authenticated CLIs and
+bring-your-own-key APIs as opt-in overflow. Adding or removing a backend is a config edit, not a code
+change, and every routed task is logged with an estimated cloud-equivalent cost.
+
+## Standalone, or part of the Tangle family
+
+TangleBrain runs entirely on its own — clone it, point it at your backends, and go. It's MIT-licensed
+and open to contributors: forks and pull requests are welcome. It's also designed to drop in
+seamlessly alongside [TangleClaw](https://github.com/Jason-Vaughan/TangleClaw) and the wider **Tangle
+family** of tools, so it works the same whether you run it solo or as part of that ecosystem.
+
+**Status:** v0.10.0 — first public release.
 
 ## What it does
 

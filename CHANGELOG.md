@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **README restructured around Problem → Solution.** A "Cloud-by-Default Routing / routing debt"
+  problem statement and a "Local-First Router You Own" solution lead the page, plus a "Standalone, or
+  part of the Tangle family" section (welcomes forks/PRs; notes optional integration with
+  [TangleClaw](https://github.com/Jason-Vaughan/TangleClaw)). Status line corrected to
+  *v0.10.0 — first public release*.
 - **Knob-panel header copy.** The panel subtitle now reads "roster & pricing config · local
   spend-avoided rollup" (was a stale "read-only — cost-tiered router config …"; the panel has been
   editable since the pricing/roster knobs landed).
