@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **Documented the synthesis/reduce pattern (scatter-gather roadmap #39, slice 4).** README +
+  ARCHITECTURE now spell out that the orchestrator synthesises `delegate_many` results itself (it
+  holds the original task context), and offloads a *mechanical* stitch with an ordinary
+  `delegate(task=…)` call — so no dedicated reducer tool ships. Documentation of existing behaviour;
+  no code change. The reduce step stays the orchestrator's by design until observability data (a later
+  slice) shows a TB-side reducer would earn its keep.
+
 ## [0.13.0] - 2026-06-18
 
 ### Added
