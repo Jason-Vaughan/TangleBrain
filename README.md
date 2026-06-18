@@ -24,9 +24,14 @@ of config.**
 ## The Solution: A Local-First Router You Own
 
 TangleBrain keeps the whole roster of backends in one editable YAML file and routes each request to
-the backend you've configured — a free local model server by default, with authenticated CLIs and
-bring-your-own-key APIs as opt-in overflow. Adding or removing a backend is a config edit, not a code
-change, and every routed task is logged with an estimated cloud-equivalent cost.
+the backend you've configured — a free local model server by default. It favors credentials you
+already hold: your **local models** and your **authenticated, OAuth-logged-in tools** come first,
+while **raw API keys stay a separate, explicitly-gated opt-in** rather than the default (it never
+injects a key into a CLI — your tool uses its own session). An optional classifier can **read each
+request and route by its complexity** — sending the grunt work to your free local model where it's
+cheap, and reserving heavier backends for what actually needs them. And every routed task is logged
+with an **estimated cloud-equivalent cost**, so you can see what you're spending versus avoiding.
+Adding or removing a backend is a config edit, not a code change.
 
 ## Standalone, or part of the Tangle family
 
@@ -41,16 +46,20 @@ family** of tools, so it works the same whether you run it solo or as part of th
 
 - **Local-first routing** — ships pointing at a free local model server; nothing leaves your machine
   unless you configure a backend that does.
+- **OAuth- and local-first credentials** — prefers your local models and your authenticated
+  (OAuth-logged-in) tool sessions; it never injects an API key into a CLI. The raw-API-key tier is a
+  deliberate opt-in, off by default behind explicit gates.
+- **Prompt-aware routing** — an optional classifier reads each request and sends trivial / grunt work
+  straight to your free local model where it's cheap, reserving heavier backends for what actually
+  needs them (off by default, fails safe).
 - **Config-driven roster** — every routable backend is one entry in a plain YAML list; add, remove,
   or reorganize backends by editing config.
-- **Optional classifier gate** — a cheap local pre-filter can send trivial requests straight to the
-  local backend (off by default, fails safe).
 - **Pluggable CLI-backed orchestration** — drive authenticated command-line tools as orchestrators,
   with rotation and failover across them for resilience.
 - **Local sub-task delegation** — an orchestrator can offload bulk sub-tasks to the local backend
   through an MCP tool, then review the results.
-- **Measurement** — every routed task is logged with an estimated cloud-equivalent cost, rolled up by
-  `tanglebrain --stats`.
+- **Cost measurement** — every routed task is logged with an estimated cloud-equivalent cost;
+  `tanglebrain --stats` rolls up what you've spent versus avoided.
 - **Knob GUI** — a localhost panel to view the roster, pricing, and rollup, edit a focused set of
   config knobs, and run a prompt.
 - **Gated paid-API tier** — bring-your-own-key overflow, off by default behind two independent
