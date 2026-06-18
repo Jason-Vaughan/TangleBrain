@@ -23,7 +23,12 @@ from unittest.mock import patch
 
 from tanglebrain.adapters.cli import CliAdapter, scrubbed_env
 from tanglebrain.cli import run_once
-from tanglebrain.delegate import delegate_targets, run_delegate, run_local_delegate
+from tanglebrain.delegate import (
+    delegate_targets,
+    run_delegate,
+    run_delegate_many,
+    run_local_delegate,
+)
 from tanglebrain.roster import load_roster
 from tanglebrain.router import Router
 from tanglebrain.selector import select_local
@@ -91,6 +96,19 @@ class LiveGeneralizedDelegateTest(unittest.TestCase):
         text = run_delegate("Reply with exactly the word: pong", task=caps[0])
         self.assertIsInstance(text, str)
         self.assertTrue(text.strip(), f"expected non-empty text routing by task={caps[0]!r}")
+
+    def test_fan_out_runs_concurrently_and_returns_ordered_results(self):
+        # Fan out a few sub-tasks to the local default at once; assert ordered, all-ok, non-empty.
+        results = run_delegate_many(
+            [
+                {"prompt": "Reply with exactly: one"},
+                {"prompt": "Reply with exactly: two"},
+                {"prompt": "Reply with exactly: three"},
+            ]
+        )
+        self.assertEqual([r["index"] for r in results], [0, 1, 2])
+        self.assertTrue(all(r["status"] == "ok" for r in results), results)
+        self.assertTrue(all(r["text"].strip() for r in results))
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live orchestrated-delegation test")

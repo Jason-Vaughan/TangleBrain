@@ -2,9 +2,10 @@
 
 A stdio MCP server an orchestrator (e.g. claude / codex / gemini) registers so it can offload
 sub-tasks to a configured backend mid-task — the mechanism that makes frontier-first decompose
-actually offload work rather than running everything on the orchestrator itself. It exposes three
-tools: ``delegate_local`` (free local default), ``delegate`` (route to any configured
-``can_delegate`` target by id), and ``delegate_targets`` (the configured target menu).
+actually offload work rather than running everything on the orchestrator itself. It exposes four
+tools: ``delegate_local`` (free local default), ``delegate`` (route to a configured ``can_delegate``
+target by id or by capability), ``delegate_many`` (fan several sub-tasks out concurrently), and
+``delegate_targets`` (the configured target menu).
 
 It is a **thin wrapper** over :mod:`tanglebrain.delegate` (which reuses the roster + selector +
 adapters): the routing logic lives there, MCP plumbing lives here. The tools are **sync** — FastMCP
@@ -41,6 +42,7 @@ from tanglebrain.delegate import (
     _render_target_menu,
     delegate_targets as _list_delegate_targets,
     run_delegate,
+    run_delegate_many,
     run_local_delegate,
 )
 
@@ -161,6 +163,40 @@ def delegate_targets() -> str:
         A JSON-encoded array of target descriptors.
     """
     return json.dumps(_list_delegate_targets())
+
+
+@mcp.tool()
+def delegate_many(tasks: list[dict], max_concurrency: int | None = None) -> str:
+    """Fan out several sub-tasks CONCURRENTLY and get all results back at once.
+
+    Use this instead of calling ``delegate`` one sub-task at a time when you have independent pieces
+    of work to offload in parallel — each runs at the same time and you collect them together. Each
+    item routes independently, so one batch can mix backends (send grunt to local, code to a sub).
+
+    Each item in ``tasks`` is a mapping ``{"prompt": str, "target"?: str, "task"?: str,
+    "max_tokens"?: int}`` — ``target``/``task`` mean the same as on the ``delegate`` tool (explicit id,
+    or capability; omit both for the free local model). Concurrency is bounded automatically (derived
+    from the host, or the operator's configured cap); pass ``max_concurrency`` to throttle a heavy
+    batch lower.
+
+    A failing sub-task never sinks the others. The result is a JSON array, **one entry per input task
+    in input order**, each ``{"index", "status", ...}``:
+      - ``{"index", "status": "ok", "text": ...}`` — the backend's output.
+      - ``{"index", "status": "no_fit", "message": ...}`` — no backend fit a ``task`` capability;
+        handle that one yourself.
+      - ``{"index", "status": "error", "error": ...}`` — that sub-task failed (e.g. bad target id,
+        backend down); the rest still ran.
+
+    This is dispatch + collect only — **you** synthesise the pieces back into one answer.
+
+    Args:
+        tasks: The list of sub-task descriptors to fan out.
+        max_concurrency: Optional cap to lower (never exceed) the automatic concurrency limit.
+
+    Returns:
+        A JSON-encoded array of per-task results, ordered by input index.
+    """
+    return json.dumps(run_delegate_many(tasks, max_concurrency=max_concurrency))
 
 
 def main() -> None:

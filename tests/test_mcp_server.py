@@ -71,6 +71,29 @@ class McpServerTest(unittest.TestCase):
         names = [t.name for t in run(self.server.mcp.list_tools())]
         self.assertIn("delegate", names)
         self.assertIn("delegate_targets", names)
+        self.assertIn("delegate_many", names)
+
+    def test_delegate_many_advertises_params(self):
+        props = self._tool("delegate_many").inputSchema.get("properties", {})
+        self.assertIn("tasks", props)
+        self.assertIn("max_concurrency", props)
+
+    def test_invoking_delegate_many_returns_json_results(self):
+        results = [
+            {"index": 0, "status": "ok", "text": "one"},
+            {"index": 1, "status": "error", "error": "boom"},
+        ]
+        with patch("tanglebrain.mcp_server.run_delegate_many", return_value=results) as fan:
+            out = run(
+                self.server.mcp.call_tool(
+                    "delegate_many", {"tasks": [{"prompt": "a"}, {"prompt": "b"}], "max_concurrency": 2}
+                )
+            )
+        import json
+
+        texts = [c.text for c in out[0] if getattr(c, "type", None) == "text"]
+        self.assertEqual(json.loads(texts[0]), results)
+        self.assertEqual(fan.call_args.kwargs.get("max_concurrency"), 2)
 
     def test_delegate_advertises_target_param(self):
         props = self._tool("delegate").inputSchema.get("properties", {})

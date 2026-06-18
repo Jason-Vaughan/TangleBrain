@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Parallel fan-out (`delegate_many`).** A new MCP tool lets an orchestrator fan **several sub-tasks
+  out concurrently** in one call and collect them, instead of delegating one at a time. Each item
+  (`{prompt, target?, task?, max_tokens?}`) routes independently — a batch can mix backends — and runs
+  on a `ThreadPoolExecutor` over the existing sync `run_delegate` (plain Python, no new deps). Results
+  come back **in input order** with a per-item `status` (`ok` / `no_fit` / `error`); one failing
+  sub-task never sinks the batch. Concurrency is bounded by a **system-derived default**
+  (`os.cpu_count()`), an **operator override** (new `delegate_max_concurrency` in `settings.yaml` —
+  pin it to your backend's real parallelism, e.g. `OLLAMA_NUM_PARALLEL`), and an optional per-call
+  `max_concurrency` that may lower it. Dispatch + collect only — synthesis stays the orchestrator's
+  job. Third slice of the scatter-gather roadmap (#39).
+
 ## [0.12.0] - 2026-06-18
 
 ### Added

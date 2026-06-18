@@ -44,10 +44,16 @@ class Settings:
             normal frontier-first routing. When ``True``, a cheap local classify runs in front of the
             router: trivial requests go straight to the free local backend, only frontier requests
             reach an orchestrator. Off until an operator turns it on.
+        delegate_max_concurrency: Operator cap on how many sub-tasks ``delegate_many`` runs at once.
+            ``None`` (the default) means TangleBrain derives the cap from the system
+            (``os.cpu_count()``). Set a positive int to pin it to the backend's real parallelism
+            (e.g. match a local model server's ``OLLAMA_NUM_PARALLEL``) — the true limit TB can't
+            portably introspect. A per-call ``max_concurrency`` may lower this but never exceed it.
     """
 
     api_billing_enabled: bool = False
     classifier_gate_enabled: bool = False
+    delegate_max_concurrency: int | None = None
 
 
 def default_settings_path() -> Path:
@@ -102,7 +108,25 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
             )
         return value
 
+    def _opt_positive_int(key: str) -> int | None:
+        value = raw.get(key)
+        if value is None:
+            return None
+        # Reject bool explicitly (bool is an int subclass) so a stray `true` can't pass as a count;
+        # reject floats/strings; require a positive count.
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise SettingsError(
+                f"settings {key!r} must be a positive integer, got "
+                f"{value!r} ({type(value).__name__}): {settings_path}"
+            )
+        if value < 1:
+            raise SettingsError(
+                f"settings {key!r} must be >= 1, got {value!r}: {settings_path}"
+            )
+        return value
+
     return Settings(
         api_billing_enabled=_bool("api_billing_enabled"),
         classifier_gate_enabled=_bool("classifier_gate_enabled"),
+        delegate_max_concurrency=_opt_positive_int("delegate_max_concurrency"),
     )
