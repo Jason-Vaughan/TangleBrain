@@ -151,8 +151,12 @@ extra (`pip install -e ".[delegate]"`). Four tools:
 
 These are the first three slices of a [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39):
 the orchestrator routes a sub-task to any configured backend (by id or capability) and fans batches
-out concurrently. Still ahead: an explicit synthesis/reduce step and orchestration-tree observability
-(which also adds the deferred non-local delegate metering).
+out concurrently. The **reduce step is deliberately not TangleBrain's** — the orchestrator synthesises
+the `delegate_many` results itself (it holds the original task context that makes for good synthesis),
+and offloads the stitch with an ordinary `delegate(task=…)` call when the reduction is mechanical and
+large. No dedicated reducer tool: the existing primitives cover it, and frontier-side synthesis is the
+better default until usage proves otherwise. Still ahead: orchestration-tree observability (which also
+adds the deferred non-local delegate metering) — whose data would tell us if a reducer ever earns code.
 
 ### Measurement — per-task records (`measurement.py`)
 

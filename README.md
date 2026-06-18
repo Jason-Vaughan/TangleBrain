@@ -230,6 +230,16 @@ observability is on the [scatter-gather roadmap](https://github.com/Jason-Vaugha
 Any non-local target is opt-in and your responsibility under that provider's terms — see
 [DISCLAIMER.md](DISCLAIMER.md).
 
+**Synthesising fan-out results.** The full pattern is decompose → fan out (`delegate_many`) →
+**reduce** → answer. TangleBrain ships the dispatch primitives but deliberately does *not* own the
+reduce step: the orchestrator gets the results array back and combines it itself, because it holds
+the original task context that makes for good synthesis — something a fresh reduce backend lacks. If
+the reduction is instead **mechanical and large** (concatenating generated files, merging many
+summaries into one list — where the original intent doesn't matter), offload that stitch too with a
+normal `delegate(prompt="Combine these results: …", task="summarization")` call, keeping the heavy
+formatting off your frontier budget. No separate "reduce" tool is needed — the existing `delegate`
+covers it.
+
 It needs the optional `mcp` dependency:
 
 ```sh
