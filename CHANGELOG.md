@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Generalized / tiered delegate.** An orchestrator can now offload a sub-task to a *configured*
+  backend, not just the free local model. The `tanglebrain-delegate` MCP server gains two tools
+  alongside the unchanged `delegate_local`: **`delegate(prompt, target?, max_tokens?)`** routes to
+  any roster entry flagged the new **`can_delegate: true`** (mirrors `can_orchestrate`), and
+  **`delegate_targets()`** lists the configured menu (`id`, `tier`, `good_at`, `cost`, `kind`) so the
+  orchestrator can pick by fit; the `delegate` tool's description also enumerates the menu, built at
+  server startup. Targets are invoked as leaves (no recursive delegation); `api` targets stay behind
+  the billing gate. Secret-safe (the menu never emits a `key_ref`). The shipped roster flags its
+  local tier `can_delegate: true` and carries a commented non-local target example. Non-local
+  delegate spend is not metered in this version (orchestration-tree observability is tracked on the
+  scatter-gather roadmap, #39). First slice of #39. Closes #38.
 - **Project logo.** A snake-and-circuit-brain mark now brands the README (hosted in the
   `project-assets` repo) and the knob panel — `tanglebrain-gui` ships a packaged copy, serves it at
   `/logo.png`, and uses it as the page header + favicon.

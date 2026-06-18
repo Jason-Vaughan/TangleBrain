@@ -120,7 +120,7 @@ authenticated-CLI examples are provided, commented out, in the shipped roster) a
 
 ```sh
 # Default: route through an orchestrator. Rotates across the configured orchestrators and fails over
-# on error; an orchestrator can offload sub-tasks to the local backend (see "Local delegate"):
+# on error; an orchestrator can offload sub-tasks to a configured backend (see "Delegate (MCP)"):
 .venv/bin/tanglebrain "Refactor this module and add tests."
 .venv/bin/tanglebrain --task code "Refactor this function for clarity."   # task-fit hint
 
@@ -187,14 +187,31 @@ hand-edits. The panel binds `127.0.0.1` only: running a prompt spends real backe
 the roster, so it is never network-exposed. The roster view shows each entry's `key_ref` as the
 reference string only — secrets are never resolved or sent to the browser.
 
-### Local delegate (MCP) — let an orchestrator offload sub-tasks to the local backend
+### Delegate (MCP) — let an orchestrator offload sub-tasks to a configured backend
 
-`tanglebrain-delegate` is an MCP server exposing one tool, `delegate_local(prompt, max_tokens?)`,
-that routes to the free local tier. An orchestrator that supports MCP registers it and offloads bulk
-sub-tasks to the local backend instead of running them itself, then reviews the results — a
-decompose → delegate → review loop that is emergent from the orchestrator simply having the tool
-(no graph engine required). It reuses the same roster + adapter as the CLI above, so the endpoint
-and key live in one place.
+`tanglebrain-delegate` is an MCP server that lets an orchestrator offload bulk sub-tasks instead of
+running them itself, then review the results — a decompose → delegate → review loop that is emergent
+from the orchestrator simply having the tool (no graph engine required). It reuses the same roster +
+adapters as the CLI above, so endpoints and keys live in one place. It exposes three tools:
+
+- **`delegate_local(prompt, max_tokens?)`** — route a sub-task to the free local tier (the $0
+  default).
+- **`delegate(prompt, target?, max_tokens?)`** — route a sub-task to a *configured* backend by id.
+  `target` is the id of any roster entry flagged `can_delegate: true`; omit it to use the free local
+  model. This is how an orchestrator sends some work to a cheaper or better-fit backend (not just
+  local) — it picks a target by the menu's `good_at` fit. A target is invoked as a leaf (it never
+  gets its own delegate tool — no recursion); `api` targets still obey the billing gate, so a paid
+  target raises rather than spending while billing is off.
+- **`delegate_targets()`** — list the configured targets (`id`, `tier`, `good_at`, `cost`, `kind`)
+  so the orchestrator can decide based on what's available. The `delegate` tool's description also
+  enumerates them (built at server startup; the tool reflects the live roster).
+
+Make a backend a delegate target by flagging its roster entry `can_delegate: true` (mirrors
+`can_orchestrate`). The shipped example flags the local tier, so the menu is non-empty out of the
+box. **Note:** non-local delegate spend is **not metered** in this version — orchestration-tree
+observability is on the [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39).
+Any non-local target is opt-in and your responsibility under that provider's terms — see
+[DISCLAIMER.md](DISCLAIMER.md).
 
 It needs the optional `mcp` dependency:
 
