@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-18
+
 ### Added
 
 - **Generalized / tiered delegate.** An orchestrator can now offload a sub-task to a *configured*
