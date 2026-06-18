@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of the Tangle family" section (welcomes forks/PRs; notes optional integration with
   [TangleClaw](https://github.com/Jason-Vaughan/TangleClaw)). Status line corrected to
   *v0.10.0 — first public release*.
+- **README surfaces the OAuth-/local-first credential model and prompt-aware routing.** Clarifies
+  that TangleBrain prefers your local models and authenticated (OAuth) tool sessions — never injecting
+  an API key into a CLI — with the raw-API-key tier a deliberate, gated opt-in; and that an optional
+  classifier reads each request and routes grunt work to the free local backend. The measurement
+  bullet is reframed as cost measurement (spent vs avoided). Doc-only; no feature change.
 - **Knob-panel header copy.** The panel subtitle now reads "roster & pricing config · local
   spend-avoided rollup" (was a stale "read-only — cost-tiered router config …"; the panel has been
   editable since the pricing/roster knobs landed).
