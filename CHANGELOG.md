@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-18
+
 ### Added
 
 - **Per-parent-task delegation tree (cross-process linkage, scatter-gather roadmap #39 stretch /
