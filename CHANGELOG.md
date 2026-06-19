@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   package index — now match the neutral positioning used in the README and `ARCHITECTURE.md`:
   *"A local-first, config-driven LLM router across OpenAI-compatible backends you own."*
 
+### Internal
+
+- **Gated live smoke check for delegate parent-task linkage (closes #55).** A `TANGLEBRAIN_LIVE`-gated
+  test routes a delegation-inducing prompt through the real router → orchestrator → `delegate_local`
+  and asserts each delegate record's `parent_task_id` matches the parent task's `task_id` — a standing
+  guard for the load-bearing "orchestrator forwards env to the MCP child" assumption (it skips, never
+  fails, if the orchestrator doesn't delegate that run, since delegation is emergent). Test-only; gated
+  off in CI.
+
 ## [0.14.0] - 2026-06-18
 
 ### Added
