@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tanglebrain"
-version = "0.14.0"
+version = "0.15.0"
 description = "A local-first, config-driven LLM router across OpenAI-compatible backends you own."
 readme = "README.md"
 requires-python = ">=3.10"
