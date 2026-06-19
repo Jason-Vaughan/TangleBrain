@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TangleBrain-enforced guarantee, so a delegate that loses the env degrades safely to `unlinked` (never
   an error). This was the deferred half of the scatter-gather epic whose entry criterion was a
   live-verification spike — now done.
+- **Knob panel surfaces the delegation tree.** The panel's "Delegated sub-tasks" card now shows a
+  **Linked to** stat (`N parent task(s)`, with any `unlinked` sub-calls noted) — GUI parity with the
+  `tanglebrain --stats` rollup, so the per-parent-task linkage is visible in the panel, not just the
+  CLI. Read-only; no new endpoint (the data already rides `view_stats`'s rollup payload).
 
 ### Fixed
 
