@@ -301,6 +301,18 @@ class CliAdapter:
         argv = build_argv(self._effective_cmd(), prompt)
         env = scrubbed_env(self.scrub_env)
 
+        # When this CLI is an orchestrator carrying the delegate tool, propagate the top-level task
+        # id into its environment so the MCP delegate child it spawns can stamp each sub-call's
+        # parent_task_id (linking the delegation tree across the process boundary). Gated on
+        # inject_delegate: a leaf CLI call spawns no delegate child, so there is nothing to link.
+        # Lazy import keeps the constant's home module (measurement) out of this adapter's import
+        # graph, mirroring the lazy delegate_substitutions import in _effective_cmd.
+        task_id = opts.get("task_id")
+        if self.inject_delegate and task_id is not None:
+            from tanglebrain.measurement import PARENT_TASK_ID_ENV
+
+            env[PARENT_TASK_ID_ENV] = str(task_id)
+
         try:
             completed = subprocess.run(
                 argv,

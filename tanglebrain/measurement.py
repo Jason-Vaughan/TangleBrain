@@ -33,6 +33,14 @@ from tanglebrain.router import DEFAULT_STATE_SUBDIR, STATE_DIR_ENV
 
 LOG_FILENAME = "usage.jsonl"
 
+#: Env var carrying the top-level task id from the orchestrator down to a delegated sub-call. The
+#: CLI mints a task id per routed task and the orchestrator-CLI adapter injects it into the
+#: orchestrator subprocess env (only when the delegate tool is injected); the orchestrator forwards
+#: its env to the MCP delegate child it spawns, where :func:`tanglebrain.delegate.run_delegate` reads
+#: it back and stamps each delegate record's ``parent_task_id``. This is what links a delegated
+#: sub-call to the specific top-level task that spawned it, across the process boundary.
+PARENT_TASK_ID_ENV = "TANGLEBRAIN_TASK_ID"
+
 # Serializes appends to the usage log so concurrent writers in one process (delegate_many fans
 # sub-tasks out across threads) can't interleave bytes mid-line. Per-process only; cross-process
 # appends rely on the OS's O_APPEND atomicity for short lines, as before.
@@ -293,6 +301,8 @@ def record_task(
     prompt: str,
     response: str,
     kind: str = "task",
+    task_id: str | None = None,
+    parent_task_id: str | None = None,
     log_path: str | os.PathLike[str] | None = None,
     pricing: Pricing | None = None,
 ) -> None:
@@ -311,6 +321,11 @@ def record_task(
         kind: ``"task"`` for a top-level routed task (the default; what the spend-avoided headline
             counts) or ``"delegate"`` for a delegated sub-call. Delegate records are rolled up
             **separately** so a sub-call's saving is never double-counted against its parent task.
+        task_id: For a top-level task, the id minted for this routed task (so its delegated sub-calls
+            can be linked back to it). Omitted from the record when ``None``.
+        parent_task_id: For a delegated sub-call, the id of the top-level task that spawned it (read
+            from :data:`PARENT_TASK_ID_ENV`). Omitted from the record when ``None`` — e.g. a delegate
+            invoked outside a propagated task, which rolls up as ``unlinked``.
         log_path: Override the usage-log path (tests inject a temp path). Defaults to
             :func:`default_log_path`.
         pricing: Override the pricing. Defaults to :func:`load_pricing`.
@@ -338,6 +353,12 @@ def record_task(
             "spend_avoided_usd": round(avoided, 6),
             "pricing_ref": pricing.reference_model,
         }
+        # Optional linkage fields — only written when present, so existing records/readers that
+        # never set them are unaffected (a missing field reads as "no linkage").
+        if task_id is not None:
+            record["task_id"] = str(task_id)
+        if parent_task_id is not None:
+            record["parent_task_id"] = str(parent_task_id)
         target = Path(log_path) if log_path is not None else default_log_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         with _LOG_LOCK:
@@ -403,9 +424,12 @@ def rollup(records: list[dict]) -> dict:
         ``out_tokens_est`` (summed estimates), and ``cloud_equiv_usd`` / ``spend_avoided_usd``
         (summed dollars) — all over **top-level tasks only** — plus ``delegates``, a separate
         sub-rollup of delegated sub-calls ``{count, by_backend: {model: {count, in_tokens_est,
-        out_tokens_est}}, in_tokens_est, out_tokens_est, cloud_equiv_usd}``. Delegate records are
-        kept out of the headline so a sub-call's saving is never double-counted against its parent
-        task; their cloud-equiv is informational. A record without a ``kind`` field counts as a task.
+        out_tokens_est}}, by_parent: {parent_task_id: {count, by_backend: {model: count}}},
+        in_tokens_est, out_tokens_est, cloud_equiv_usd}``. ``by_parent`` groups each delegate under
+        the top-level task that spawned it (via ``parent_task_id``); delegates with no
+        ``parent_task_id`` are grouped under the sentinel ``"unlinked"``. Delegate records are kept
+        out of the headline so a sub-call's saving is never double-counted against its parent task;
+        their cloud-equiv is informational. A record without a ``kind`` field counts as a task.
     """
     summary: dict = {
         "tasks": 0,
@@ -418,6 +442,7 @@ def rollup(records: list[dict]) -> dict:
     delegates: dict = {
         "count": 0,
         "by_backend": {},
+        "by_parent": {},
         "in_tokens_est": 0,
         "out_tokens_est": 0,
         "cloud_equiv_usd": 0.0,
@@ -434,6 +459,13 @@ def rollup(records: list[dict]) -> dict:
             backend["count"] += 1
             backend["in_tokens_est"] += in_tok
             backend["out_tokens_est"] += out_tok
+            # Per-parent tree: link this sub-call to the top-level task that spawned it. A delegate
+            # with no parent_task_id (run outside a propagated task) groups under "unlinked".
+            parent_id = r.get("parent_task_id")
+            parent_key = str(parent_id) if parent_id not in (None, "") else "unlinked"
+            parent = delegates["by_parent"].setdefault(parent_key, {"count": 0, "by_backend": {}})
+            parent["count"] += 1
+            parent["by_backend"][model] = parent["by_backend"].get(model, 0) + 1
             delegates["in_tokens_est"] += in_tok
             delegates["out_tokens_est"] += out_tok
             delegates["cloud_equiv_usd"] += _as_float(r.get("cloud_equiv_usd"))
@@ -494,6 +526,17 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
                 f"{model} {info.get('count', 0)}" for model, info in sorted(by_backend.items())
             )
             lines.append(f"    By backend:   {backends}")
+        by_parent = delegates.get("by_parent") or {}
+        if by_parent:
+            linked = [k for k in by_parent if k != "unlinked"]
+            unlinked = (by_parent.get("unlinked") or {}).get("count", 0)
+            if linked:
+                tree = f"{len(linked)} parent task(s)"
+                if unlinked:
+                    tree += f", {unlinked} unlinked"
+            else:
+                tree = f"{unlinked} unlinked"  # all sub-calls ran outside a propagated task
+            lines.append(f"    Linked to:    {tree}")
         lines.append(
             f"    Est. tokens:  in {delegates.get('in_tokens_est', 0):,} / "
             f"out {delegates.get('out_tokens_est', 0):,}"

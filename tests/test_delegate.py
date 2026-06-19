@@ -523,6 +523,35 @@ class DelegateMeteringTest(unittest.TestCase):
         self.assertEqual(kw["prompt"], "do it")
         self.assertEqual(kw["response"], "result-text")
 
+    def test_reads_parent_task_id_from_env(self):
+        from tanglebrain.measurement import PARENT_TASK_ID_ENV
+
+        entry = _entry("local-x", tier="local", can_delegate=True)
+        adapter = MagicMock()
+        adapter.run.return_value = "result-text"
+        with patch.dict(os.environ, {PARENT_TASK_ID_ENV: "task-xyz"}), patch(
+            "tanglebrain.delegate.load_roster", return_value=MagicMock()
+        ), patch("tanglebrain.delegate.select_local", return_value=entry), patch(
+            "tanglebrain.delegate.build_adapter", return_value=adapter
+        ), patch("tanglebrain.delegate.record_task") as rec:
+            run_delegate("do it")
+        self.assertEqual(rec.call_args.kwargs["parent_task_id"], "task-xyz")
+
+    def test_parent_task_id_none_when_env_unset(self):
+        from tanglebrain.measurement import PARENT_TASK_ID_ENV
+
+        entry = _entry("local-x", tier="local", can_delegate=True)
+        adapter = MagicMock()
+        adapter.run.return_value = "x"
+        env_without = {k: v for k, v in os.environ.items() if k != PARENT_TASK_ID_ENV}
+        with patch.dict(os.environ, env_without, clear=True), patch(
+            "tanglebrain.delegate.load_roster", return_value=MagicMock()
+        ), patch("tanglebrain.delegate.select_local", return_value=entry), patch(
+            "tanglebrain.delegate.build_adapter", return_value=adapter
+        ), patch("tanglebrain.delegate.record_task") as rec:
+            run_delegate("do it")
+        self.assertIsNone(rec.call_args.kwargs["parent_task_id"])
+
     def test_metering_failure_never_breaks_delegation(self):
         entry = _entry("local-x", tier="local")
         adapter = MagicMock()

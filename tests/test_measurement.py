@@ -371,6 +371,63 @@ class DelegateObservabilityTest(unittest.TestCase):
         self.assertEqual(d["by_backend"]["local-x"]["in_tokens_est"], 30)
         self.assertEqual(d["by_backend"]["cheap-sub"]["count"], 1)
 
+    def test_record_writes_task_id_when_given(self):
+        record_task(path="router", entry=FakeEntry("claude", "sub"), prompt="hi", response="yo",
+                    task_id="task-abc", log_path=self.log, pricing=FIXED)
+        rec = self._read()[0]
+        self.assertEqual(rec["task_id"], "task-abc")
+        self.assertNotIn("parent_task_id", rec)
+
+    def test_record_writes_parent_task_id_for_delegate(self):
+        record_task(path="delegate", entry=FakeEntry("local-x", "local"), prompt="hi", response="yo",
+                    kind="delegate", parent_task_id="task-abc", log_path=self.log, pricing=FIXED)
+        rec = self._read()[0]
+        self.assertEqual(rec["parent_task_id"], "task-abc")
+        self.assertNotIn("task_id", rec)
+
+    def test_record_omits_linkage_fields_when_absent(self):
+        record_task(path="local", entry=FakeEntry("local-x", "local"), prompt="hi", response="yo",
+                    log_path=self.log, pricing=FIXED)
+        rec = self._read()[0]
+        self.assertNotIn("task_id", rec)
+        self.assertNotIn("parent_task_id", rec)
+
+    def test_rollup_groups_delegates_by_parent(self):
+        records = [
+            {"kind": "delegate", "model": "local-x", "parent_task_id": "p1"},
+            {"kind": "delegate", "model": "cheap-sub", "parent_task_id": "p1"},
+            {"kind": "delegate", "model": "local-x", "parent_task_id": "p2"},
+        ]
+        by_parent = rollup(records)["delegates"]["by_parent"]
+        self.assertEqual(by_parent["p1"]["count"], 2)
+        self.assertEqual(by_parent["p1"]["by_backend"], {"local-x": 1, "cheap-sub": 1})
+        self.assertEqual(by_parent["p2"]["count"], 1)
+        self.assertNotIn("unlinked", by_parent)
+
+    def test_rollup_unlinked_delegate_grouped_under_sentinel(self):
+        # A delegate with no parent_task_id (run outside a propagated task) groups under "unlinked".
+        by_parent = rollup([{"kind": "delegate", "model": "local-x"}])["delegates"]["by_parent"]
+        self.assertEqual(by_parent["unlinked"]["count"], 1)
+
+    def test_format_shows_linked_parents(self):
+        s = rollup([
+            {"kind": "delegate", "model": "local-x", "parent_task_id": "p1"},
+            {"kind": "delegate", "model": "local-x", "parent_task_id": "p2"},
+            {"kind": "delegate", "model": "local-x"},
+        ])
+        out = format_rollup(s, FIXED)
+        self.assertIn("Linked to:", out)
+        self.assertIn("2 parent task(s)", out)
+        self.assertIn("1 unlinked", out)
+
+    def test_format_all_unlinked_reads_cleanly(self):
+        # When no delegate is linked, the line should read "N unlinked", not "0 parent task(s), ...".
+        s = rollup([{"kind": "delegate", "model": "local-x"},
+                    {"kind": "delegate", "model": "local-x"}])
+        out = format_rollup(s, FIXED)
+        self.assertIn("Linked to:    2 unlinked", out)
+        self.assertNotIn("parent task(s)", out)
+
     def test_format_shows_delegate_section_when_present(self):
         s = rollup([
             {"kind": "task", "tier": "sub", "in_tokens_est": 1, "out_tokens_est": 1,

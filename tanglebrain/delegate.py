@@ -24,7 +24,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
-from tanglebrain.measurement import record_task
+from tanglebrain.measurement import PARENT_TASK_ID_ENV, record_task
 from tanglebrain.roster import ROSTER_ENV_VAR, Roster, RosterEntry, load_roster
 from tanglebrain.selector import SelectionError, build_adapter, select_local
 from tanglebrain.settings import Settings, load_settings
@@ -270,10 +270,26 @@ def run_delegate(
     text = adapter.run(prompt, {"max_tokens": max_tokens})
     # Meter the sub-call for orchestration-tree observability. Tagged kind="delegate" so the rollup
     # keeps it OUT of the spend-avoided headline (the parent task already credits the whole job) and
-    # in a separate by-backend breakdown. record_task never raises; the extra guard is belt-and-
-    # suspenders — metering must never break a delegation.
+    # in a separate by-backend breakdown. The parent task id, propagated from the orchestrator via
+    # PARENT_TASK_ID_ENV, links this sub-call to its top-level task (absent → recorded as unlinked).
+    #
+    # LOAD-BEARING ASSUMPTION (verified live for claude, not asserted by any hermetic test): the
+    # linkage depends on the orchestrator CLI forwarding its environment to the MCP delegate child it
+    # spawns. That forwarding is the orchestrator's behavior, not TangleBrain's — if a CLI stops
+    # forwarding env, or a roster adds TANGLEBRAIN_TASK_ID to an orchestrator's invoke.scrub_env, the
+    # linkage silently degrades to "unlinked" (never an error — the delegation itself is unaffected).
+    #
+    # record_task never raises; the extra guard is belt-and-suspenders — metering must never break a
+    # delegation.
     try:
-        record_task(path="delegate", entry=entry, prompt=prompt, response=text, kind="delegate")
+        record_task(
+            path="delegate",
+            entry=entry,
+            prompt=prompt,
+            response=text,
+            kind="delegate",
+            parent_task_id=os.environ.get(PARENT_TASK_ID_ENV),
+        )
     except Exception:
         pass
     return text
