@@ -6,7 +6,7 @@ it, an adapter performs the call, and the result is logged and returned. Everyth
 described in a plain editable config file — adding or removing a backend is a config edit, not a
 code change.
 
-This document describes the architecture as of **v0.9.0**. Per-change history lives in
+This document describes the architecture as of **v0.15.0**. Per-change history lives in
 [`CHANGELOG.md`](CHANGELOG.md); how to run it lives in [`README.md`](README.md); the opt-in /
 bring-your-own-key posture lives in [`DISCLAIMER.md`](DISCLAIMER.md).
 
@@ -149,15 +149,16 @@ extra (`pip install -e ".[delegate]"`). Four tools:
   orchestrator can also route explicitly by fit. The `delegate` tool's description enumerates the
   menu, built once at server startup.
 
-These are the first three slices of a [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39):
+These complete the [scatter-gather roadmap](https://github.com/Jason-Vaughan/TangleBrain/issues/39):
 the orchestrator routes a sub-task to any configured backend (by id or capability) and fans batches
 out concurrently. The **reduce step is deliberately not TangleBrain's** — the orchestrator synthesises
 the `delegate_many` results itself (it holds the original task context that makes for good synthesis),
 and offloads the stitch with an ordinary `delegate(task=…)` call when the reduction is mechanical and
 large. No dedicated reducer tool: the existing primitives cover it, and frontier-side synthesis is the
-better default until usage proves otherwise. Delegated sub-calls are now **metered** (see Measurement
-below) — the deferred observability landed as a by-backend breakdown; a per-parent-task tree (linking
-each delegation to its top-level task across processes) is the remaining stretch.
+better default until usage proves otherwise. Delegated sub-calls are **metered** (see Measurement
+below) as a by-backend breakdown, and each is **linked back to the specific top-level task that spawned
+it** across the process boundary (the per-parent-task tree, below) — so the roadmap is complete, not
+just core-complete.
 
 ### Measurement — per-task records (`measurement.py`)
 
@@ -176,9 +177,14 @@ each `delegate_many` item, is metered at that single seam). The rollup keeps del
 the headline** — the parent task already credits the whole job, so counting the sub-calls again would
 double-count the saving — and aggregates them **separately** into a by-backend breakdown (count, est
 tokens, informational cloud-equiv) surfaced in `--stats` and the GUI. Concurrent appends (delegate_many
-fans out across threads) are serialized by a process-level lock. Linking each delegation to its
-*specific* parent task across processes (a true tree) is deferred — it needs a task-id propagated
-through the orchestrator CLIs to the MCP child, which can't be verified hermetically.
+fans out across threads) are serialized by a process-level lock. Each delegation is also linked to its
+*specific* parent task across processes (a true tree): the CLI mints a `task_id` per routed task and
+injects it as `TANGLEBRAIN_TASK_ID` into the orchestrator's environment, the orchestrator forwards it
+to the MCP delegate child, and `run_delegate` reads it back to stamp each delegate record's
+`parent_task_id`. The rollup groups delegates `by_parent` (a "Linked to" tree in `--stats` and the
+GUI); a sub-call run outside a propagated task is `unlinked`. The orchestrator-forwards-env hop is
+verified live (claude), not hermetically — a delegation that loses the env degrades safely to
+`unlinked`, never an error.
 
 ### Knob GUI — localhost panel (`gui/`)
 

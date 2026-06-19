@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **Refreshed README + ARCHITECTURE for the shipped feature set.** The README status line is now
+  version-agnostic (links the latest release + CHANGELOG instead of a fixed version that drifts), and
+  the delegation bullet describes the full **scatter-gather** capability (route by id/capability, fan
+  out concurrently, metered + linked to the parent task) instead of the old local-only phrasing.
+  `ARCHITECTURE.md` is stamped v0.15.0 and its per-parent-task-tree passages — which still called the
+  tree "deferred" / "the remaining stretch" — now describe it as **shipped** (the `TANGLEBRAIN_TASK_ID`
+  propagation mechanism). Docs-only; no code change.
+
 ## [0.15.0] - 2026-06-18
 
 ### Added

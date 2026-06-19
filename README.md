@@ -40,7 +40,8 @@ and open to contributors: forks and pull requests are welcome. It's also designe
 seamlessly alongside [TangleClaw](https://github.com/Jason-Vaughan/TangleClaw) and the wider **Tangle
 family** of tools, so it works the same whether you run it solo or as part of that ecosystem.
 
-**Status:** v0.10.0 — first public release.
+**Status:** publicly released and actively developed — see the
+[latest release](https://github.com/Jason-Vaughan/TangleBrain/releases) and [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What it does
 
@@ -56,8 +57,11 @@ family** of tools, so it works the same whether you run it solo or as part of th
   or reorganize backends by editing config.
 - **Pluggable CLI-backed orchestration** — drive authenticated command-line tools as orchestrators,
   with rotation and failover across them for resilience.
-- **Local sub-task delegation** — an orchestrator can offload bulk sub-tasks to the local backend
-  through an MCP tool, then review the results.
+- **Multi-target sub-task delegation (scatter-gather)** — an orchestrator can decompose a task and
+  offload sub-tasks through MCP tools: to the free local backend, or to any configured backend **by id
+  or by capability** (a `good_at` tag), and **fan several out concurrently** in one call. Each
+  delegated sub-call is metered and linked back to the specific top-level task that spawned it, then
+  the orchestrator reviews and synthesises the results.
 - **Cost measurement** — every routed task is logged with an estimated cloud-equivalent cost;
   `tanglebrain --stats` rolls up what you've spent versus avoided.
 - **Knob GUI** — a localhost panel to view the roster, pricing, and rollup, edit a focused set of
