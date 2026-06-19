@@ -124,6 +124,19 @@ class ViewStatsTest(unittest.TestCase):
         self.assertEqual(delegates["count"], 1)
         self.assertEqual(delegates["by_backend"]["local-x"]["count"], 1)
 
+    def test_includes_parent_task_tree(self):
+        # The panel's delegate card renders the by_parent tree, so view_stats must carry it through.
+        recs = [
+            {"kind": "delegate", "model": "local-x", "parent_task_id": "p1"},
+            {"kind": "delegate", "model": "local-x", "parent_task_id": "p2"},
+            {"kind": "delegate", "model": "local-x"},
+        ]
+        with patch("tanglebrain.gui.views.read_records", return_value=recs):
+            out = views.view_stats()
+        by_parent = out["summary"]["delegates"]["by_parent"]
+        self.assertEqual({k for k in by_parent if k != "unlinked"}, {"p1", "p2"})
+        self.assertEqual(by_parent["unlinked"]["count"], 1)
+
 
 class RunPromptTest(unittest.TestCase):
     def test_happy_path_reports_served(self):
