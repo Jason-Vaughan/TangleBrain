@@ -148,6 +148,48 @@ class LiveDelegateInjectionTest(unittest.TestCase):
         self.assertIn("PONG", answer.upper(), f"expected the delegated reply in: {answer!r}")
 
 
+@unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live delegate-linkage test")
+class LiveDelegateLinkageTest(unittest.TestCase):
+    """A delegated sub-call links back to its top-level task across the orchestrator→MCP boundary.
+
+    Guards the load-bearing assumption behind the per-parent-task tree (#52): that an orchestrator
+    forwards ``TANGLEBRAIN_TASK_ID`` to the MCP delegate child it spawns. Routes a delegation-inducing
+    prompt through the real router (a fresh state dir ⇒ rotation cursor 0 ⇒ the first orchestrator,
+    claude in the standard roster) in an isolated state dir, then asserts every delegate record's
+    ``parent_task_id`` matches the task record's ``task_id``. Skips (never fails) if the orchestrator
+    didn't call the delegate tool this run — delegation is emergent. This is the standing check the
+    one-time manual spike (#55) asked for.
+    """
+
+    def test_parent_task_id_propagates_to_delegate(self):
+        if shutil.which("claude") is None:
+            self.skipTest("claude CLI not installed/logged in")
+        from tanglebrain.measurement import read_records
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": tmp}, clear=False):
+                # gate=False so a "trivial" classify can't divert to local and skip the orchestrator.
+                run_once(
+                    "Use the delegate_local tool to have the local model write one short haiku about "
+                    "the sea, then return only what the tool returned. You must call the tool; do not "
+                    "write the haiku yourself.",
+                    gate=False,
+                )
+                records = read_records()
+        delegates = [r for r in records if r.get("kind") == "delegate"]
+        if not delegates:
+            self.skipTest("the orchestrator did not call the delegate tool this run (emergent)")
+        tasks = [r for r in records if r.get("kind", "task") == "task"]
+        self.assertTrue(tasks, "expected a top-level task record")
+        task_id = tasks[-1].get("task_id")
+        self.assertTrue(task_id, "the task record carried no task_id")
+        for d in delegates:
+            self.assertEqual(
+                d.get("parent_task_id"), task_id,
+                f"delegate not linked to its parent task (env did not survive the hop?): {d!r}",
+            )
+
+
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live CLI tests")
 class LiveCliTest(unittest.TestCase):
     """Each subscription CLI returns text through the roster → cli adapter path."""
