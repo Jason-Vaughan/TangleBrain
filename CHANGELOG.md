@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-parent-task delegation tree (cross-process linkage, scatter-gather roadmap #39 stretch /
+  closes #52).** Each delegated sub-call is now linked back to the specific top-level task that
+  spawned it, across the process boundary. The CLI mints a task id per routed task; the
+  orchestrator-CLI adapter injects it as `TANGLEBRAIN_TASK_ID` into the orchestrator's environment
+  (only when the delegate tool is injected), the orchestrator forwards it to the MCP delegate child
+  it spawns, and `run_delegate` reads it back to stamp each delegate record's `parent_task_id`. Task
+  records gain a `task_id`, delegate records gain a `parent_task_id` (both written only when present,
+  so existing records and readers are unaffected). `tanglebrain --stats` and the rollup gain a
+  `by_parent` grouping — "Linked to: N parent task(s)" — with sub-calls run outside a propagated task
+  grouped as `unlinked`. The linkage was **manually verified live through the real claude→MCP-delegate
+  boundary** (the env survives the orchestrator's subprocess hop; the parent and delegate records
+  shared the same id) — the orchestrator-forwards-env hop is a load-bearing assumption, not a
+  TangleBrain-enforced guarantee, so a delegate that loses the env degrades safely to `unlinked` (never
+  an error). This was the deferred half of the scatter-gather epic whose entry criterion was a
+  live-verification spike — now done.
+
 ### Fixed
 
 - **`pyproject.toml` package metadata carried the purged "cost-tiered / flat-rate subscriptions"

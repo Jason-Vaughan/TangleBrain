@@ -79,6 +79,40 @@ class ScrubbedEnvTest(unittest.TestCase):
         self.assertIn("PATH", passed_env)
 
 
+class TaskIdPropagationTest(unittest.TestCase):
+    """The orchestrator-CLI adapter injects the parent task id env for delegate-tree linkage."""
+
+    def _env_for(self, inject_delegate, opts):
+        from tanglebrain.measurement import PARENT_TASK_ID_ENV  # noqa: F401 (used by caller asserts)
+
+        adapter = CliAdapter(
+            cmd=["claude", "-p"], parse="claude-json", inject_delegate=inject_delegate
+        )
+        with patch.dict(os.environ, {"PATH": "/b"}, clear=True):
+            with patch_run(return_value=completed(0, CLAUDE_JSON_OK)) as run:
+                adapter.run("hi", opts)
+        return run.call_args.kwargs["env"]
+
+    def test_injects_task_id_for_orchestrator(self):
+        from tanglebrain.measurement import PARENT_TASK_ID_ENV
+
+        env = self._env_for(inject_delegate=True, opts={"task_id": "task-abc"})
+        self.assertEqual(env[PARENT_TASK_ID_ENV], "task-abc")
+
+    def test_no_injection_for_leaf_cli(self):
+        # inject_delegate=False ⇒ no delegate child is spawned, so nothing to link — don't inject.
+        from tanglebrain.measurement import PARENT_TASK_ID_ENV
+
+        env = self._env_for(inject_delegate=False, opts={"task_id": "task-abc"})
+        self.assertNotIn(PARENT_TASK_ID_ENV, env)
+
+    def test_no_injection_when_task_id_absent(self):
+        from tanglebrain.measurement import PARENT_TASK_ID_ENV
+
+        env = self._env_for(inject_delegate=True, opts={})
+        self.assertNotIn(PARENT_TASK_ID_ENV, env)
+
+
 class BuildArgvTest(unittest.TestCase):
     """Prompt injection: {prompt} substitution, else append; never via the shell."""
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import uuid
 
 from tanglebrain import __version__
 from tanglebrain.adapters import AdapterError
@@ -178,7 +179,14 @@ def run_once(
         AdapterError: If the adapter cannot produce text.
     """
     roster = load_roster(roster_path)
-    opts = {"max_tokens": max_tokens} if max_tokens is not None else None
+    # Mint a task id for this routed task. It is recorded on the task and threaded through opts so
+    # the orchestrator-CLI adapter can propagate it to delegated sub-calls (see CliAdapter.run /
+    # PARENT_TASK_ID_ENV), linking the delegation tree back to this task. Cheap and side-effect-free
+    # to mint on every path; only the router path (orchestrators with the delegate tool) acts on it.
+    task_id = uuid.uuid4().hex
+    opts: dict = {"task_id": task_id}
+    if max_tokens is not None:
+        opts["max_tokens"] = max_tokens
 
     if model is not None:
         path, entry = "model", select_by_id(roster, model)
@@ -199,7 +207,7 @@ def run_once(
             text = router.route(prompt, task=task, opts=opts)
             entry = router.last_served
 
-    record_task(path=path, entry=entry, prompt=prompt, response=text)
+    record_task(path=path, entry=entry, prompt=prompt, response=text, task_id=task_id)
     return (text, _served(path, entry)) if return_served else text
 
 

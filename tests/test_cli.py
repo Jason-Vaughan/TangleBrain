@@ -88,14 +88,20 @@ class RunOnceTest(unittest.TestCase):
         fake_adapter.run.return_value = "x"
         with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
             run_once("hello", local=True, max_tokens=256)
-        self.assertEqual(fake_adapter.run.call_args.args[1], {"max_tokens": 256})
+        opts = fake_adapter.run.call_args.args[1]
+        # opts now always carries a minted task_id (for delegate-tree linkage), plus max_tokens here.
+        self.assertEqual(opts.get("max_tokens"), 256)
+        self.assertIsInstance(opts.get("task_id"), str)
 
-    def test_no_max_tokens_passes_none_opts_local(self):
+    def test_no_max_tokens_still_passes_task_id_opts_local(self):
         fake_adapter = MagicMock()
         fake_adapter.run.return_value = "x"
         with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
             run_once("hello", local=True)
-        self.assertIsNone(fake_adapter.run.call_args.args[1])
+        opts = fake_adapter.run.call_args.args[1]
+        # With no max_tokens, opts is no longer None — it still carries the minted task_id.
+        self.assertNotIn("max_tokens", opts)
+        self.assertIsInstance(opts.get("task_id"), str)
 
     def test_model_routes_to_named_entry(self):
         # --model selects a specific roster entry (here, a sub) instead of local-first.
@@ -141,6 +147,20 @@ class RunOnceTest(unittest.TestCase):
             self.assertEqual(run_once("hello", task="code"), "routed by orchestrator")
         RouterCls.assert_called_once()
         self.assertEqual(fake_router.route.call_args.kwargs.get("task"), "code")
+
+    def test_router_threads_task_id_in_opts(self):
+        # The minted task_id must reach Router.route's opts — this is the seam that propagates it to
+        # the orchestrator (and thence to delegated sub-calls). The router path is the feature's point.
+        fake_router = MagicMock()
+        fake_router.route.return_value = "routed reply"
+        with patch("tanglebrain.cli.load_roster"), patch(
+            "tanglebrain.cli.Router", return_value=fake_router
+        ):
+            run_once("hello")
+        opts = fake_router.route.call_args.kwargs.get("opts")
+        self.assertIsInstance(opts, dict)
+        self.assertIsInstance(opts.get("task_id"), str)
+        self.assertTrue(opts["task_id"])
 
     def test_model_takes_precedence_over_router(self):
         # model is an explicit override and wins over the default router path.
