@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ARCHITECTURE.md` is stamped v0.15.0 and its per-parent-task-tree passages — which still called the
   tree "deferred" / "the remaining stretch" — now describe it as **shipped** (the `TANGLEBRAIN_TASK_ID`
   propagation mechanism). Docs-only; no code change.
+- **Skip the `gemini` live CLI test — the CLI sunset (#61).** The `gemini` CLI sunset for individuals
+  on 2026-06-18 (migrated to Antigravity) and now exits with an `IneligibleTierError`, so
+  `LiveCliTest.test_gemini_returns_text` can no longer pass. It now skips with a pointer to #61; the
+  full live suite is green again against the supported backends (claude + codex + local). The `gemini`
+  orchestrator entry is disabled in the operator roster (out of rotation). Test-only.
 
 ## [0.15.0] - 2026-06-18
 
