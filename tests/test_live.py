@@ -209,7 +209,10 @@ class LiveCliTest(unittest.TestCase):
         self._route("codex")
 
     def test_gemini_returns_text(self):
-        self._route("gemini")
+        # The `gemini` CLI sunset for individuals on 2026-06-18 (migrated to Antigravity); it now exits
+        # non-zero with an IneligibleTierError, so this can no longer pass. The roster entry is disabled
+        # (can_orchestrate: false) and a replacement is tracked in #61 — skip until then.
+        self.skipTest("gemini CLI sunset 2026-06-18 (migrated to Antigravity); see issue #61")
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live router test")
