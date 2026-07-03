@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **TangleBrain is now on PyPI** — `pip install tanglebrain` (add `[delegate]` for the MCP server)
+  replaces the from-GitHub / from-clone install as the primary path. v0.16.0 published; install docs
+  in the README and the plugin README updated accordingly. Publishing also removes the
+  dependency-confusion window the 0.16.0 review flagged (the name can no longer be squatted).
+
 ## [0.16.0] - 2026-07-03
 
 ### Added

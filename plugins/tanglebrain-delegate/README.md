@@ -12,12 +12,10 @@ for the full tool semantics and routing rules.
 ## Prerequisite
 
 The plugin registers the server declaratively — it does **not** vendor the Python code. Install
-TangleBrain with the delegate extra so the `tanglebrain-delegate` command is on your `PATH`
-(TangleBrain is not on PyPI; install straight from GitHub, or from a clone with
-`pip install -e ".[delegate]"`):
+TangleBrain with the delegate extra so the `tanglebrain-delegate` command is on your `PATH`:
 
 ```sh
-pip install "tanglebrain[delegate] @ git+https://github.com/Jason-Vaughan/TangleBrain"
+pip install "tanglebrain[delegate]"
 ```
 
 The server reads the roster from `$TANGLEBRAIN_ROSTER` → `~/.config/tanglebrain/roster.yaml` → the
