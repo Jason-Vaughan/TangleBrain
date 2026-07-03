@@ -120,7 +120,10 @@ changing `route()`'s return type.
 review the results — a decompose → delegate → review loop that is emergent from the orchestrator
 simply *having* the tool (no graph engine required). It reuses the same roster + adapters as the rest
 of the system, so endpoints and key references live in exactly one place. MCP is an optional install
-extra (`pip install -e ".[delegate]"`). Four tools:
+extra (`pip install -e ".[delegate]"`). For Claude Code the registration is also packaged as a
+plugin — the repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json` →
+`plugins/tanglebrain-delegate/`), which wires the console script declaratively without vendoring
+it. Four tools:
 
 - `delegate_local(prompt, max_tokens?)` — route to the free local tier (the $0 default).
 - `delegate(prompt, target?, task?, max_tokens?)` — route to a *configured* backend. Precedence
@@ -217,6 +220,9 @@ strictly (a non-bool value can never coincidentally enable a feature):
 | `tanglebrain` | `cli.py` | Route a prompt (default), or `--local` / `--model <id>` / `--gate` / `--stats`. |
 | `tanglebrain-gui` | `gui/server.py` | Serve the localhost knob panel. |
 | `tanglebrain-delegate` | `mcp_server.py` | Serve the `delegate_local` / `delegate` / `delegate_many` / `delegate_targets` MCP tools over stdio. |
+
+`tanglebrain-delegate` additionally ships as a Claude Code plugin (`plugins/tanglebrain-delegate/`,
+listed by the repo-root marketplace manifest) that registers the same console script.
 
 ## Design notes
 

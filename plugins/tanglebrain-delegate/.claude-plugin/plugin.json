@@ -1,0 +1,17 @@
+{
+  "name": "tanglebrain-delegate",
+  "version": "0.1.0",
+  "description": "Delegate sub-tasks to a free local model or configured backends mid-task — wires TangleBrain's tanglebrain-delegate stdio MCP server (delegate_local, delegate, delegate_many, delegate_targets) into Claude Code. Prerequisite: the tanglebrain Python package with the [delegate] extra on PATH (see the plugin README).",
+  "author": {
+    "name": "Jason Vaughan"
+  },
+  "homepage": "https://github.com/Jason-Vaughan/TangleBrain",
+  "repository": "https://github.com/Jason-Vaughan/TangleBrain",
+  "license": "MIT",
+  "mcpServers": {
+    "tanglebrain-delegate": {
+      "command": "tanglebrain-delegate",
+      "args": []
+    }
+  }
+}

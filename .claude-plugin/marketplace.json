@@ -1,0 +1,16 @@
+{
+  "name": "tanglebrain",
+  "owner": {
+    "name": "Jason Vaughan"
+  },
+  "description": "TangleBrain plugins — frontier-first delegation tools for Claude Code",
+  "plugins": [
+    {
+      "name": "tanglebrain-delegate",
+      "source": "./plugins/tanglebrain-delegate",
+      "description": "Registers the tanglebrain-delegate MCP server so an orchestrator can offload sub-tasks to a free local model or configured backends (decompose → delegate → review).",
+      "homepage": "https://github.com/Jason-Vaughan/TangleBrain",
+      "license": "MIT"
+    }
+  ]
+}

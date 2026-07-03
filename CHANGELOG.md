@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Code plugin for the delegate MCP server (one-click mode-4, closes #63).** The repo is now
+  its own Claude Code plugin marketplace (`.claude-plugin/marketplace.json`), listing a
+  `tanglebrain-delegate` plugin (`plugins/tanglebrain-delegate/`) that registers the existing
+  `tanglebrain-delegate` stdio MCP server declaratively. Install becomes two commands —
+  `/plugin marketplace add Jason-Vaughan/TangleBrain` + `/plugin install tanglebrain-delegate@tanglebrain` —
+  instead of manual `claude mcp add`. The plugin wires the pip-installed console script (documented
+  prerequisite: install the `[delegate]` extra from GitHub or a clone — TangleBrain is not on
+  PyPI); it does not vendor the Python code. Manifest
+  drift (renamed console script, broken source path, name mismatch) is CI-guarded by
+  `tests/test_plugin_manifest.py`.
+
 ### Internal
 
 - **Refreshed README + ARCHITECTURE for the shipped feature set.** The README status line is now
