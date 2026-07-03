@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Automated PyPI publishing via trusted publishing (`.github/workflows/publish.yml`).** Publishing
+  a GitHub release now builds, checks, and uploads to PyPI through OIDC — no API token stored
+  anywhere. Guards: the release tag must match the `pyproject.toml` version, and `twine check` must
+  pass before upload. One-time PyPI-side setup: add the repo/workflow/environment as a trusted
+  publisher under the project's Publishing settings.
 - **PyPI-listing polish.** Trove classifiers + full `[project.urls]` set (Repository, Changelog,
   Issues, Releases) in `pyproject.toml`; README relative links converted to absolute GitHub URLs so
   the PyPI project page renders them correctly; PyPI version + Python-versions badges added. Takes
