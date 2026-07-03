@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **PyPI-listing polish.** Trove classifiers + full `[project.urls]` set (Repository, Changelog,
+  Issues, Releases) in `pyproject.toml`; README relative links converted to absolute GitHub URLs so
+  the PyPI project page renders them correctly; PyPI version + Python-versions badges added. Takes
+  effect on the PyPI page with the next uploaded release.
+
 ### Changed
 
 - **TangleBrain is now on PyPI** — `pip install tanglebrain` (add `[delegate]` for the MCP server)

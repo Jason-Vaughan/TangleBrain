@@ -5,6 +5,8 @@
 # TangleBrain
 
 [![CI](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/tanglebrain)](https://pypi.org/project/tanglebrain/)
+[![Python](https://img.shields.io/pypi/pyversions/tanglebrain)](https://pypi.org/project/tanglebrain/)
 
 A **local-first, config-driven router across OpenAI-compatible backends you own.**
 
@@ -41,7 +43,7 @@ seamlessly alongside [TangleClaw](https://github.com/Jason-Vaughan/TangleClaw) a
 family** of tools, so it works the same whether you run it solo or as part of that ecosystem.
 
 **Status:** publicly released and actively developed — see the
-[latest release](https://github.com/Jason-Vaughan/TangleBrain/releases) and [`CHANGELOG.md`](CHANGELOG.md).
+[latest release](https://github.com/Jason-Vaughan/TangleBrain/releases) and [`CHANGELOG.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/CHANGELOG.md).
 
 ## What it does
 
@@ -69,8 +71,8 @@ family** of tools, so it works the same whether you run it solo or as part of th
 - **Gated paid-API tier** — bring-your-own-key overflow, off by default behind two independent
   switches.
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for how the pieces fit together, [`CHANGELOG.md`](CHANGELOG.md)
-for development history, and [`DISCLAIMER.md`](DISCLAIMER.md) for the opt-in / bring-your-own-key
+See [`ARCHITECTURE.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/ARCHITECTURE.md) for how the pieces fit together, [`CHANGELOG.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/CHANGELOG.md)
+for development history, and [`DISCLAIMER.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/DISCLAIMER.md) for the opt-in / bring-your-own-key
 posture.
 
 ## Tiers
@@ -84,7 +86,7 @@ posture.
 > **Opt-in adapters & your responsibility.** The subscription / authenticated-CLI tier and the
 > paid-API tier are **opt-in** — you enable them by editing your own roster. Driving an authenticated
 > CLI is your responsibility under that provider's Terms of Service, and the paid tier is
-> bring-your-own-key. Read [`DISCLAIMER.md`](DISCLAIMER.md) before enabling either.
+> bring-your-own-key. Read [`DISCLAIMER.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/DISCLAIMER.md) before enabling either.
 
 ## Install
 
@@ -104,7 +106,7 @@ make venv          # create .venv and install -e . (dev deps included)
 
 The roster of routable backends is a plain, editable YAML list — adding or removing a backend is a
 config edit, not a code change. The shipped
-[`tanglebrain/config/roster.yaml`](tanglebrain/config/roster.yaml) is only a **generic example** with
+[`tanglebrain/config/roster.yaml`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/tanglebrain/config/roster.yaml) is only a **generic example** with
 a single active entry (a local Ollama backend); keep your real roster **outside the repo** so updates
 never clobber it. It's auto-discovered in order: `$TANGLEBRAIN_ROSTER` →
 `~/.config/tanglebrain/roster.yaml` → the packaged example. Copy the example to
@@ -126,7 +128,7 @@ roster ships with no active orchestrators, that path needs at least one opt-in b
 
 Enable one or more orchestrator backends by uncommenting an entry in your roster (subscription /
 authenticated-CLI examples are provided, commented out, in the shipped roster) and reading
-[`DISCLAIMER.md`](DISCLAIMER.md) first. With at least one orchestrator active:
+[`DISCLAIMER.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/DISCLAIMER.md) first. With at least one orchestrator active:
 
 ```sh
 # Default: route through an orchestrator. Rotates across the configured orchestrators and fails over
@@ -151,7 +153,7 @@ By default every (non-`--local`) request goes through the router. You can put a 
 classifier in front**: it rates each request's complexity on the local backend and sends **trivial**
 work straight to the local backend, while **frontier** work falls through to the router. Enable it
 persistently with `classifier_gate_enabled: true` in
-[`tanglebrain/config/settings.yaml`](tanglebrain/config/settings.yaml), or per run with `--gate` /
+[`tanglebrain/config/settings.yaml`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/tanglebrain/config/settings.yaml), or per run with `--gate` /
 `--no-gate`. It is **off by default** and **fails safe** — any classifier error or ambiguity routes
 to frontier, so a hard task is never trapped on the local tier. (Fail-safe covers the
 *classification*; a trivial-classified task that then fails to execute on local surfaces that error,
@@ -169,7 +171,7 @@ paid frontier API. `tanglebrain --stats` rolls those records up into a single fi
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is
 applied to every tier. The reference frontier price lives in
-[`tanglebrain/config/pricing.yaml`](tanglebrain/config/pricing.yaml) — tune it to whatever frontier
+[`tanglebrain/config/pricing.yaml`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/tanglebrain/config/pricing.yaml) — tune it to whatever frontier
 model you want to compare against. A `placeholder` flag makes the rollup render a PLACEHOLDER caveat
 when the rates are rough. Logging is best-effort and never affects the returned answer.
 
@@ -239,7 +241,7 @@ box. **Delegated sub-calls are now metered**: each is logged as a `kind: delegat
 `tanglebrain --stats` (and the knob panel) show a "Delegated sub-tasks" breakdown by backend (count,
 est tokens, informational cloud-equiv). These are kept **out of** the "spend avoided" headline so a
 sub-call's saving is never double-counted against its parent task. Any non-local target is opt-in and
-your responsibility under that provider's terms — see [DISCLAIMER.md](DISCLAIMER.md).
+your responsibility under that provider's terms — see [DISCLAIMER.md](https://github.com/Jason-Vaughan/TangleBrain/blob/main/DISCLAIMER.md).
 
 **Synthesising fan-out results.** The full pattern is decompose → fan out (`delegate_many`) →
 **reduce** → answer. TangleBrain ships the dispatch primitives but deliberately does *not* own the
@@ -269,7 +271,7 @@ gemini mcp add tanglebrain-delegate tanglebrain-delegate
 ```
 
 Claude Code users can instead install it as a **plugin** — this repo is its own plugin marketplace
-(see [`plugins/tanglebrain-delegate/`](plugins/tanglebrain-delegate/)):
+(see [`plugins/tanglebrain-delegate/`](https://github.com/Jason-Vaughan/TangleBrain/tree/main/plugins/tanglebrain-delegate)):
 
 ```
 /plugin marketplace add Jason-Vaughan/TangleBrain
@@ -287,7 +289,7 @@ environment.
 
 Paid API is the genuine last resort — it costs real money, so it is **disabled by default** and
 gated by a single explicit switch. A `tier: api` roster entry parses and is inspectable at all
-times, but it is **never routable** until you turn it on. See [`DISCLAIMER.md`](DISCLAIMER.md) for
+times, but it is **never routable** until you turn it on. See [`DISCLAIMER.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/DISCLAIMER.md) for
 the bring-your-own-key posture.
 
 The durable rule: *no paid billing without the explicit toggle.* Two independent gates must both be
@@ -347,11 +349,11 @@ make test-live     # opt-in: hit the real local endpoint your roster points at, 
 
 ## Contributing
 
-Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for dev setup, branch/PR
+Contributions are welcome — see [`CONTRIBUTING.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/CONTRIBUTING.md) for dev setup, branch/PR
 conventions, and good first contributions (adding a backend is usually a config edit, not a code
-change). All participation is governed by our [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), and the
-opt-in / bring-your-own-key posture is in [`DISCLAIMER.md`](DISCLAIMER.md).
+change). All participation is governed by our [`CODE_OF_CONDUCT.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/CODE_OF_CONDUCT.md), and the
+opt-in / bring-your-own-key posture is in [`DISCLAIMER.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/DISCLAIMER.md).
 
 ## License
 
-[MIT](LICENSE).
+[MIT](https://github.com/Jason-Vaughan/TangleBrain/blob/main/LICENSE).
