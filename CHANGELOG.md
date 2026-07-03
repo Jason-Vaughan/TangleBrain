@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tanglebrain-delegate` stdio MCP server declaratively. Install becomes two commands —
   `/plugin marketplace add Jason-Vaughan/TangleBrain` + `/plugin install tanglebrain-delegate@tanglebrain` —
   instead of manual `claude mcp add`. The plugin wires the pip-installed console script (documented
-  prerequisite: `pip install "tanglebrain[delegate]"`); it does not vendor the Python code. Manifest
+  prerequisite: install the `[delegate]` extra from GitHub or a clone — TangleBrain is not on
+  PyPI); it does not vendor the Python code. Manifest
   drift (renamed console script, broken source path, name mismatch) is CI-guarded by
   `tests/test_plugin_manifest.py`.
 

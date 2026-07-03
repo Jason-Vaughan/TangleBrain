@@ -270,8 +270,10 @@ Claude Code users can instead install it as a **plugin** — this repo is its ow
 /plugin install tanglebrain-delegate@tanglebrain
 ```
 
-The plugin registers the server declaratively; the `pip install ".[delegate]"` prerequisite above
-still applies (it wires the command, it doesn't vendor it).
+The plugin registers the server declaratively — it wires the `tanglebrain-delegate` command, it
+doesn't vendor it — so the console script must be on `PATH`: from a clone, `pip install -e
+".[delegate]"` as above; without one, `pip install "tanglebrain[delegate] @
+git+https://github.com/Jason-Vaughan/TangleBrain"` (TangleBrain is not on PyPI).
 
 To point the server at a non-default roster, set `TANGLEBRAIN_ROSTER=/path/to/roster.yaml` in its
 environment.

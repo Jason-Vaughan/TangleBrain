@@ -12,14 +12,17 @@ for the full tool semantics and routing rules.
 ## Prerequisite
 
 The plugin registers the server declaratively — it does **not** vendor the Python code. Install
-TangleBrain with the delegate extra so the `tanglebrain-delegate` command is on your `PATH`:
+TangleBrain with the delegate extra so the `tanglebrain-delegate` command is on your `PATH`
+(TangleBrain is not on PyPI; install straight from GitHub, or from a clone with
+`pip install -e ".[delegate]"`):
 
 ```sh
-pip install "tanglebrain[delegate]"
+pip install "tanglebrain[delegate] @ git+https://github.com/Jason-Vaughan/TangleBrain"
 ```
 
-You also need a configured roster (`~/.config/tanglebrain/roster.yaml`) with a reachable local
-backend; set `TANGLEBRAIN_ROSTER=/path/to/roster.yaml` to point elsewhere.
+The server reads the roster from `$TANGLEBRAIN_ROSTER` → `~/.config/tanglebrain/roster.yaml` → the
+packaged example, in that order; copy the example to the user-config path and point it at your
+backends.
 
 ## Install
 
@@ -29,3 +32,11 @@ backend; set `TANGLEBRAIN_ROSTER=/path/to/roster.yaml` to point elsewhere.
 ```
 
 Equivalent manual registration (no plugin): `claude mcp add tanglebrain-delegate -- tanglebrain-delegate`.
+
+## Troubleshooting
+
+If the prerequisite is missing, the server shows as **failed** in `/mcp` (Claude Code spawns
+`tanglebrain-delegate` and gets command-not-found) — the plugin itself installs fine either way.
+Check `which tanglebrain-delegate` in the same environment Claude Code runs from; if it's absent,
+run the pip install above. If the command exists but tools error at call time, the roster is the
+next suspect: run `tanglebrain-delegate` by hand and call `delegate_targets` to see the live error.

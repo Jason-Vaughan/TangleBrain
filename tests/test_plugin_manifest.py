@@ -55,10 +55,22 @@ class PluginManifestTest(unittest.TestCase):
         self.assertIn('tanglebrain-delegate = "tanglebrain.mcp_server:main"', pyproject)
 
     def test_version_is_semver_shaped(self):
-        # A pinned version means installs only update on an explicit bump (unpinned = every commit).
         major, minor, patch = self.manifest["version"].split(".")
         for part in (major, minor, patch):
             self.assertTrue(part.isdigit())
+
+
+class InstallDocsParityTest(unittest.TestCase):
+    """The `/plugin install <plugin>@<marketplace>` string in the docs is derived from BOTH
+    manifests' name fields — a rename that updates the manifests (and the manifest tests) can still
+    leave the documented command stale, so pin the docs to the manifests directly."""
+
+    def test_readmes_document_the_manifest_derived_install_command(self):
+        marketplace = json.loads(MARKETPLACE_PATH.read_text())
+        plugin = json.loads(PLUGIN_MANIFEST_PATH.read_text())
+        install_cmd = f"/plugin install {plugin['name']}@{marketplace['name']}"
+        for doc in (REPO_ROOT / "README.md", PLUGIN_DIR / "README.md"):
+            self.assertIn(install_cmd, doc.read_text(), f"stale install command in {doc.name}")
 
 
 if __name__ == "__main__":
