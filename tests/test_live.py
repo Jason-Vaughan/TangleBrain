@@ -208,11 +208,15 @@ class LiveCliTest(unittest.TestCase):
     def test_codex_returns_text(self):
         self._route("codex")
 
-    def test_gemini_returns_text(self):
-        # The `gemini` CLI sunset for individuals on 2026-06-18 (migrated to Antigravity); it now exits
-        # non-zero with an IneligibleTierError, so this can no longer pass. The roster entry is disabled
-        # (can_orchestrate: false) and a replacement is tracked in #61 — skip until then.
-        self.skipTest("gemini CLI sunset 2026-06-18 (migrated to Antigravity); see issue #61")
+    def test_antigravity_returns_text(self):
+        # Antigravity (`agy`) replaced the sunset `gemini` CLI as the third orchestrator (#61).
+        # The roster id ("antigravity") differs from the binary ("agy"), so this can't use
+        # _route()'s which(model) guard directly.
+        if shutil.which("agy") is None:
+            self.skipTest("agy (Antigravity CLI) not installed/logged in")
+        text = run_once("Reply with exactly: PONG", model="antigravity")
+        self.assertIsInstance(text, str)
+        self.assertTrue(text.strip(), "expected non-empty text from antigravity")
 
 
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live router test")

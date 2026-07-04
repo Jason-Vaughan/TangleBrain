@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Antigravity CLI (`agy`) as the gemini replacement orchestrator (#61)** — the packaged
+  example roster documents an `antigravity` sub entry (`agy -p {prompt}`, `parse: plain`;
+  verified live on agy 1.0.10: bare response on stdout, ~5s, rides the old CLI's `~/.gemini`
+  OAuth), restoring the third orchestrator slot the 2026-06-18 gemini sunset emptied. No
+  delegate injection yet — agy exposes no per-invocation MCP flags; #81 tracks wiring the
+  local-delegate tool when it does. The live suite exercises the entry when `agy` is installed.
+
 - **Serve-origin marker + parent-task attribution (#74)** — usage records now carry an
   `origin` field (`cli` | `gui` | `serve`) so serve-mode traffic is distinguishable from CLI and
   panel runs, and `tanglebrain --stats` shows the per-origin split (records predating the field

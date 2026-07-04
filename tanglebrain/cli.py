@@ -10,7 +10,7 @@ Usage::
     tanglebrain "Refactor this module and add tests."        # default: frontier-first router
     tanglebrain --task code "..."                            # task-fit hint for the router
     tanglebrain --local "Write a haiku about local inference."   # force the free local tier
-    tanglebrain --model gemini "Summarize this long document."   # pin a specific roster entry
+    tanglebrain --model antigravity "Summarize this long document."   # pin a specific roster entry
 """
 from __future__ import annotations
 

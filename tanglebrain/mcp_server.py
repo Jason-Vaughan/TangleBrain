@@ -1,6 +1,6 @@
 """MCP server exposing TangleBrain's delegate tools to an orchestrator.
 
-A stdio MCP server an orchestrator (e.g. claude / codex / gemini) registers so it can offload
+A stdio MCP server an orchestrator (e.g. claude / codex / antigravity) registers so it can offload
 sub-tasks to a configured backend mid-task — the mechanism that makes frontier-first decompose
 actually offload work rather than running everything on the orchestrator itself. It exposes four
 tools: ``delegate_local`` (free local default), ``delegate`` (route to a configured ``can_delegate``

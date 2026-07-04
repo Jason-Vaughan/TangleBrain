@@ -60,7 +60,7 @@
 
 # --- OPT-IN subscription / authenticated-CLI tier — COMMENTED OUT so it stays inert. ---
 # These entries drive authenticated CLIs you already have installed and logged in (Claude Code /
-# Codex / Gemini). They are OPT-IN: uncomment only the ones you use. Driving these CLIs is YOUR
+# Codex / Antigravity). They are OPT-IN: uncomment only the ones you use. Driving these CLIs is YOUR
 # responsibility under each provider's terms of service — see DISCLAIMER.md. Once uncommented, an
 # entry flagged `can_orchestrate: true` joins the orchestrator rotation (rotation + failover for
 # resilience). Adapt the `cmd`/`parse`/`delegate_args` to your installed CLI's flags.
@@ -94,17 +94,20 @@
 #   good_at: [code, agentic-code]
 #   can_orchestrate: true
 #
-# - id: gemini
+# - id: antigravity
 #   tier: sub
 #   invoke:
 #     kind: cli
-#     # -p requires the prompt as its value, so {prompt} marks the injection point.
-#     cmd: ["gemini", "-p", "{prompt}", "--output-format", "json"]
-#     parse: gemini-json
-#     # gemini has no per-invocation MCP-server config — it needs a one-time
-#     #   gemini mcp add tanglebrain-delegate -- <python> -m tanglebrain.mcp_server
-#     # (see README); these per-invocation flags then allow + auto-approve the tool.
-#     delegate_args: ["--allowed-mcp-server-names", "tanglebrain-delegate", "--approval-mode", "yolo"]
+#     # Antigravity CLI (`agy`) — Google's successor to the sunset `gemini` CLI (individuals,
+#     # 2026-06-18). `-p/--print` runs one prompt non-interactively and prints the bare response
+#     # to stdout, so parse is `plain`. Rides the same ~/.gemini OAuth as the old CLI.
+#     cmd: ["agy", "-p", "{prompt}"]
+#     parse: plain
+#     # No delegate_args: agy (verified 1.0.10 and 1.0.16) exposes no per-invocation MCP-server
+#     # flags, so this orchestrator answers directly instead of offloading to the local delegate
+#     # (#81 tracks wiring delegation when agy grows per-call MCP config). No scrub_env either —
+#     # unlike the old gemini CLI, agy reads no GEMINI_API_KEY/GOOGLE_API_KEY (verified against
+#     # the binary), so there is no API-key path to divert billing through; OAuth is the only auth.
 #   cost: subscription
 #   good_at: [long-context, structured-json]
 #   can_orchestrate: true

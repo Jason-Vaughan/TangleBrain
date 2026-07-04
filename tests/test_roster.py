@@ -30,7 +30,7 @@ class PackagedRosterTest(unittest.TestCase):
     """The GENERIC example roster shipped with the package parses correctly.
 
     R2a (public-OSS rollout): the bundled default ships exactly ONE active entry — the free local
-    tier — and no orchestrators. The opt-in subscription/authenticated-CLI tier (claude/codex/gemini)
+    tier — and no orchestrators. The opt-in subscription/authenticated-CLI tier (claude/codex/antigravity)
     and the paid-API tier ship as COMMENTED examples, so a fresh clone routes to local out of the box
     and an operator opts in by uncommenting. Pinned to ``packaged_roster_path()`` so it tests the
     bundled example regardless of any operator roster the dev machine may have at
@@ -70,7 +70,8 @@ class PackagedRosterTest(unittest.TestCase):
         # The subscription-CLI and paid-API tiers ship as commented opt-in examples, not active
         # entries — uncommenting one (and its tier-specific gate) is how an operator enables it.
         raw = packaged_roster_path().read_text()
-        for marker in ("# - id: claude", "# - id: codex", "# - id: gemini", "# - id: paid-overflow"):
+        # antigravity replaced gemini as the third CLI example when the gemini CLI sunset (#61).
+        for marker in ("# - id: claude", "# - id: codex", "# - id: antigravity", "# - id: paid-overflow"):
             self.assertIn(marker, raw, f"{marker!r} should ship as a commented opt-in example")
 
 
