@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Knob GUI POST hardening** (#72), mirroring the serve endpoint's guards: `POST /api/*` now
+  requires `Content-Type: application/json` (415 otherwise) — the panel's own requests already
+  send it, and the check keeps no-preflight cross-origin browser requests (e.g. a malicious page
+  POSTing `text/plain` to `/api/run`, which spends real backend quota) from ever reaching a view.
+  A malformed `Content-Length` header now returns a clean JSON 400 instead of a traceback and a
+  dropped connection, and negative values are clamped.
+
 ## [0.18.0] - 2026-07-03
 
 ### Added

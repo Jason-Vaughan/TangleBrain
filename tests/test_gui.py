@@ -332,6 +332,74 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("application/json", ctype)
         self.assertIn("bad roster yaml", json.loads(body)["error"])
 
+    def test_post_non_json_content_type_is_415_view_never_invoked(self):
+        # A cross-origin browser fetch can POST text/plain to localhost with no CORS preflight —
+        # /api/run spends real backend quota, so non-JSON must never reach a view (issue #72).
+        body = json.dumps({"prompt": "hi"}).encode()
+        with patch("tanglebrain.gui.views.run_once") as run:
+            status, ctype, out = server.dispatch(
+                "POST", "/api/run", body, content_type="text/plain;charset=UTF-8"
+            )
+        self.assertEqual(status, 415)
+        self.assertIn("application/json", ctype)
+        self.assertIn("application/json", json.loads(out)["error"])
+        run.assert_not_called()
+
+    def test_post_charset_qualified_json_content_type_accepted(self):
+        body = json.dumps({"prompt": "hi"}).encode()
+        with patch("tanglebrain.gui.views.run_once", return_value=("ok", None)):
+            status, _, out = server.dispatch(
+                "POST", "/api/run", body, content_type="application/json; charset=utf-8"
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(out)["ok"])
+
+
+class LiveHandlerTest(unittest.TestCase):
+    """Loopback-socket tests proving the real Handler wiring for the #72 hardening."""
+
+    def setUp(self):
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.thread.join, 2)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def test_malformed_content_length_is_400_not_a_reset(self):
+        import http.client
+
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        self.addCleanup(connection.close)
+        connection.putrequest("POST", "/api/run")
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", "abc")
+        connection.endheaders()
+        response = connection.getresponse()
+        self.assertEqual(response.status, 400)
+        self.assertIn("Content-Length", json.loads(response.read())["error"])
+
+    def test_text_plain_post_is_415_over_the_wire(self):
+        # Proves the Handler threads the real Content-Type header into dispatch.
+        import urllib.error
+        import urllib.request
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/run",
+            data=json.dumps({"prompt": "hi"}).encode(),
+            headers={"Content-Type": "text/plain"},
+            method="POST",
+        )
+        with patch("tanglebrain.gui.views.run_once") as run:
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(request, timeout=5)
+        self.assertEqual(ctx.exception.code, 415)
+        run.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

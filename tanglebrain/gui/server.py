@@ -46,16 +46,26 @@ def _json(status: int, obj: object) -> tuple[int, str, bytes]:
     return status, _JSON, json.dumps(obj).encode("utf-8")
 
 
-def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes]:
+def dispatch(
+    method: str, path: str, body: bytes = b"", content_type: str = "application/json"
+) -> tuple[int, str, bytes]:
     """Route one request to a view and return ``(status, content_type, body)``.
 
     Pure and side-effect-light (only the views touch config/log/subprocess), so tests call it
     directly with no socket. The query string, if any, is ignored.
 
+    POST requires ``Content-Type: application/json``. The panel's own ``fetch`` calls all send
+    it; the check closes the browser "simple request" hole — a cross-origin ``fetch`` from a
+    malicious page can POST ``text/plain`` to localhost without a CORS preflight, and ``/api/run``
+    spends real backend quota, so a non-JSON content type must never reach a view (mirrors the
+    serve endpoint's guard).
+
     Args:
         method: HTTP method (``GET``/``POST``).
         path: Request path (may include a ``?query``).
         body: Raw request body bytes (for ``POST``).
+        content_type: The request's ``Content-Type`` header value (POST only; defaults to JSON
+            so socket-free tests needn't supply it).
 
     Returns:
         ``(status_code, content_type, body_bytes)``.
@@ -87,6 +97,10 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
             "/api/roster": save_roster_view,
         }.get(path)
         if action is not None:
+            if not (content_type or "").lower().strip().startswith("application/json"):
+                return _json(
+                    415, {"ok": False, "error": "Content-Type must be application/json"}
+                )
             try:
                 payload = json.loads(body.decode("utf-8")) if body else {}
             except (ValueError, UnicodeDecodeError):
@@ -109,9 +123,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 (stdlib naming)
         """Handle a POST by reading the body, dispatching, and writing the response."""
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            # Clamp negatives (rfile.read(-1) would block on the socket) and map a non-numeric
+            # header to a clean JSON 400 instead of a traceback + dropped connection.
+            length = max(0, int(self.headers.get("Content-Length", 0) or 0))
+        except ValueError:
+            self._respond(*_json(400, {"ok": False, "error": "invalid Content-Length header"}))
+            return
         body = self.rfile.read(length) if length else b""
-        self._respond(*dispatch("POST", self.path, body))
+        self._respond(*dispatch("POST", self.path, body, self.headers.get("Content-Type", "")))
 
     def _respond(self, status: int, content_type: str, body: bytes) -> None:
         """Write a complete HTTP response."""

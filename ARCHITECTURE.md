@@ -201,7 +201,9 @@ backend quota and the panel reads the roster, so it is never network-exposed. Se
 resolved or sent to the browser: a `key_ref` is shown as its reference string only.
 
 `gui/views.py` holds pure, socket-free functions (testable directly); `gui/server.py` wraps them in
-a pure `dispatch(method, path, body)` plus a `ThreadingHTTPServer`.
+a pure `dispatch(method, path, body)` plus a `ThreadingHTTPServer`. Like the serve endpoint, POSTs
+require `Content-Type: application/json`, so a no-preflight cross-origin browser request can never
+reach a quota-spending view.
 
 ### Serve endpoint (`serve/`)
 
