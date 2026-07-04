@@ -285,6 +285,55 @@ class SavePricingTest(unittest.TestCase):
                 self.assertEqual(back.output_per_mtok, 1e20)
 
 
+class OriginAttributionTest(unittest.TestCase):
+    """#74: the origin field on records, its rollup bucket, and the --stats line."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.log = Path(self.tmp) / "usage.jsonl"
+
+    def _record(self, **kwargs):
+        record_task(
+            path="model", entry=FakeEntry("m", "local"), prompt="p", response="r",
+            log_path=self.log, pricing=FIXED, **kwargs,
+        )
+
+    def test_record_writes_origin_when_given_and_omits_when_absent(self):
+        self._record(origin="serve")
+        self._record()
+        tagged, untagged = read_records(self.log)
+        self.assertEqual(tagged["origin"], "serve")
+        self.assertNotIn("origin", untagged)
+
+    def test_record_writes_parent_task_id_on_task_records(self):
+        # #74: an external caller's identity (the serve header) rides on a kind="task" record.
+        self._record(parent_task_id="tc-session-42")
+        record = read_records(self.log)[0]
+        self.assertEqual(record["kind"], "task")
+        self.assertEqual(record["parent_task_id"], "tc-session-42")
+
+    def test_rollup_buckets_by_origin_with_untagged_sentinel(self):
+        summary = rollup([
+            {"tier": "local", "origin": "serve"},
+            {"tier": "local", "origin": "serve"},
+            {"tier": "sub", "origin": "cli"},
+            {"tier": "sub"},  # pre-#74 record — never guessed at
+            {"kind": "delegate", "model": "m", "origin": "serve"},  # delegates stay out
+        ])
+        self.assertEqual(summary["by_origin"], {"serve": 2, "cli": 1, "untagged": 1})
+
+    def test_format_rollup_shows_origin_split_only_when_tagged(self):
+        tagged = format_rollup(
+            rollup([{"tier": "local", "origin": "serve"}, {"tier": "local"}]), FIXED
+        )
+        self.assertIn("By origin:", tagged)
+        self.assertIn("serve 1", tagged)
+        self.assertIn("untagged 1", tagged)
+        # All-untagged history says nothing — the line stays hidden.
+        untagged_only = format_rollup(rollup([{"tier": "local"}]), FIXED)
+        self.assertNotIn("By origin:", untagged_only)
+
+
 class FormatRollupTest(unittest.TestCase):
     def test_renders_figures(self):
         s = rollup([{"tier": "local", "in_tokens_est": 10, "out_tokens_est": 20,

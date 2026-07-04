@@ -128,7 +128,9 @@ def run_prompt(payload: dict) -> dict:
 
     try:
         # return_served gives us the served tier/model directly — no usage-log re-read, no race.
-        text, served = run_once(str(prompt), model=model, local=local, task=task, return_served=True)
+        text, served = run_once(
+            str(prompt), model=model, local=local, task=task, return_served=True, origin="gui"
+        )
     except _RUN_ERRORS as exc:
         return {"ok": False, "error": str(exc)}
 

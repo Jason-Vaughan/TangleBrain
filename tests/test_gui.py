@@ -153,6 +153,7 @@ class RunPromptTest(unittest.TestCase):
         self.assertEqual(out["served"]["model"], "claude")
         self.assertEqual(run.call_args.kwargs["task"], "code")
         self.assertTrue(run.call_args.kwargs["return_served"])  # uses the returned meta, no log re-read
+        self.assertEqual(run.call_args.kwargs["origin"], "gui")  # #74 attribution
 
     def test_does_not_reread_log(self):
         # The race fix: run_prompt must NOT call read_records (served comes from run_once).

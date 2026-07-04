@@ -217,7 +217,10 @@ adapters' optional `run_stream` capability): the view primes the pump — the fi
 pulled before any headers commit, so connect-time failures stay plain JSON errors — then the
 handler writes one flushed SSE event per delta (close-delimited body). Backends that can't
 stream (cli kinds, hence the router path) deliver the completed text as a single chunk. The
-routing core is untouched — measurement and both paid-API gates behave exactly as for a CLI run.
+routing core is untouched — measurement and both paid-API gates behave exactly as for a CLI run,
+with two attribution extras (#74): records tag `origin: "serve"` (vs `cli`/`gui`), and the
+optional `X-TangleBrain-Parent-Task` request header is sanitized and recorded as
+`parent_task_id` — metadata only, never routed on.
 
 Like the panel, it binds `127.0.0.1` only and is deliberately keyless: the `Authorization` header
 is never read (local callers need no credential), and the loopback bind is what keeps an

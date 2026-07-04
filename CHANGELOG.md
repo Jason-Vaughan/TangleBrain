@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Serve-origin marker + parent-task attribution (#74)** — usage records now carry an
+  `origin` field (`cli` | `gui` | `serve`) so serve-mode traffic is distinguishable from CLI and
+  panel runs, and `tanglebrain --stats` shows the per-origin split (records predating the field
+  roll up as `untagged`, never guessed at). OpenAI-compat callers can additionally send an
+  optional `X-TangleBrain-Parent-Task` header carrying their own task/session identity —
+  trimmed, capped at 128 chars, recorded onto the usage record as `parent_task_id` for
+  cross-system attribution, never routed on. Both are additive record fields; old records and
+  readers are unaffected.
+
 ## [0.19.0] - 2026-07-04
 
 ### Added

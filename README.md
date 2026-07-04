@@ -232,6 +232,13 @@ field reports **which backend actually served**; the requested directive and rou
 in a `tanglebrain` extension field, and `usage` carries the same `chars/4` estimate the
 measurement log uses (served requests are metered exactly like CLI runs).
 
+Served requests are attributed in the usage log: each record carries `origin: "serve"` (CLI runs
+tag `cli`, panel runs `gui`), and `tanglebrain --stats` shows the per-origin split. A caller can
+additionally send an optional `X-TangleBrain-Parent-Task` header carrying its own task/session
+identity — trimmed, capped at 128 chars, recorded onto the usage record as `parent_task_id` for
+cross-system attribution, and never routed on. The reverse linkage already exists: the response's
+completion id is `chatcmpl-<task_id>`, the same task id the usage record carries.
+
 Caveats, by design:
 
 - **Streaming is real where the backend can stream.** `stream: true` delivers incremental

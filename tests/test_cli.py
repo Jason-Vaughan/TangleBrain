@@ -295,6 +295,19 @@ class RunOnceTest(unittest.TestCase):
         self.assertEqual(served["path"], "gate-local")
         RouterCls.assert_not_called()
 
+    def test_origin_and_parent_task_recorded(self):
+        # #74: origin defaults to "cli"; an explicit origin + caller identity land on the record.
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "x"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter):
+            run_once("hi", local=True)
+            run_once("hi", local=True, origin="serve", parent_task_id="tc-42")
+        default, tagged = self._records()
+        self.assertEqual(default["origin"], "cli")
+        self.assertNotIn("parent_task_id", default)
+        self.assertEqual(tagged["origin"], "serve")
+        self.assertEqual(tagged["parent_task_id"], "tc-42")
+
     def test_router_path_records_served_entry(self):
         # The router surfaces last_served; run_once records that tier/model.
         served = MagicMock()
@@ -456,6 +469,27 @@ class RunOnceStreamTest(unittest.TestCase):
     def test_unknown_model_raises_selection_error_at_call_time(self):
         with self.assertRaises(SelectionError):
             run_once_stream("hi", model="no-such-model")
+
+    def test_origin_and_parent_task_recorded_on_streamed_and_emulated_paths(self):
+        # #74: attribution rides every run_once_stream recording site.
+        streaming = self._streaming_adapter("a")
+        with patch("tanglebrain.cli.build_adapter", return_value=streaming):
+            deltas, _ = run_once_stream(
+                "hi", model="claude", roster_path=_pinned_roster(self),
+                origin="serve", parent_task_id="tc-42",
+            )
+            list(deltas)
+        blocking = MagicMock(spec=["run"])
+        blocking.run.return_value = "whole"
+        with patch("tanglebrain.cli.build_adapter", return_value=blocking):
+            deltas, _ = run_once_stream(
+                "hi", model="claude", roster_path=_pinned_roster(self),
+                origin="serve", parent_task_id="tc-42",
+            )
+            list(deltas)
+        for record in self._records():
+            self.assertEqual(record["origin"], "serve")
+            self.assertEqual(record["parent_task_id"], "tc-42")
 
     def test_gate_not_consulted_for_model_or_local(self):
         fake = self._streaming_adapter("x")

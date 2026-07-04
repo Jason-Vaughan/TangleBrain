@@ -22,12 +22,14 @@ from tanglebrain.selector import SelectionError
 from tanglebrain.serve.server import Handler, dispatch
 from tanglebrain.serve.views import (
     AUTO_ALIAS,
+    PARENT_TASK_HEADER,
     BadRequestError,
     completion_envelope,
     flatten_messages,
     handle_chat_completion,
     handle_chat_completion_stream,
     list_models,
+    sanitize_parent_task,
     sse_stream_events,
     wants_stream,
 )
@@ -414,6 +416,54 @@ class HandleChatCompletionStreamTest(unittest.TestCase):
         self.assertIn("before any content", body["error"]["message"])
 
 
+class ParentTaskAttributionTest(unittest.TestCase):
+    """#74: origin + X-TangleBrain-Parent-Task threading from transport to run_once*."""
+
+    def test_sanitize_parent_task(self):
+        self.assertIsNone(sanitize_parent_task(None))
+        self.assertIsNone(sanitize_parent_task(""))
+        self.assertIsNone(sanitize_parent_task("   "))
+        self.assertIsNone(sanitize_parent_task(42))
+        self.assertEqual(sanitize_parent_task("  tc-42  "), "tc-42")
+        self.assertEqual(len(sanitize_parent_task("x" * 5000)), 128)  # length-capped
+
+    def test_plain_handler_threads_origin_and_parent_task(self):
+        run = MagicMock(return_value=("t", dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once", run):
+            status, _ = handle_chat_completion(_chat_payload(), "tc-session-42")
+        self.assertEqual(status, 200)
+        self.assertEqual(run.call_args.kwargs["origin"], "serve")
+        self.assertEqual(run.call_args.kwargs["parent_task_id"], "tc-session-42")
+
+    def test_plain_handler_defaults_parent_task_to_none(self):
+        run = MagicMock(return_value=("t", dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once", run):
+            handle_chat_completion(_chat_payload())
+        self.assertEqual(run.call_args.kwargs["origin"], "serve")
+        self.assertIsNone(run.call_args.kwargs["parent_task_id"])
+
+    def test_stream_handler_threads_origin_and_parent_task(self):
+        stream = MagicMock(return_value=(iter(["a"]), dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, body = handle_chat_completion_stream(
+                _chat_payload(stream=True), "tc-session-42"
+            )
+            list(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(stream.call_args.kwargs["origin"], "serve")
+        self.assertEqual(stream.call_args.kwargs["parent_task_id"], "tc-session-42")
+
+    def test_dispatch_sanitizes_the_raw_header_value(self):
+        run = MagicMock(return_value=("t", dict(_SERVED)))
+        payload = json.dumps(_chat_payload()).encode("utf-8")
+        with patch("tanglebrain.serve.views.run_once", run):
+            dispatch("POST", "/v1/chat/completions", payload, parent_task="  tc-42  ")
+            dispatch("POST", "/v1/chat/completions", payload, parent_task="   ")
+        first, second = run.call_args_list
+        self.assertEqual(first.kwargs["parent_task_id"], "tc-42")
+        self.assertIsNone(second.kwargs["parent_task_id"])
+
+
 class WantsStreamTest(unittest.TestCase):
     def test_wants_stream_only_on_json_true(self):
         self.assertTrue(wants_stream({"stream": True}))
@@ -586,6 +636,21 @@ class LiveHandlerTest(unittest.TestCase):
                 body = json.loads(response.read().decode("utf-8"))
         self.assertEqual(body["choices"][0]["message"]["content"], "pong")
         self.assertEqual(body["model"], "claude")
+
+    def test_parent_task_header_reaches_routing_over_the_socket(self):
+        # #74 end-to-end: the real Handler reads X-TangleBrain-Parent-Task off the wire.
+        run = MagicMock(return_value=("pong", dict(_SERVED)))
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/v1/chat/completions",
+            data=json.dumps(_chat_payload()).encode("utf-8"),
+            headers={"Content-Type": "application/json", PARENT_TASK_HEADER: "tc-session-42"},
+            method="POST",
+        )
+        with patch("tanglebrain.serve.views.run_once", run):
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(response.status, 200)
+        self.assertEqual(run.call_args.kwargs["parent_task_id"], "tc-session-42")
+        self.assertEqual(run.call_args.kwargs["origin"], "serve")
 
     def test_streaming_deltas_arrive_incrementally_over_the_socket(self):
         # The point of c13: the first content chunk must be readable while the backend is still
