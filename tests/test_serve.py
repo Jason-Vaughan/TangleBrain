@@ -26,8 +26,9 @@ from tanglebrain.serve.views import (
     completion_envelope,
     flatten_messages,
     handle_chat_completion,
+    handle_chat_completion_stream,
     list_models,
-    sse_body,
+    sse_stream_events,
     wants_stream,
 )
 
@@ -217,23 +218,203 @@ class EnvelopeTest(unittest.TestCase):
         self.assertIsNone(body["tanglebrain"]["path"])
 
 
-class SseBodyTest(unittest.TestCase):
-    def test_single_chunk_emulation_framing(self):
-        envelope = completion_envelope("streamed text", dict(_SERVED), "auto", "p")
-        events = sse_body(envelope).decode("utf-8").strip().split("\n\n")
-        self.assertEqual(len(events), 3)
-        self.assertTrue(all(e.startswith("data: ") for e in events))
-        content = json.loads(events[0][len("data: "):])
-        self.assertEqual(content["object"], "chat.completion.chunk")
-        self.assertEqual(content["id"], envelope["id"])
-        self.assertEqual(
-            content["choices"][0]["delta"], {"role": "assistant", "content": "streamed text"}
-        )
-        self.assertIsNone(content["choices"][0]["finish_reason"])
-        finish = json.loads(events[1][len("data: "):])
-        self.assertEqual(finish["choices"][0], {"index": 0, "delta": {}, "finish_reason": "stop"})
-        self.assertEqual(events[2], "data: [DONE]")
+class _CloseTracking:
+    """A delta-iterator stand-in that records whether close() was called."""
 
+    def __init__(self, inner, closed: list):
+        self._inner = inner
+        self._closed = closed
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._inner)
+
+    def close(self):
+        self._closed.append(True)
+
+
+def _decode_events(chunks: list[bytes]) -> list[dict | str]:
+    """Decode framed SSE event byte strings into parsed JSON dicts (or the ``[DONE]`` literal)."""
+    events = []
+    for chunk in chunks:
+        text = chunk.decode("utf-8")
+        assert text.startswith("data: ") and text.endswith("\n\n"), text
+        data = text[len("data: "):-2]
+        events.append("[DONE]" if data == "[DONE]" else json.loads(data))
+    return events
+
+
+class SseStreamEventsTest(unittest.TestCase):
+    """sse_stream_events — incremental chunk framing, finish/usage, mid-stream errors (c13-S2)."""
+
+    def test_incremental_framing_and_finish_chunk(self):
+        events = _decode_events(
+            list(sse_stream_events("Hel", iter(["lo", "!"]), dict(_SERVED), "auto", "[user]\nhi"))
+        )
+        self.assertEqual(len(events), 5)  # first + 2 deltas + finish + [DONE]
+        first, second, third, finish, done = events
+        self.assertEqual(first["object"], "chat.completion.chunk")
+        self.assertEqual(first["id"], "chatcmpl-abc123")  # reuses the minted task id
+        self.assertEqual(first["model"], "claude")  # the SERVED id, not the requested alias
+        self.assertEqual(first["choices"][0]["delta"], {"role": "assistant", "content": "Hel"})
+        self.assertIsNone(first["choices"][0]["finish_reason"])
+        self.assertEqual(second["choices"][0]["delta"], {"content": "lo"})
+        self.assertEqual(third["choices"][0]["delta"], {"content": "!"})
+        self.assertEqual(finish["choices"][0], {"index": 0, "delta": {}, "finish_reason": "stop"})
+        usage = finish["usage"]  # always present, flagged estimated (ratified D6)
+        self.assertEqual(usage["total_tokens"], usage["prompt_tokens"] + usage["completion_tokens"])
+        self.assertGreater(usage["completion_tokens"], 0)
+        ext = finish["tanglebrain"]
+        self.assertEqual(ext["requested_model"], "auto")
+        self.assertEqual(ext["path"], "router")
+        self.assertTrue(ext["tokens_estimated"])
+        self.assertEqual(done, "[DONE]")
+
+    def test_single_delta_stream_matches_v1_emulation_shape(self):
+        # An emulated path (router / cli-kind) delivers one content chunk + finish + [DONE] —
+        # the same client-visible contract v1's sse_body produced.
+        events = _decode_events(
+            list(sse_stream_events("whole text", iter([]), dict(_SERVED), "auto", "p"))
+        )
+        self.assertEqual(len(events), 3)
+        self.assertEqual(
+            events[0]["choices"][0]["delta"], {"role": "assistant", "content": "whole text"}
+        )
+        self.assertEqual(events[1]["choices"][0]["finish_reason"], "stop")
+        self.assertEqual(events[2], "[DONE]")
+
+    def test_mid_stream_error_yields_error_event_and_no_done(self):
+        def dying():
+            yield "par"
+            raise AdapterError("backend died mid-answer")
+
+        events = _decode_events(
+            list(sse_stream_events("first", dying(), dict(_SERVED), "auto", "p"))
+        )
+        self.assertEqual(len(events), 3)  # first + "par" + error; NO finish, NO [DONE]
+        self.assertEqual(events[1]["choices"][0]["delta"], {"content": "par"})
+        error = events[2]["error"]
+        self.assertEqual(error["type"], "upstream_error")
+        self.assertIn("backend died mid-answer", error["message"])
+        self.assertNotIn("[DONE]", events)
+
+    def test_unknown_served_falls_back_to_requested_model(self):
+        events = _decode_events(list(sse_stream_events("x", iter([]), None, "auto", "p")))
+        self.assertEqual(events[0]["model"], "auto")
+        self.assertTrue(events[0]["id"].startswith("chatcmpl-"))
+
+    def test_non_adapter_escape_still_frames_an_error_event(self):
+        # A nonconforming backend / internal bug must NOT silently close the stream (the exact
+        # alternative D5 rejected) — it frames as server_error, still no [DONE] (Critic S2).
+        def buggy():
+            yield "ok"
+            raise ValueError("nonconforming adapter leaked a raw error")
+
+        events = _decode_events(
+            list(sse_stream_events("first", buggy(), dict(_SERVED), "auto", "p"))
+        )
+        error = events[-1]["error"]
+        self.assertEqual(error["type"], "server_error")
+        self.assertIn("nonconforming adapter", error["message"])
+        self.assertNotIn("[DONE]", events)
+
+    def test_rest_iterator_is_closed_however_the_stream_ends(self):
+        # Metering-on-abandonment rides on the delta iterator's close — it must fire
+        # deterministically, not on GC timing, for all three endings (Critic S2).
+        def endings():
+            yield "exhausted", iter(["a"])
+
+            def dying():
+                yield "b"
+                raise AdapterError("died")
+            yield "error", dying()
+            yield "abandoned", iter(["c", "never-pulled"])
+
+        for label, rest in endings():
+            closed = []
+            wrapped = _CloseTracking(rest, closed)
+            stream = sse_stream_events("first", wrapped, dict(_SERVED), "auto", "p")
+            if label == "abandoned":
+                next(stream)
+                stream.close()  # client walked away after the first event
+            else:
+                list(stream)
+            self.assertEqual(closed, [True], f"rest not closed on {label!r} ending")
+
+
+class HandleChatCompletionStreamTest(unittest.TestCase):
+    """handle_chat_completion_stream — prime-the-pump status mapping (c13-S2)."""
+
+    def test_success_returns_200_and_event_iterator(self):
+        stream = MagicMock(return_value=(iter(["a", "b"]), dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, body = handle_chat_completion_stream(
+                _chat_payload(stream=True, max_tokens=512)
+            )
+        self.assertEqual(status, 200)
+        events = _decode_events(list(body))
+        self.assertEqual(events[0]["choices"][0]["delta"], {"role": "assistant", "content": "a"})
+        self.assertEqual(events[-1], "[DONE]")
+        self.assertIsNone(stream.call_args.kwargs["model"])  # auto → no pin
+        self.assertEqual(stream.call_args.kwargs["max_tokens"], 512)  # threaded through
+
+    def test_connect_time_failure_is_plain_502_never_sse(self):
+        # The first pull raises (lazy connect failed) — must map to (502, json), no iterator.
+        def dead_stream(*a, **k):
+            def gen():
+                raise AdapterError("connection refused")
+                yield  # pragma: no cover
+            return gen(), dict(_SERVED)
+
+        with patch("tanglebrain.serve.views.run_once_stream", dead_stream):
+            status, body = handle_chat_completion_stream(_chat_payload(stream=True))
+        self.assertEqual(status, 502)
+        self.assertEqual(body["error"]["type"], "upstream_error")
+        self.assertIn("connection refused", body["error"]["message"])
+
+    def test_unknown_pinned_model_is_404(self):
+        stream = MagicMock(side_effect=SelectionError("no roster entry with id 'nope'"))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, body = handle_chat_completion_stream(
+                _chat_payload(model="nope", stream=True)
+            )
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"]["code"], "model_not_found")
+
+    def test_selection_error_on_auto_path_is_502(self):
+        stream = MagicMock(side_effect=SelectionError("no local-tier entry"))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, body = handle_chat_completion_stream(_chat_payload(stream=True))
+        self.assertEqual(status, 502)
+
+    def test_router_failure_and_broken_roster_map_like_plain_handler(self):
+        for exc, expected in ((RouterError("all failed"), 502), (RosterError("bad yaml"), 500)):
+            stream = MagicMock(side_effect=exc)
+            with patch("tanglebrain.serve.views.run_once_stream", stream):
+                status, _ = handle_chat_completion_stream(_chat_payload(stream=True))
+            self.assertEqual(status, expected, str(exc))
+
+    def test_bad_request_is_400_and_never_routes(self):
+        stream = MagicMock()
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, body = handle_chat_completion_stream(
+                {"model": "", "messages": _messages("hi"), "stream": True}
+            )
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["type"], "invalid_request_error")
+        stream.assert_not_called()
+
+    def test_empty_stream_is_defensive_502(self):
+        stream = MagicMock(return_value=(iter([]), dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, body = handle_chat_completion_stream(_chat_payload(stream=True))
+        self.assertEqual(status, 502)
+        self.assertIn("before any content", body["error"]["message"])
+
+
+class WantsStreamTest(unittest.TestCase):
     def test_wants_stream_only_on_json_true(self):
         self.assertTrue(wants_stream({"stream": True}))
         self.assertFalse(wants_stream({"stream": False}))
@@ -270,21 +451,48 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("application/json", ctype)
         self.assertEqual(body["choices"][0]["message"]["content"], "pong")
 
-    def test_stream_true_returns_sse(self):
-        run = MagicMock(return_value=("pong", dict(_SERVED)))
-        with patch("tanglebrain.serve.views.run_once", run):
-            status, ctype, body = self._post("/v1/chat/completions", _chat_payload(stream=True))
+    def test_stream_true_returns_sse_event_iterator(self):
+        stream = MagicMock(return_value=(iter(["po", "ng"]), dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, ctype, body = dispatch(
+                "POST", "/v1/chat/completions",
+                json.dumps(_chat_payload(stream=True)).encode("utf-8"),
+            )
+            text = b"".join(body).decode("utf-8")  # body is an Iterator[bytes], not bytes
         self.assertEqual(status, 200)
         self.assertIn("text/event-stream", ctype)
-        self.assertIn("data: [DONE]", body)
+        self.assertIn('"content": "po"', text)
+        self.assertIn('"content": "ng"', text)
+        self.assertTrue(text.endswith("data: [DONE]\n\n"))
 
     def test_stream_error_is_plain_json(self):
-        run = MagicMock(side_effect=RouterError("all failed"))
-        with patch("tanglebrain.serve.views.run_once", run):
+        stream = MagicMock(side_effect=RouterError("all failed"))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
             status, ctype, body = self._post("/v1/chat/completions", _chat_payload(stream=True))
         self.assertEqual(status, 502)
         self.assertIn("application/json", ctype)
         self.assertEqual(body["error"]["type"], "upstream_error")
+
+    def test_stream_unexpected_escape_is_clean_json_500(self):
+        # The pump primes inside dispatch's guard — a raw escape from the backend connection
+        # must come back as JSON, never a committed-then-broken SSE stream.
+        stream = MagicMock(side_effect=RuntimeError("settings file is malformed"))
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, ctype, body = self._post("/v1/chat/completions", _chat_payload(stream=True))
+        self.assertEqual(status, 500)
+        self.assertIn("application/json", ctype)
+        self.assertEqual(body["error"]["type"], "server_error")
+
+    def test_stream_non_json_content_type_still_rejected(self):
+        stream = MagicMock()
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            status, _, _ = dispatch(
+                "POST", "/v1/chat/completions",
+                json.dumps(_chat_payload(stream=True)).encode("utf-8"),
+                content_type="text/plain",
+            )
+        self.assertEqual(status, 415)
+        stream.assert_not_called()
 
     def test_invalid_json_and_non_object_bodies_are_400(self):
         status, _, body = dispatch("POST", "/v1/chat/completions", b"{not json")
@@ -378,6 +586,85 @@ class LiveHandlerTest(unittest.TestCase):
                 body = json.loads(response.read().decode("utf-8"))
         self.assertEqual(body["choices"][0]["message"]["content"], "pong")
         self.assertEqual(body["model"], "claude")
+
+    def test_streaming_deltas_arrive_incrementally_over_the_socket(self):
+        # The point of c13: the first content chunk must be readable while the backend is still
+        # generating. The second delta is gated on an Event the test only sets AFTER it has read
+        # the first chunk off the socket — if the handler buffered the whole body, this would
+        # deadlock (and time out) instead of passing.
+        gate = threading.Event()
+
+        def deltas():
+            yield "early token"
+            if not gate.wait(5):  # pragma: no cover — only on test failure
+                raise AssertionError("first chunk was never read off the socket")
+            yield "late token"
+
+        stream = MagicMock(return_value=(deltas(), dict(_SERVED)))
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        self.addCleanup(connection.close)
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            connection.request(
+                "POST", "/v1/chat/completions",
+                json.dumps(_chat_payload(stream=True)),
+                {"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertIn("text/event-stream", response.getheader("Content-Type"))
+            # Streamed framing: length unknown up front, connection close delimits the body.
+            self.assertIsNone(response.getheader("Content-Length"))
+            self.assertEqual(response.getheader("Connection"), "close")
+            first_line = response.fp.readline().decode("utf-8")
+            self.assertIn("early token", first_line)  # read while the backend is still gated
+            gate.set()
+            remainder = response.read().decode("utf-8")
+        self.assertIn("late token", remainder)
+        self.assertIn('"finish_reason": "stop"', remainder)
+        self.assertIn("data: [DONE]", remainder)
+
+    def test_client_disconnect_finalizes_the_stream_and_server_survives(self):
+        # Quota-accounting integrity: when the client walks away mid-stream, the delta iterator
+        # must still be finalized (S1's metering-on-abandonment fires from its close), and the
+        # server must survive to take the next request (Critic S2).
+        finalized = threading.Event()
+        release = threading.Event()
+
+        def deltas():
+            try:
+                yield "first"
+                release.wait(5)
+                yield "second"
+                yield "third"
+            finally:
+                finalized.set()
+
+        stream = MagicMock(return_value=(deltas(), dict(_SERVED)))
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            connection.request(
+                "POST", "/v1/chat/completions",
+                json.dumps(_chat_payload(stream=True)),
+                {"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            self.assertIn("first", response.fp.readline().decode("utf-8"))
+            connection.close()  # client gives up mid-stream
+            release.set()
+            self.assertTrue(
+                finalized.wait(5), "delta iterator was not finalized after client disconnect"
+            )
+        # The handler thread absorbed the disconnect; the server still serves.
+        run = MagicMock(return_value=("still alive", dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once", run):
+            follow_up = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/v1/chat/completions",
+                data=json.dumps(_chat_payload()).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(follow_up, timeout=5) as after:
+                self.assertEqual(after.status, 200)
 
     def test_malformed_content_length_is_400_not_a_reset(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)

@@ -19,7 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completed text as a single-item stream. Metering parity: streamed responses are recorded on
   stream completion, with partial text recorded when a stream dies or is abandoned mid-way
   (real backend spend), and nothing recorded for a stream that failed before its first token.
-  The serve endpoint still emulates (`sse_body`) until c13-S2 wires it up.
+- **True incremental streaming in `tanglebrain-serve` (c13-S2, closes #73)** — `stream: true`
+  now delivers real `chat.completion.chunk` deltas as the backend produces them, for backends
+  that can stream (pinned `openai-compat`/`api` entries and the classifier-gate local path);
+  cli-kind backends and the full-router `auto` path keep the single-chunk delivery (ratified v2
+  scope). The view primes the pump — the first delta is pulled before headers commit, so every
+  failure up to the backend connection returns a plain JSON error with the right status, never
+  broken SSE — and the handler writes one flushed, close-delimited SSE event per delta. A stream
+  that dies mid-way ends with one in-stream `{"error": ...}` event and no `[DONE]`. The finish
+  chunk always carries the estimated `usage` block and the `tanglebrain` extension. Verified
+  live with the real `openai` client: multiple incremental chunks from the pinned local backend,
+  and an `auto` round-trip.
 
 ### Security
 

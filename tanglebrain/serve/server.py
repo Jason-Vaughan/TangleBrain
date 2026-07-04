@@ -2,7 +2,9 @@
 
 The handler is a thin shell over :func:`dispatch`, a pure ``(method, path, body) -> (status,
 content_type, body)`` function holding all routing so it can be tested without a socket
-(mirroring :mod:`tanglebrain.gui.server`).
+(mirroring :mod:`tanglebrain.gui.server`). ``body`` is bytes, or — for a live ``stream: true``
+completion — an iterator of SSE event bytes the handler writes incrementally (flush per event,
+close-delimited).
 
 Launched via the ``tanglebrain-serve`` console script. Binds ``127.0.0.1`` only — not
 configurable: the endpoint is unauthenticated by design (local callers need no key; the
@@ -15,13 +17,14 @@ from __future__ import annotations
 import argparse
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Iterator
 
 from tanglebrain.serve.views import (
     DEFAULT_PORT,
     error_envelope,
     handle_chat_completion,
+    handle_chat_completion_stream,
     list_models,
-    sse_body,
     wants_stream,
 )
 
@@ -36,13 +39,15 @@ def _json_response(status: int, obj: object) -> tuple[int, str, bytes]:
 
 def dispatch(
     method: str, path: str, body: bytes = b"", content_type: str = "application/json"
-) -> tuple[int, str, bytes]:
+) -> tuple[int, str, bytes | Iterator[bytes]]:
     """Route one request to a view and return ``(status, content_type, body)``.
 
     Pure apart from what the views themselves do, so tests call it directly with no socket. The
-    query string, if any, is ignored. A ``stream: true`` completion request gets its successful
-    envelope framed as the single-chunk SSE emulation; errors are always plain JSON (matching
-    OpenAI, which rejects a bad streaming request with a JSON error before any SSE starts).
+    query string, if any, is ignored. A successful ``stream: true`` completion request returns an
+    **iterator of SSE event bytes** as its body (the pump already primed by the view, so the 200
+    is committed only for a stream that genuinely started); everything else returns plain bytes.
+    Errors are always plain JSON with the right status (matching OpenAI, which rejects a bad
+    streaming request with a JSON error before any SSE starts).
 
     POST requires ``Content-Type: application/json``. Besides being what every OpenAI client
     sends, this closes the browser "simple request" hole: a cross-origin ``fetch`` from a
@@ -90,13 +95,18 @@ def dispatch(
                     400, error_envelope("request body must be a JSON object", "invalid_request_error")
                 )
             try:
+                if wants_stream(payload):
+                    status, result = handle_chat_completion_stream(payload)
+                    if status == 200:
+                        return 200, _SSE, result  # Iterator[bytes] — pump already primed
+                    return _json_response(status, result)
                 status, obj = handle_chat_completion(payload)
             except Exception as exc:  # noqa: BLE001 — any escape must be clean JSON, never a
                 # dropped connection (e.g. a malformed settings.yaml raising SettingsError on the
-                # auto path). Typed, expected failures are already mapped inside the handler.
+                # auto path). Typed, expected failures are already mapped inside the handlers,
+                # and the streaming handler primes the pump inside this guard, so even a raw
+                # escape from the backend connection comes back as JSON, never broken SSE.
                 return _json_response(500, error_envelope(str(exc), "server_error"))
-            if status == 200 and wants_stream(payload):
-                return 200, _SSE, sse_body(obj)
             return _json_response(status, obj)
         return _json_response(404, error_envelope(f"unknown path: {path}", "invalid_request_error"))
 
@@ -130,13 +140,42 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else b""
         self._respond(*dispatch("POST", self.path, body, self.headers.get("Content-Type", "")))
 
-    def _respond(self, status: int, content_type: str, body: bytes) -> None:
-        """Write a complete HTTP response."""
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+    def _respond(self, status: int, content_type: str, body: bytes | "Iterator[bytes]") -> None:
+        """Write a complete HTTP response — buffered bytes, or a streamed body.
+
+        A bytes body is written with ``Content-Length`` as before. An iterator body is written
+        incrementally: no ``Content-Length``, ``Connection: close`` (the handler speaks
+        HTTP/1.0, so the closed connection delimits the body — every OpenAI client handles
+        close-delimited SSE), one flush per event so deltas reach the client as they arrive.
+        A client that disconnects mid-stream just ends the write; the body iterator is always
+        closed so the routing layer's metering-on-abandonment fires.
+        """
+        if isinstance(body, (bytes, bytearray)):
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        try:
+            # Header writes sit inside the guard too: a client that gives up during a slow
+            # pump-prime can close the socket before headers, and that must not traceback.
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Connection", "close")
+            self.end_headers()
+            for event in body:
+                self.wfile.write(event)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client went away mid-stream — nothing left to tell it
+        finally:
+            # Always finalize the body iterator so the routing layer's metering-on-abandonment
+            # fires deterministically (quota accounting must not depend on GC timing).
+            close = getattr(body, "close", None)
+            if close is not None:
+                close()
 
     def log_message(self, *args: object) -> None:
         """Silence the default per-request stderr logging."""
