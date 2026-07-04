@@ -5,6 +5,7 @@ All HTTP is mocked — these tests never touch the network. The adapter is exerc
 """
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -169,6 +170,175 @@ class RunTest(unittest.TestCase):
             with self.assertRaises(AdapterError) as ctx:
                 self._adapter("none").run("q")
         self.assertIn("max_tokens", str(ctx.exception))
+
+
+# Captured before any test patches httpx.Client, so stream-test factories can build a REAL
+# client around a MockTransport without recursing into their own patch.
+_RealClient = httpx.Client
+
+
+def sse_bytes(*events: str) -> bytes:
+    """Frame ``events`` as an SSE body (one ``data:`` line each, blank-line separated)."""
+    return "".join(f"data: {event}\n\n" for event in events).encode("utf-8")
+
+
+def delta_event(content: str | None = None, **delta_extra) -> str:
+    """Build one ``chat.completion.chunk`` SSE event JSON with the given delta content."""
+    delta: dict = dict(delta_extra)
+    if content is not None:
+        delta["content"] = content
+    return json.dumps({"choices": [{"index": 0, "delta": delta, "finish_reason": None}]})
+
+
+class RunStreamTest(unittest.TestCase):
+    """run_stream — SSE pass-through decoding, laziness, and error mapping (c13-S1)."""
+
+    def _adapter(self) -> OpenAICompatAdapter:
+        return OpenAICompatAdapter(base_url=URL, model="llama3.2", key_ref="none")
+
+    def _patched_client(self, handler):
+        """Patch ``httpx.Client`` so the adapter talks to ``handler`` via a real MockTransport."""
+
+        def factory(**kwargs):
+            return _RealClient(
+                transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout")
+            )
+
+        return patch("tanglebrain.adapters.openai_compat.httpx.Client", new=factory)
+
+    def test_streams_content_deltas_in_order(self):
+        body = sse_bytes(
+            delta_event(role="assistant"),  # role-only preamble — no content, skipped
+            delta_event("Hel"),
+            delta_event("lo"),
+            json.dumps({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}),
+            "[DONE]",
+        )
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            self.assertEqual(list(self._adapter().run_stream("q")), ["Hel", "lo"])
+
+    def test_payload_carries_stream_true_and_max_tokens(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(json.loads(request.content))
+            return httpx.Response(200, content=sse_bytes(delta_event("x"), "[DONE]"))
+
+        with self._patched_client(handler):
+            list(self._adapter().run_stream("the prompt", {"max_tokens": 99}))
+        self.assertIs(seen["stream"], True)
+        self.assertEqual(seen["max_tokens"], 99)
+        self.assertEqual(seen["messages"], [{"role": "user", "content": "the prompt"}])
+
+    def test_clean_close_without_done_still_delivers(self):
+        # Some local gateways omit [DONE]; honest EOF ends the stream without error.
+        body = sse_bytes(delta_event("all"), delta_event(" of it"))
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            self.assertEqual(list(self._adapter().run_stream("q")), ["all", " of it"])
+
+    def test_connection_opens_lazily_and_config_raises_eagerly(self):
+        # Config errors raise at CALL time, with no HTTP client ever constructed…
+        with patch("tanglebrain.adapters.openai_compat.httpx.Client") as client_cls:
+            with self.assertRaises(AdapterError):
+                self._adapter().run_stream("q", {"max_tokens": 0})
+        client_cls.assert_not_called()
+        # …and a valid call constructs no client until the first pull.
+        with patch("tanglebrain.adapters.openai_compat.httpx.Client") as client_cls:
+            self._adapter().run_stream("q")
+        client_cls.assert_not_called()
+
+    def test_non_2xx_raises_adapter_error_with_body_before_any_yield(self):
+        handler = lambda req: httpx.Response(500, text="backend melted")  # noqa: E731
+        with self._patched_client(handler):
+            stream = self._adapter().run_stream("q")
+            with self.assertRaises(AdapterError) as ctx:
+                next(stream)
+        self.assertIn("500", str(ctx.exception))
+        self.assertIn("backend melted", str(ctx.exception))
+
+    def test_malformed_data_line_raises(self):
+        body = b"data: {not json}\n\n"
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            with self.assertRaises(AdapterError) as ctx:
+                list(self._adapter().run_stream("q"))
+        self.assertIn("malformed SSE", str(ctx.exception))
+
+    def test_in_stream_error_event_raises(self):
+        body = sse_bytes(delta_event("par"), json.dumps({"error": {"message": "quota exceeded"}}))
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            stream = self._adapter().run_stream("q")
+            self.assertEqual(next(stream), "par")
+            with self.assertRaises(AdapterError) as ctx:
+                next(stream)
+        self.assertIn("quota exceeded", str(ctx.exception))
+
+    def test_usage_only_chunk_and_comment_lines_skipped(self):
+        body = (
+            b": keep-alive comment\n\n"
+            + sse_bytes(
+                delta_event("hi"),
+                json.dumps({"choices": [], "usage": {"total_tokens": 5}}),
+                "[DONE]",
+            )
+        )
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            self.assertEqual(list(self._adapter().run_stream("q")), ["hi"])
+
+    def test_mid_stream_transport_error_maps_to_adapter_error(self):
+        class ExplodingStream(httpx.SyncByteStream):
+            def __iter__(self):
+                yield sse_bytes(delta_event("par"))
+                raise httpx.ReadError("connection reset")
+
+        handler = lambda req: httpx.Response(200, stream=ExplodingStream())  # noqa: E731
+        with self._patched_client(handler):
+            stream = self._adapter().run_stream("q")
+            self.assertEqual(next(stream), "par")
+            with self.assertRaises(AdapterError) as ctx:
+                next(stream)
+        self.assertIn("transport error", str(ctx.exception))
+
+    def test_events_after_done_are_ignored(self):
+        body = sse_bytes(delta_event("a"), "[DONE]", delta_event("ghost"))
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            self.assertEqual(list(self._adapter().run_stream("q")), ["a"])
+
+    def test_shape_broken_event_maps_to_adapter_error(self):
+        # Spec-valid JSON, broken shape: choices[0] is null. Must be AdapterError, never a raw
+        # AttributeError leaking out of the stream (S2's error framing catches AdapterError).
+        body = sse_bytes(json.dumps({"choices": [None]}))
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            with self.assertRaises(AdapterError) as ctx:
+                list(self._adapter().run_stream("q"))
+        self.assertIn("unexpected SSE event shape", str(ctx.exception))
+
+    def test_non_dict_event_raises(self):
+        body = sse_bytes("42", delta_event("never reached"))
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            with self.assertRaises(AdapterError) as ctx:
+                list(self._adapter().run_stream("q"))
+        self.assertIn("unexpected SSE event shape", str(ctx.exception))
+
+    def test_zero_content_stream_raises(self):
+        # A 200 stream that ends (with or without [DONE]) having produced no content is a dead
+        # backend, not an empty success — mirrors run()'s null-content stance.
+        for events in (["[DONE]"], [delta_event(role="assistant"), "[DONE]"], []):
+            with self.subTest(events=events):
+                body = sse_bytes(*events)
+                with self._patched_client(lambda req: httpx.Response(200, content=body)):
+                    with self.assertRaises(AdapterError) as ctx:
+                        list(self._adapter().run_stream("q"))
+                self.assertIn("no content", str(ctx.exception))
+
+    def test_reasoning_content_deltas_dropped(self):
+        # Parity with run(): chain-of-thought arrives in reasoning_content and is never yielded.
+        body = sse_bytes(
+            delta_event(reasoning_content="thinking hard…"),
+            delta_event("answer"),
+            "[DONE]",
+        )
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            self.assertEqual(list(self._adapter().run_stream("q")), ["answer"])
 
 
 class FromEntryTest(unittest.TestCase):

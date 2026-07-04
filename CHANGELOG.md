@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Library streaming core (c13-S1 of #73)** — adapters gain an optional
+  `StreamingAdapter` capability (`run_stream(prompt, opts) -> Iterator[str]`), implemented by
+  the openai-compat adapter as httpx SSE pass-through (the paid `api` adapter inherits it; both
+  billing gates are untouched — they act at selection time, before any adapter exists). New
+  `run_once_stream()` beside `run_once`: identical path precedence, task-id minting, and gates;
+  direct-adapter paths (pin / `--local` / gate-local) stream incrementally when the backend can,
+  everything else — including the router path, per the ratified c13 v2 scope — delivers the
+  completed text as a single-item stream. Metering parity: streamed responses are recorded on
+  stream completion, with partial text recorded when a stream dies or is abandoned mid-way
+  (real backend spend), and nothing recorded for a stream that failed before its first token.
+  The serve endpoint still emulates (`sse_body`) until c13-S2 wires it up.
+
 ### Security
 
 - **Knob GUI POST hardening** (#72), mirroring the serve endpoint's guards: `POST /api/*` now
