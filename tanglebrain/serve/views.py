@@ -49,7 +49,38 @@ DEFAULT_PORT = 3251
 # The model-param alias that engages the full router.
 AUTO_ALIAS = "auto"
 
+# Optional request header carrying the caller's own task/session identity (#74). Recorded onto
+# the usage record verbatim (after sanitizing) for cross-system attribution; never routed on.
+PARENT_TASK_HEADER = "X-TangleBrain-Parent-Task"
+
+# Length cap for the recorded header value — attribution metadata, not a payload channel.
+_PARENT_TASK_MAX_LEN = 128
+
 _OWNED_BY = "tanglebrain"
+
+
+def sanitize_parent_task(value: object) -> str | None:
+    """Sanitize a raw ``X-TangleBrain-Parent-Task`` header value for recording (#74).
+
+    Attribution metadata only, so the stance is trim-don't-reject: whitespace is stripped,
+    non-printable characters are dropped (the stdlib header parser accepts folded values, so raw
+    ``\\r\\n`` — and ANSI escapes — could otherwise ride into records and bite any future
+    consumer that prints the field to a terminal), an empty/absent/non-string value becomes
+    ``None`` (field omitted from the record), and anything longer than 128 chars is truncated —
+    a caller cannot stuff arbitrary payloads into the usage log through this header.
+
+    Args:
+        value: The raw header value (or ``None`` when the header is absent).
+
+    Returns:
+        The cleaned identity string, or ``None`` when there is nothing worth recording.
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned = "".join(ch for ch in value.strip() if ch.isprintable())
+    if not cleaned:
+        return None
+    return cleaned[:_PARENT_TASK_MAX_LEN]
 
 
 class BadRequestError(ValueError):
@@ -339,7 +370,9 @@ def _parse_chat_request(payload: dict) -> tuple[str, str, int | None]:
     return model, prompt, max_tokens
 
 
-def handle_chat_completion_stream(payload: dict) -> tuple[int, dict | Iterator[bytes]]:
+def handle_chat_completion_stream(
+    payload: dict, parent_task: str | None = None
+) -> tuple[int, dict | Iterator[bytes]]:
     """Handle one ``stream: true`` ``POST /v1/chat/completions`` request body.
 
     Same validation and error mapping as :func:`handle_chat_completion`, but the request runs
@@ -350,6 +383,8 @@ def handle_chat_completion_stream(payload: dict) -> tuple[int, dict | Iterator[b
 
     Args:
         payload: The parsed JSON request body (a dict).
+        parent_task: The sanitized ``X-TangleBrain-Parent-Task`` header value (or ``None``),
+            recorded onto the usage record for cross-system attribution (#74).
 
     Returns:
         ``(status, body)`` where a non-200 ``body`` is an OpenAI-style error dict (serialize as
@@ -363,7 +398,10 @@ def handle_chat_completion_stream(payload: dict) -> tuple[int, dict | Iterator[b
 
     pinned = None if model == AUTO_ALIAS else model
     try:
-        deltas, served = run_once_stream(prompt, model=pinned, max_tokens=max_tokens)
+        deltas, served = run_once_stream(
+            prompt, model=pinned, max_tokens=max_tokens,
+            origin="serve", parent_task_id=parent_task,
+        )
         first = next(deltas)
     except StopIteration:
         # Defensive: adapters raise on zero-content streams, and emulated paths always carry
@@ -382,7 +420,7 @@ def handle_chat_completion_stream(payload: dict) -> tuple[int, dict | Iterator[b
     return 200, sse_stream_events(first, deltas, served, model, prompt)
 
 
-def handle_chat_completion(payload: dict) -> tuple[int, dict]:
+def handle_chat_completion(payload: dict, parent_task: str | None = None) -> tuple[int, dict]:
     """Handle one ``POST /v1/chat/completions`` request body.
 
     Resolves the model directive, flattens the messages, runs the request through
@@ -397,6 +435,8 @@ def handle_chat_completion(payload: dict) -> tuple[int, dict]:
 
     Args:
         payload: The parsed JSON request body (a dict).
+        parent_task: The sanitized ``X-TangleBrain-Parent-Task`` header value (or ``None``),
+            recorded onto the usage record for cross-system attribution (#74).
 
     Returns:
         ``(status_code, body_dict)``. This is the non-streaming handler — a ``stream: true``
@@ -409,7 +449,10 @@ def handle_chat_completion(payload: dict) -> tuple[int, dict]:
 
     pinned = None if model == AUTO_ALIAS else model
     try:
-        text, served = run_once(prompt, model=pinned, max_tokens=max_tokens, return_served=True)
+        text, served = run_once(
+            prompt, model=pinned, max_tokens=max_tokens, return_served=True,
+            origin="serve", parent_task_id=parent_task,
+        )
     except SelectionError as exc:
         if pinned is not None:
             # The only selection to fail on the pinned path is the id lookup itself.

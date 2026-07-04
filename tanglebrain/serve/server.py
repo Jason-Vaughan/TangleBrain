@@ -21,10 +21,12 @@ from typing import Iterator
 
 from tanglebrain.serve.views import (
     DEFAULT_PORT,
+    PARENT_TASK_HEADER,
     error_envelope,
     handle_chat_completion,
     handle_chat_completion_stream,
     list_models,
+    sanitize_parent_task,
     wants_stream,
 )
 
@@ -38,7 +40,11 @@ def _json_response(status: int, obj: object) -> tuple[int, str, bytes]:
 
 
 def dispatch(
-    method: str, path: str, body: bytes = b"", content_type: str = "application/json"
+    method: str,
+    path: str,
+    body: bytes = b"",
+    content_type: str = "application/json",
+    parent_task: str | None = None,
 ) -> tuple[int, str, bytes | Iterator[bytes]]:
     """Route one request to a view and return ``(status, content_type, body)``.
 
@@ -61,6 +67,8 @@ def dispatch(
         body: Raw request body bytes (for ``POST``).
         content_type: The request's ``Content-Type`` header value (POST only; defaults to JSON
             so socket-free tests needn't supply it).
+        parent_task: The raw ``X-TangleBrain-Parent-Task`` header value (or ``None``) — sanitized
+            here and recorded onto the usage record for cross-system attribution (#74).
 
     Returns:
         ``(status_code, content_type, body_bytes)``.
@@ -94,13 +102,14 @@ def dispatch(
                 return _json_response(
                     400, error_envelope("request body must be a JSON object", "invalid_request_error")
                 )
+            caller_task = sanitize_parent_task(parent_task)
             try:
                 if wants_stream(payload):
-                    status, result = handle_chat_completion_stream(payload)
+                    status, result = handle_chat_completion_stream(payload, caller_task)
                     if status == 200:
                         return 200, _SSE, result  # Iterator[bytes] — pump already primed
                     return _json_response(status, result)
-                status, obj = handle_chat_completion(payload)
+                status, obj = handle_chat_completion(payload, caller_task)
             except Exception as exc:  # noqa: BLE001 — any escape must be clean JSON, never a
                 # dropped connection (e.g. a malformed settings.yaml raising SettingsError on the
                 # auto path). Typed, expected failures are already mapped inside the handlers,
@@ -119,7 +128,8 @@ class Handler(BaseHTTPRequestHandler):
     ``Authorization`` is deliberately never consulted: local callers need no key, and any dummy
     bearer a client insists on sending is simply ignored. The only headers read are the framing
     ones — ``Content-Length`` and ``Content-Type`` (see :func:`dispatch` for why the latter is
-    enforced).
+    enforced) — plus the optional ``X-TangleBrain-Parent-Task`` attribution header (#74), which
+    is recorded onto the usage record and never routed on.
     """
 
     def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
@@ -138,7 +148,13 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         body = self.rfile.read(length) if length else b""
-        self._respond(*dispatch("POST", self.path, body, self.headers.get("Content-Type", "")))
+        self._respond(
+            *dispatch(
+                "POST", self.path, body,
+                self.headers.get("Content-Type", ""),
+                self.headers.get(PARENT_TASK_HEADER),
+            )
+        )
 
     def _respond(self, status: int, content_type: str, body: bytes | "Iterator[bytes]") -> None:
         """Write a complete HTTP response — buffered bytes, or a streamed body.

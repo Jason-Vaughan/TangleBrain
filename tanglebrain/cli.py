@@ -150,6 +150,8 @@ def run_once(
     task: str | None = None,
     return_served: bool = False,
     gate: bool | None = None,
+    origin: str = "cli",
+    parent_task_id: str | None = None,
 ):
     """Route a single prompt to a roster tier and return the response text.
 
@@ -180,6 +182,10 @@ def run_once(
         gate: Override for the classifier gate on the default path. ``None`` (default) uses the
             ``classifier_gate_enabled`` setting; ``True``/``False`` force the gate on/off for this
             call. Ignored when ``model`` or ``local`` is set.
+        origin: Which surface this call entered through, recorded on the usage record (#74) —
+            ``"cli"`` (default), ``"gui"``, or ``"serve"``. Attribution only; routing unaffected.
+        parent_task_id: Optional external caller identity recorded on the usage record (#74:
+            the serve endpoint's ``X-TangleBrain-Parent-Task`` header). Attribution only.
 
     Returns:
         The response text (``str``), or ``(text, served)`` when ``return_served`` is ``True``.
@@ -219,12 +225,21 @@ def run_once(
             text = router.route(prompt, task=task, opts=opts)
             entry = router.last_served
 
-    record_task(path=path, entry=entry, prompt=prompt, response=text, task_id=task_id)
+    record_task(
+        path=path, entry=entry, prompt=prompt, response=text, task_id=task_id,
+        origin=origin, parent_task_id=parent_task_id,
+    )
     return (text, _served(path, entry, task_id)) if return_served else text
 
 
 def _recording_stream(
-    deltas: Iterator[str], path: str, entry, prompt: str, task_id: str
+    deltas: Iterator[str],
+    path: str,
+    entry,
+    prompt: str,
+    task_id: str,
+    origin: str,
+    parent_task_id: str | None,
 ) -> Iterator[str]:
     """Wrap a delta stream so the task is metered exactly once, however the stream ends.
 
@@ -245,6 +260,8 @@ def _recording_stream(
         entry: The serving roster entry.
         prompt: The routed prompt (for the usage estimate).
         task_id: The task id minted for this run.
+        origin: The entry surface recorded on the usage record (#74).
+        parent_task_id: Optional external caller identity recorded on the usage record (#74).
 
     Yields:
         The fragments of ``deltas``, unchanged.
@@ -258,7 +275,8 @@ def _recording_stream(
             return
         recorded = True
         record_task(
-            path=path, entry=entry, prompt=prompt, response="".join(pieces), task_id=task_id
+            path=path, entry=entry, prompt=prompt, response="".join(pieces), task_id=task_id,
+            origin=origin, parent_task_id=parent_task_id,
         )
 
     try:
@@ -284,6 +302,8 @@ def run_once_stream(
     local: bool = False,
     task: str | None = None,
     gate: bool | None = None,
+    origin: str = "cli",
+    parent_task_id: str | None = None,
 ) -> tuple[Iterator[str], dict | None]:
     """Route a single prompt like :func:`run_once`, delivering the response as a delta stream.
 
@@ -310,6 +330,8 @@ def run_once_stream(
         local: Force the free local tier instead of the frontier-first router.
         task: Optional task-fit hint for the router (a ``good_at`` tag).
         gate: Classifier-gate override for the default path, as in :func:`run_once`.
+        origin: Which surface this call entered through, recorded on the usage record (#74).
+        parent_task_id: Optional external caller identity recorded on the usage record (#74).
 
     Returns:
         ``(deltas, served)`` — ``deltas`` yields response text fragments in order (joined, they
@@ -344,7 +366,10 @@ def run_once_stream(
             router = Router(roster)
             text = router.route(prompt, task=task, opts=opts)
             entry = router.last_served
-            record_task(path="router", entry=entry, prompt=prompt, response=text, task_id=task_id)
+            record_task(
+                path="router", entry=entry, prompt=prompt, response=text, task_id=task_id,
+                origin=origin, parent_task_id=parent_task_id,
+            )
             return iter([text]), _served("router", entry, task_id)
 
     adapter = build_adapter(entry)
@@ -352,10 +377,15 @@ def run_once_stream(
     if run_stream is None:
         # Per-backend emulation: no streaming capability — run blocking, frame as one delta.
         text = adapter.run(prompt, opts)
-        record_task(path=path, entry=entry, prompt=prompt, response=text, task_id=task_id)
+        record_task(
+            path=path, entry=entry, prompt=prompt, response=text, task_id=task_id,
+            origin=origin, parent_task_id=parent_task_id,
+        )
         return iter([text]), _served(path, entry, task_id)
 
-    deltas = _recording_stream(run_stream(prompt, opts), path, entry, prompt, task_id)
+    deltas = _recording_stream(
+        run_stream(prompt, opts), path, entry, prompt, task_id, origin, parent_task_id
+    )
     return deltas, _served(path, entry, task_id)
 
 

@@ -303,6 +303,7 @@ def record_task(
     kind: str = "task",
     task_id: str | None = None,
     parent_task_id: str | None = None,
+    origin: str | None = None,
     log_path: str | os.PathLike[str] | None = None,
     pricing: Pricing | None = None,
 ) -> None:
@@ -325,7 +326,13 @@ def record_task(
             can be linked back to it). Omitted from the record when ``None``.
         parent_task_id: For a delegated sub-call, the id of the top-level task that spawned it (read
             from :data:`PARENT_TASK_ID_ENV`). Omitted from the record when ``None`` — e.g. a delegate
-            invoked outside a propagated task, which rolls up as ``unlinked``.
+            invoked outside a propagated task, which rolls up as ``unlinked``. For a top-level task,
+            an external caller's own task/session identity (#74: the serve endpoint's
+            ``X-TangleBrain-Parent-Task`` header) — pure attribution metadata; the delegate tree's
+            ``by_parent`` rollup reads it only off ``delegate`` records.
+        origin: Which surface the work entered through — ``"cli"`` | ``"gui"`` | ``"serve"``
+            (#74). Omitted from the record when ``None``; records without it roll up as
+            ``untagged`` (pre-#74 history is never guessed at).
         log_path: Override the usage-log path (tests inject a temp path). Defaults to
             :func:`default_log_path`.
         pricing: Override the pricing. Defaults to :func:`load_pricing`.
@@ -359,6 +366,8 @@ def record_task(
             record["task_id"] = str(task_id)
         if parent_task_id is not None:
             record["parent_task_id"] = str(parent_task_id)
+        if origin is not None:
+            record["origin"] = str(origin)
         target = Path(log_path) if log_path is not None else default_log_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         with _LOG_LOCK:
@@ -420,8 +429,10 @@ def rollup(records: list[dict]) -> dict:
         records: The records from :func:`read_records`.
 
     Returns:
-        A dict with: ``tasks`` (int), ``by_tier`` (tier → count), ``in_tokens_est`` /
-        ``out_tokens_est`` (summed estimates), and ``cloud_equiv_usd`` / ``spend_avoided_usd``
+        A dict with: ``tasks`` (int), ``by_tier`` (tier → count), ``by_origin`` (origin → count,
+        where a record without an ``origin`` field counts as ``untagged`` — pre-#74 history is
+        never guessed at), ``in_tokens_est`` / ``out_tokens_est`` (summed estimates), and
+        ``cloud_equiv_usd`` / ``spend_avoided_usd``
         (summed dollars) — all over **top-level tasks only** — plus ``delegates``, a separate
         sub-rollup of delegated sub-calls ``{count, by_backend: {model: {count, in_tokens_est,
         out_tokens_est}}, by_parent: {parent_task_id: {count, by_backend: {model: count}}},
@@ -434,6 +445,7 @@ def rollup(records: list[dict]) -> dict:
     summary: dict = {
         "tasks": 0,
         "by_tier": {},
+        "by_origin": {},
         "in_tokens_est": 0,
         "out_tokens_est": 0,
         "cloud_equiv_usd": 0.0,
@@ -473,6 +485,8 @@ def rollup(records: list[dict]) -> dict:
         summary["tasks"] += 1
         tier = str(r.get("tier", "unknown"))
         summary["by_tier"][tier] = summary["by_tier"].get(tier, 0) + 1
+        origin = str(r.get("origin") or "untagged")
+        summary["by_origin"][origin] = summary["by_origin"].get(origin, 0) + 1
         summary["in_tokens_est"] += in_tok
         summary["out_tokens_est"] += out_tok
         summary["cloud_equiv_usd"] += _as_float(r.get("cloud_equiv_usd"))
@@ -503,6 +517,11 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
     if by_tier:
         tiers = ", ".join(f"{k} {v}" for k, v in sorted(by_tier.items()))
         lines.append(f"  By tier:        {tiers}")
+    by_origin = summary.get("by_origin") or {}
+    # Show the origin split only once it says something — all-untagged history adds no signal.
+    if any(k != "untagged" for k in by_origin):
+        origins = ", ".join(f"{k} {v}" for k, v in sorted(by_origin.items()))
+        lines.append(f"  By origin:      {origins}")
     lines.append(
         f"  Est. tokens:    in {summary.get('in_tokens_est', 0):,} / "
         f"out {summary.get('out_tokens_est', 0):,}"
