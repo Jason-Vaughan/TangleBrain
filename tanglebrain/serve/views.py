@@ -62,10 +62,12 @@ _OWNED_BY = "tanglebrain"
 def sanitize_parent_task(value: object) -> str | None:
     """Sanitize a raw ``X-TangleBrain-Parent-Task`` header value for recording (#74).
 
-    Attribution metadata only, so the stance is trim-don't-reject: whitespace is stripped, an
-    empty/absent/non-string value becomes ``None`` (field omitted from the record), and anything
-    longer than 128 chars is truncated — a caller cannot stuff arbitrary payloads into the
-    usage log through this header.
+    Attribution metadata only, so the stance is trim-don't-reject: whitespace is stripped,
+    non-printable characters are dropped (the stdlib header parser accepts folded values, so raw
+    ``\\r\\n`` — and ANSI escapes — could otherwise ride into records and bite any future
+    consumer that prints the field to a terminal), an empty/absent/non-string value becomes
+    ``None`` (field omitted from the record), and anything longer than 128 chars is truncated —
+    a caller cannot stuff arbitrary payloads into the usage log through this header.
 
     Args:
         value: The raw header value (or ``None`` when the header is absent).
@@ -75,7 +77,7 @@ def sanitize_parent_task(value: object) -> str | None:
     """
     if not isinstance(value, str):
         return None
-    cleaned = value.strip()
+    cleaned = "".join(ch for ch in value.strip() if ch.isprintable())
     if not cleaned:
         return None
     return cleaned[:_PARENT_TASK_MAX_LEN]

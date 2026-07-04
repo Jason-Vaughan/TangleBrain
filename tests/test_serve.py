@@ -426,6 +426,11 @@ class ParentTaskAttributionTest(unittest.TestCase):
         self.assertIsNone(sanitize_parent_task(42))
         self.assertEqual(sanitize_parent_task("  tc-42  "), "tc-42")
         self.assertEqual(len(sanitize_parent_task("x" * 5000)), 128)  # length-capped
+        # Control chars are dropped, not recorded: header folding can smuggle \r\n through the
+        # stdlib parser, and ANSI escapes would bite any consumer printing the field raw.
+        self.assertEqual(sanitize_parent_task("a\r\nb"), "ab")
+        self.assertEqual(sanitize_parent_task("\x1b[31mevil\x1b[0m"), "[31mevil[0m")
+        self.assertIsNone(sanitize_parent_task("\x1b\x00\x07"))  # nothing printable left
 
     def test_plain_handler_threads_origin_and_parent_task(self):
         run = MagicMock(return_value=("t", dict(_SERVED)))

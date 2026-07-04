@@ -109,10 +109,16 @@ async function loadStats() {
     const d = await getJSON("/api/stats");
     const s = d.summary || {};
     const tiers = Object.entries(s.by_tier || {}).map(([k, v]) => `${esc(k)} ${v}`).join(", ") || "—";
+    // Origin split (#74): shown only once some record is actually tagged — all-untagged history
+    // adds no signal (mirrors the CLI's format_rollup stance).
+    const byOrigin = s.by_origin || {};
+    const hasOrigin = Object.keys(byOrigin).some((k) => k !== "untagged");
+    const origins = Object.entries(byOrigin).map(([k, v]) => `${esc(k)} ${v}`).join(", ");
     let html = `<div class="stat-grid">
       <div class="stat"><div class="label">Tasks routed</div><div class="value">${s.tasks || 0}</div></div>
       <div class="stat"><div class="label">Spend avoided</div><div class="value big">${money(s.spend_avoided_usd)}</div></div>
       <div class="stat"><div class="label">By tier</div><div class="value mono" style="font-size:.95rem">${tiers}</div></div>
+      ${hasOrigin ? `<div class="stat"><div class="label">By origin</div><div class="value mono" style="font-size:.95rem">${origins}</div></div>` : ""}
       <div class="stat"><div class="label">Est. tokens (in / out)</div><div class="value mono" style="font-size:.95rem">${(s.in_tokens_est||0).toLocaleString()} / ${(s.out_tokens_est||0).toLocaleString()}</div></div>
     </div>`;
     if (d.is_placeholder) html += `<div class="caveat">⚠ pricing: PLACEHOLDER — figures illustrative until the anchor is ratified.</div>`;

@@ -487,7 +487,19 @@ class RunOnceStreamTest(unittest.TestCase):
                 origin="serve", parent_task_id="tc-42",
             )
             list(deltas)
-        for record in self._records():
+        served_entry = MagicMock(); served_entry.tier = "sub"; served_entry.id = "codex"
+        fake_router = MagicMock()
+        fake_router.route.return_value = "routed"
+        fake_router.last_served = served_entry
+        with patch("tanglebrain.cli.load_roster"), \
+             patch("tanglebrain.cli.Router", return_value=fake_router):
+            deltas, _ = run_once_stream(
+                "hi", gate=False, origin="serve", parent_task_id="tc-42"
+            )
+            list(deltas)
+        records = self._records()
+        self.assertEqual(len(records), 3)  # streamed pin + emulated pin + emulated router
+        for record in records:
             self.assertEqual(record["origin"], "serve")
             self.assertEqual(record["parent_task_id"], "tc-42")
 
