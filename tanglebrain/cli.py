@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
+from typing import Iterator
 
 from tanglebrain import __version__
 from tanglebrain.adapters import AdapterError
@@ -220,6 +221,136 @@ def run_once(
 
     record_task(path=path, entry=entry, prompt=prompt, response=text, task_id=task_id)
     return (text, _served(path, entry, task_id)) if return_served else text
+
+
+def _recording_stream(deltas: Iterator[str], path: str, entry, prompt: str, task_id: str) -> Iterator[str]:
+    """Wrap a delta stream so the task is metered exactly once, however the stream ends.
+
+    Accumulates every yielded fragment and calls
+    :func:`~tanglebrain.measurement.record_task` with the joined text when the stream finishes.
+    Three endings are handled:
+
+    - **Normal exhaustion** — record the full text (parity with :func:`run_once`).
+    - **Mid-stream adapter failure** — record the partial text *if any was produced* (it was
+      real backend spend), then re-raise so the caller can frame the error. A failure before
+      the first fragment records nothing, matching ``run_once`` (which never meters a task
+      that produced no text).
+    - **Abandoned stream** (caller ``close()``/GC) — record the partial text if any.
+
+    Args:
+        deltas: The adapter's delta iterator.
+        path: The routing path label (``model``/``local``/``gate-local``).
+        entry: The serving roster entry.
+        prompt: The routed prompt (for the usage estimate).
+        task_id: The task id minted for this run.
+
+    Yields:
+        The fragments of ``deltas``, unchanged.
+    """
+    pieces: list[str] = []
+    recorded = False
+
+    def _record(require_text: bool) -> None:
+        nonlocal recorded
+        if recorded or (require_text and not pieces):
+            return
+        recorded = True
+        record_task(path=path, entry=entry, prompt=prompt, response="".join(pieces), task_id=task_id)
+
+    try:
+        for piece in deltas:
+            pieces.append(piece)
+            yield piece
+    except GeneratorExit:
+        _record(require_text=True)
+        raise
+    except Exception:
+        _record(require_text=True)
+        raise
+    _record(require_text=False)
+
+
+def run_once_stream(
+    prompt: str,
+    roster_path: str | None = None,
+    max_tokens: int | None = None,
+    model: str | None = None,
+    local: bool = False,
+    task: str | None = None,
+    gate: bool | None = None,
+) -> tuple[Iterator[str], dict | None]:
+    """Route a single prompt like :func:`run_once`, delivering the response as a delta stream.
+
+    Path precedence, task-id minting, gates, and metering are identical to :func:`run_once`;
+    what differs is delivery:
+
+    - **model / local / gate-local** paths: when the built adapter implements the optional
+      :class:`~tanglebrain.adapters.base.StreamingAdapter` capability, its deltas are passed
+      through incrementally (the connection opens on the first pull — see the capability's
+      laziness contract). An adapter without ``run_stream`` runs blocking and the full text is
+      delivered as a single-item stream (per-backend emulation).
+    - **router** path: always blocking ``Router.route()`` framed as a single-item stream —
+      the c13 v2 stance (orchestrators are cli-kind; per-CLI streaming is deferred to v3).
+
+    Metering: streamed paths record on stream completion (partial text on mid-stream failure or
+    abandonment — see :func:`_recording_stream`); emulated paths record before returning, since
+    the spend has already happened by then.
+
+    Args:
+        prompt: The prompt to route.
+        roster_path: Optional roster YAML path (defaults to the packaged roster).
+        max_tokens: Optional completion token cap (honoured by the openai-compat adapter).
+        model: Optional roster entry id to route to explicitly.
+        local: Force the free local tier instead of the frontier-first router.
+        task: Optional task-fit hint for the router (a ``good_at`` tag).
+        gate: Classifier-gate override for the default path, as in :func:`run_once`.
+
+    Returns:
+        ``(deltas, served)`` — ``deltas`` yields response text fragments in order (joined, they
+        form the full response); ``served`` is ``{path, tier, model, task_id}`` for the entry
+        that serves the request (or ``None`` when unknown), resolved **before** the first delta
+        on every path.
+
+    Raises:
+        RosterError: If the roster cannot be loaded.
+        SelectionError: If ``model``/``local`` is used and no suitable entry is available.
+        RouterError: If the router runs and no orchestrator can serve the request.
+        AdapterError: Raised from ``deltas`` — on the first pull for connect-time failures,
+            mid-iteration for a stream that dies part-way. Emulated (blocking) paths raise it
+            from this call directly, before any stream exists.
+    """
+    roster = load_roster(roster_path)
+    task_id = uuid.uuid4().hex
+    opts: dict = {"task_id": task_id}
+    if max_tokens is not None:
+        opts["max_tokens"] = max_tokens
+
+    if model is not None:
+        path, entry = "model", select_by_id(roster, model)
+    elif local:
+        path, entry = "local", select_local(roster)
+    else:
+        gate_on = load_settings().classifier_gate_enabled if gate is None else gate
+        if gate_on and classify(prompt, roster=roster) == TRIVIAL:
+            path, entry = "gate-local", select_local(roster)
+        else:
+            # Router path: blocking route + single-item stream (v2 emulation; Router untouched).
+            router = Router(roster)
+            text = router.route(prompt, task=task, opts=opts)
+            entry = router.last_served
+            record_task(path="router", entry=entry, prompt=prompt, response=text, task_id=task_id)
+            return iter([text]), _served("router", entry, task_id)
+
+    adapter = build_adapter(entry)
+    run_stream = getattr(adapter, "run_stream", None)
+    if run_stream is None:
+        # Per-backend emulation: no streaming capability — run blocking, frame as one delta.
+        text = adapter.run(prompt, opts)
+        record_task(path=path, entry=entry, prompt=prompt, response=text, task_id=task_id)
+        return iter([text]), _served(path, entry, task_id)
+
+    deltas = _recording_stream(run_stream(prompt, opts), path, entry, prompt, task_id)
+    return deltas, _served(path, entry, task_id)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -71,5 +71,33 @@ class RunTest(unittest.TestCase):
         self.assertEqual(fake.post.call_args.kwargs["headers"]["Authorization"], "Bearer sk-virtual-7")
 
 
+class RunStreamTest(unittest.TestCase):
+    """run_stream() is inherited from the openai-compat transport — the paid tier streams too."""
+
+    def test_streams_deltas_with_bearer_key(self):
+        seen_headers = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_headers.update(request.headers)
+            body = (
+                b'data: {"choices":[{"index":0,"delta":{"content":"paid"},"finish_reason":null}]}\n\n'
+                b"data: [DONE]\n\n"
+            )
+            return httpx.Response(200, content=body)
+
+        real_client = httpx.Client
+
+        def factory(**kwargs):
+            return real_client(
+                transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout")
+            )
+
+        with patch("tanglebrain.adapters.openai_compat.resolve_key_ref", return_value="sk-virtual-7"):
+            with patch("tanglebrain.adapters.openai_compat.httpx.Client", new=factory):
+                deltas = list(ApiAdapter.from_entry(api_entry()).run_stream("hard question"))
+        self.assertEqual(deltas, ["paid"])
+        self.assertEqual(seen_headers.get("authorization"), "Bearer sk-virtual-7")
+
+
 if __name__ == "__main__":
     unittest.main()

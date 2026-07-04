@@ -14,9 +14,10 @@ Behaviour:
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-from typing import Mapping
+from typing import Iterator, Mapping
 
 import httpx
 
@@ -150,18 +151,7 @@ class OpenAICompatAdapter:
                 unexpected response shape.
         """
         opts = opts or {}
-        max_tokens = int(opts.get("max_tokens", self.default_max_tokens))
-        if max_tokens < 1:
-            raise AdapterError(
-                f"max_tokens must be >= 1, got {max_tokens} "
-                "(a local reasoning model needs generous headroom)"
-            )
-
-        url = f"{self.base_url}/chat/completions"
-        headers = {"Content-Type": "application/json"}
-        key = resolve_key_ref(self.key_ref)
-        if key:
-            headers["Authorization"] = f"Bearer {key}"
+        url, headers, max_tokens = self._prepare_request(opts)
 
         payload = {
             "model": self.model,
@@ -195,3 +185,127 @@ class OpenAICompatAdapter:
                 f"(often a truncated response — try a larger max_tokens): {data!r}"
             )
         return content
+
+    def _prepare_request(self, opts: Mapping[str, object]) -> tuple[str, dict, int]:
+        """Resolve the URL, headers (credential included), and token cap for one call.
+
+        Shared by :meth:`run` and :meth:`run_stream` so config/credential failures behave
+        identically on both paths.
+
+        Args:
+            opts: Per-call options (``max_tokens`` recognized).
+
+        Returns:
+            ``(url, headers, max_tokens)``.
+
+        Raises:
+            AdapterError: If ``max_tokens`` < 1 or the credential reference cannot resolve.
+        """
+        max_tokens = int(opts.get("max_tokens", self.default_max_tokens))
+        if max_tokens < 1:
+            raise AdapterError(
+                f"max_tokens must be >= 1, got {max_tokens} "
+                "(a local reasoning model needs generous headroom)"
+            )
+        headers = {"Content-Type": "application/json"}
+        key = resolve_key_ref(self.key_ref)
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        return f"{self.base_url}/chat/completions", headers, max_tokens
+
+    def run_stream(self, prompt: str, opts: Mapping[str, object] | None = None) -> Iterator[str]:
+        """Stream a single-message chat completion, yielding content deltas as they arrive.
+
+        Implements the optional :class:`~tanglebrain.adapters.base.StreamingAdapter` capability:
+        the same request as :meth:`run` with ``"stream": true``, decoded as SSE pass-through.
+        Config/credential errors raise **eagerly** (at call time); the HTTP connection opens
+        lazily on the first iteration, so a caller can pull the first delta before committing
+        its own response headers (connect-time failures surface from that pull, pre-stream).
+
+        Decoding stance (mirrors :meth:`run` where they overlap):
+
+        - Yields ``choices[0].delta.content`` fragments; empty/role-only deltas and chunks with
+          no choices (e.g. a trailing usage chunk) are skipped, never yielded.
+        - ``reasoning_content`` deltas are dropped, matching ``run``.
+        - ``data: [DONE]`` ends the stream; a clean close **without** ``[DONE]`` also ends it
+          (some local gateways omit the terminator — treat honest EOF as done, not an error).
+        - An in-stream ``{"error": ...}`` event, a malformed ``data:`` line, a non-2xx status,
+          or a transport failure raises :class:`AdapterError`.
+
+        Args:
+            prompt: The prompt to send as the sole user message.
+            opts: Optional per-call options. Recognized keys: ``max_tokens`` (int).
+
+        Yields:
+            Non-empty content fragments, in generation order.
+
+        Raises:
+            AdapterError: Eagerly for bad config/credentials; from the first pull for
+                connect-time failures; mid-iteration for a stream that dies part-way.
+        """
+        opts = opts or {}
+        url, headers, max_tokens = self._prepare_request(opts)
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        return self._stream_deltas(url, headers, payload)
+
+    def _stream_deltas(self, url: str, headers: dict, payload: dict) -> Iterator[str]:
+        """Open the SSE request and yield content deltas (the lazy half of :meth:`run_stream`).
+
+        Args:
+            url: The chat-completions URL.
+            headers: Request headers (credential already resolved).
+            payload: The JSON request body (``stream: true`` already set).
+
+        Yields:
+            Non-empty content fragments.
+
+        Raises:
+            AdapterError: On non-2xx status, transport failure, a malformed SSE data line, or
+                an in-stream error event.
+        """
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                with client.stream("POST", url, headers=headers, json=payload) as response:
+                    if response.status_code >= 400:
+                        # Read the body before .text — on a stream it is not buffered yet.
+                        body = response.read().decode("utf-8", errors="replace")
+                        raise AdapterError(
+                            f"LiteLLM returned {response.status_code} for model "
+                            f"{self.model!r}: {body}"
+                        )
+                    for line in response.iter_lines():
+                        if not line.startswith("data:"):
+                            continue  # SSE comments / event: lines / keep-alive blanks
+                        data = line[len("data:"):].strip()
+                        if data == "[DONE]":
+                            return
+                        try:
+                            event = json.loads(data)
+                        except ValueError as exc:
+                            raise AdapterError(
+                                f"malformed SSE data line from model {self.model!r}: {data!r}"
+                            ) from exc
+                        if not isinstance(event, dict):
+                            raise AdapterError(
+                                f"unexpected SSE event shape from model {self.model!r}: {event!r}"
+                            )
+                        if "error" in event:
+                            raise AdapterError(
+                                f"in-stream error from model {self.model!r}: {event['error']!r}"
+                            )
+                        choices = event.get("choices") or []
+                        if not choices:
+                            continue  # e.g. a trailing usage-only chunk
+                        delta = choices[0].get("delta") or {}
+                        content = delta.get("content")
+                        if content:
+                            yield content
+        except httpx.HTTPError as exc:
+            raise AdapterError(
+                f"transport error streaming {url} for model {self.model!r}: {exc}"
+            ) from exc

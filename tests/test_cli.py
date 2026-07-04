@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from tanglebrain.adapters import AdapterError
-from tanglebrain.cli import main, run_once
+from tanglebrain.cli import main, run_once, run_once_stream
 from tanglebrain.measurement import read_records
 from tanglebrain.roster import packaged_roster_path
 from tanglebrain.selector import SelectionError
@@ -312,6 +312,159 @@ class RunOnceTest(unittest.TestCase):
         self.assertEqual(records[0]["path"], "router")
         self.assertEqual(records[0]["tier"], "sub")
         self.assertEqual(records[0]["model"], "claude")
+
+
+class RunOnceStreamTest(unittest.TestCase):
+    """run_once_stream — path parity with run_once, delta pass-through, metering (c13-S1).
+
+    Fakes use ``spec=[...]`` deliberately: capability detection is ``getattr(adapter,
+    "run_stream", None)``, and a bare MagicMock would auto-create that attribute and make every
+    adapter look streaming-capable.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.tmp}, clear=False)
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def _records(self):
+        return read_records(Path(self.tmp) / "usage.jsonl")
+
+    def _streaming_adapter(self, *deltas: str) -> MagicMock:
+        fake = MagicMock(spec=["run", "run_stream"])
+        fake.run_stream.return_value = iter(deltas)
+        return fake
+
+    def test_model_path_streams_and_records_on_exhaustion(self):
+        fake = self._streaming_adapter("Hel", "lo")
+        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, served = run_once_stream(
+                "hi", model="claude", roster_path=_pinned_roster(self)
+            )
+            # served resolves before the first delta; nothing is metered yet.
+            self.assertEqual(served["path"], "model")
+            self.assertEqual(served["model"], "claude")
+            self.assertTrue(served["task_id"])
+            self.assertEqual(self._records(), [])
+            self.assertEqual(list(deltas), ["Hel", "lo"])
+        records = self._records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["path"], "model")
+        self.assertEqual(records[0]["model"], "claude")
+
+    def test_non_streaming_adapter_falls_back_to_single_delta(self):
+        fake = MagicMock(spec=["run"])  # no run_stream — per-backend emulation
+        fake.run.return_value = "whole answer"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, served = run_once_stream(
+                "hi", model="claude", roster_path=_pinned_roster(self)
+            )
+            # Blocking path: the spend already happened, so it is metered before consumption.
+            self.assertEqual(len(self._records()), 1)
+            self.assertEqual(list(deltas), ["whole answer"])
+        self.assertEqual(served["path"], "model")
+        self.assertEqual(len(self._records()), 1)
+
+    def test_local_path_streams(self):
+        fake = self._streaming_adapter("local ", "reply")
+        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, served = run_once_stream(
+                "hi", local=True, roster_path=str(packaged_roster_path())
+            )
+            self.assertEqual(list(deltas), ["local ", "reply"])
+        self.assertEqual(served["path"], "local")
+        self.assertEqual(served["tier"], "local")
+        self.assertEqual(self._records()[0]["path"], "local")
+
+    def test_gate_trivial_streams_from_local(self):
+        fake = self._streaming_adapter("4")
+        with patch("tanglebrain.cli.classify", return_value="trivial"), \
+             patch("tanglebrain.cli.build_adapter", return_value=fake), \
+             patch("tanglebrain.cli.Router") as RouterCls:
+            deltas, served = run_once_stream("2+2?", gate=True)
+            self.assertEqual(list(deltas), ["4"])
+        self.assertEqual(served["path"], "gate-local")
+        RouterCls.assert_not_called()
+
+    def test_router_path_emulates_single_delta(self):
+        served_entry = MagicMock(); served_entry.tier = "sub"; served_entry.id = "codex"
+        fake_router = MagicMock()
+        fake_router.route.return_value = "routed reply"
+        fake_router.last_served = served_entry
+        with patch("tanglebrain.cli.load_roster"), \
+             patch("tanglebrain.cli.Router", return_value=fake_router):
+            deltas, served = run_once_stream("hi", gate=False)
+            # Emulated: route() already ran to completion and was metered at call time.
+            self.assertEqual(len(self._records()), 1)
+            self.assertEqual(list(deltas), ["routed reply"])
+        self.assertEqual(served["path"], "router")
+        self.assertEqual(served["model"], "codex")
+        fake_router.route.assert_called_once()
+
+    def test_mid_stream_error_records_partial_and_reraises(self):
+        def exploding():
+            yield "par"
+            raise AdapterError("backend died")
+
+        fake = MagicMock(spec=["run", "run_stream"])
+        fake.run_stream.return_value = exploding()
+        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, _ = run_once_stream("hi", model="claude", roster_path=_pinned_roster(self))
+            self.assertEqual(next(deltas), "par")
+            with self.assertRaises(AdapterError):
+                next(deltas)
+        records = self._records()
+        self.assertEqual(len(records), 1)
+        # The partial text was real backend spend — it is what gets metered.
+        self.assertGreater(records[0]["out_tokens_est"], 0)
+
+    def test_error_before_first_delta_records_nothing(self):
+        def dead_on_arrival():
+            raise AdapterError("connect refused")
+            yield  # pragma: no cover — makes this a generator
+
+        fake = MagicMock(spec=["run", "run_stream"])
+        fake.run_stream.return_value = dead_on_arrival()
+        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, _ = run_once_stream("hi", model="claude", roster_path=_pinned_roster(self))
+            with self.assertRaises(AdapterError):
+                next(deltas)
+        self.assertEqual(self._records(), [])
+
+    def test_abandoned_stream_records_partial(self):
+        fake = self._streaming_adapter("first", "never-pulled")
+        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, _ = run_once_stream("hi", model="claude", roster_path=_pinned_roster(self))
+            self.assertEqual(next(deltas), "first")
+            deltas.close()  # caller walks away mid-stream
+        records = self._records()
+        self.assertEqual(len(records), 1)
+        self.assertGreater(records[0]["out_tokens_est"], 0)
+
+    def test_opts_thread_task_id_and_max_tokens_to_run_stream(self):
+        fake = self._streaming_adapter("x")
+        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, served = run_once_stream(
+                "hi", model="claude", max_tokens=128, roster_path=_pinned_roster(self)
+            )
+            list(deltas)
+        opts = fake.run_stream.call_args.args[1]
+        self.assertEqual(opts.get("max_tokens"), 128)
+        self.assertEqual(opts.get("task_id"), served["task_id"])
+
+    def test_unknown_model_raises_selection_error_at_call_time(self):
+        with self.assertRaises(SelectionError):
+            run_once_stream("hi", model="no-such-model")
+
+    def test_gate_not_consulted_for_model_or_local(self):
+        fake = self._streaming_adapter("x")
+        roster = _pinned_roster(self)
+        with patch("tanglebrain.cli.classify") as clf, \
+             patch("tanglebrain.cli.build_adapter", return_value=fake):
+            deltas, _ = run_once_stream("hi", model="claude", gate=True, roster_path=roster)
+            list(deltas)
+        clf.assert_not_called()
 
 
 class MainTest(unittest.TestCase):
