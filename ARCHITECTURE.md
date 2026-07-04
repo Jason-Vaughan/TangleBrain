@@ -203,6 +203,24 @@ resolved or sent to the browser: a `key_ref` is shown as its reference string on
 `gui/views.py` holds pure, socket-free functions (testable directly); `gui/server.py` wraps them in
 a pure `dispatch(method, path, body)` plus a `ThreadingHTTPServer`.
 
+### Serve endpoint (`serve/`)
+
+An **OpenAI-compatible facade** over the same `cli.run_once` path: `POST /v1/chat/completions`
+translates a chat request into one routed run, and `GET /v1/models` lists the `auto` alias plus
+the roster ids. The `model` param is a routing directive — `auto` engages the full router
+(classifier gate honored per settings), a roster id pins that entry, anything else errors
+(`model_not_found`). Messages are flattened to a role-tagged transcript; `stream: true` is
+emulated (the completed response framed as a single SSE chunk). The routing core is untouched —
+measurement and both paid-API gates behave exactly as for a CLI run.
+
+Like the panel, it binds `127.0.0.1` only and is deliberately keyless: the `Authorization` header
+is never read (local callers need no credential), and the loopback bind is what keeps an
+unauthenticated quota-spending surface off the network.
+
+`serve/views.py` holds pure, socket-free translation functions (testable directly);
+`serve/server.py` wraps them in a pure `dispatch(method, path, body)` plus a
+`ThreadingHTTPServer` (the same split as the GUI).
+
 ### Settings & paid gate (`settings.py`, `config/settings.yaml`)
 
 A small global settings file holds two boolean switches, both **off by default** and both validated
@@ -219,6 +237,7 @@ strictly (a non-bool value can never coincidentally enable a feature):
 |---|---|---|
 | `tanglebrain` | `cli.py` | Route a prompt (default), or `--local` / `--model <id>` / `--gate` / `--stats`. |
 | `tanglebrain-gui` | `gui/server.py` | Serve the localhost knob panel. |
+| `tanglebrain-serve` | `serve/server.py` | Serve the router as a localhost OpenAI-compatible endpoint (`/v1/chat/completions`). |
 | `tanglebrain-delegate` | `mcp_server.py` | Serve the `delegate_local` / `delegate` / `delegate_many` / `delegate_targets` MCP tools over stdio. |
 
 `tanglebrain-delegate` additionally ships as a Claude Code plugin (`plugins/tanglebrain-delegate/`,

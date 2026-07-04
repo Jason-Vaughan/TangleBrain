@@ -123,11 +123,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _served(path: str, entry) -> dict | None:
-    """Build the ``{path, tier, model}`` served-summary for a routed task, or ``None``."""
+def _served(path: str, entry, task_id: str) -> dict | None:
+    """Build the ``{path, tier, model, task_id}`` served-summary for a routed task, or ``None``.
+
+    Args:
+        path: The routing path that served the task (``model``/``local``/``gate-local``/``router``).
+        entry: The serving :class:`~tanglebrain.roster.RosterEntry`, or ``None`` when unknown.
+        task_id: The task id minted for this run (links the caller's view of the task to its
+            usage record — e.g. the serve endpoint uses it as the completion id).
+
+    Returns:
+        The served-summary dict, or ``None`` when the serving entry is unknown.
+    """
     if entry is None:
         return None
-    return {"path": path, "tier": entry.tier, "model": entry.id}
+    return {"path": path, "tier": entry.tier, "model": entry.id, "task_id": task_id}
 
 
 def run_once(
@@ -162,9 +172,10 @@ def run_once(
         local: Force the free local tier instead of the frontier-first router.
         task: Optional task-fit hint for the router (a ``good_at`` tag).
         return_served: When ``True``, return ``(text, served)`` where ``served`` is
-            ``{path, tier, model}`` for the entry that served the task (or ``None`` if unknown).
-            The GUI uses this so it needn't re-read the usage log. Default ``False`` returns the
-            plain text string, so existing callers (``main``) are unchanged.
+            ``{path, tier, model, task_id}`` for the entry that served the task (or ``None`` if
+            unknown). The GUI and the serve endpoint use this so they needn't re-read the usage
+            log. Default ``False`` returns the plain text string, so existing callers (``main``)
+            are unchanged.
         gate: Override for the classifier gate on the default path. ``None`` (default) uses the
             ``classifier_gate_enabled`` setting; ``True``/``False`` force the gate on/off for this
             call. Ignored when ``model`` or ``local`` is set.
@@ -208,7 +219,7 @@ def run_once(
             entry = router.last_served
 
     record_task(path=path, entry=entry, prompt=prompt, response=text, task_id=task_id)
-    return (text, _served(path, entry)) if return_served else text
+    return (text, _served(path, entry, task_id)) if return_served else text
 
 
 def main(argv: list[str] | None = None) -> int:
