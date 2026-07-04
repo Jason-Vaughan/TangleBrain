@@ -9,7 +9,9 @@ Translation contract (issue #70):
 - ``model: "auto"`` → the full router (the same default path as a bare ``tanglebrain`` run,
   classifier gate honored per settings). A roster entry id → explicit pin (parity with
   ``--model``). Unknown ids → an OpenAI-style ``model_not_found`` error — never a silent fallback.
-  An absent ``model`` defaults to ``auto`` (pointing at TangleBrain *is* the routing choice).
+  An **absent** ``model`` defaults to ``auto`` (pointing at TangleBrain *is* the routing choice);
+  a present-but-empty or non-string ``model`` is rejected, so a truncated client config fails
+  loudly instead of silently spending router quota.
 - OpenAI chat ``messages`` arrays are flattened to the plain prompt the adapters take: each
   message renders as a ``[role]``-tagged block, joined by blank lines, in order. Text content
   parts are concatenated; non-text parts (images, audio) are rejected with a clear error rather
@@ -135,9 +137,11 @@ def wants_stream(payload: dict) -> bool:
         payload: The parsed request body.
 
     Returns:
-        ``True`` when ``stream`` is truthy.
+        ``True`` only when ``stream`` is JSON ``true``. Any other value (including truthy
+        strings like ``"false"``) is treated as non-streaming — a sloppy client degrades to a
+        plain JSON envelope it can still read, rather than getting SSE it didn't mean to ask for.
     """
-    return bool(payload.get("stream", False))
+    return payload.get("stream") is True
 
 
 def completion_envelope(text: str, served: dict | None, requested_model: str, prompt: str) -> dict:
@@ -261,9 +265,11 @@ def handle_chat_completion(payload: dict) -> tuple[int, dict]:
         always returns the plain envelope.
     """
     try:
-        model = payload.get("model") or AUTO_ALIAS
-        if not isinstance(model, str):
-            raise BadRequestError("'model' must be a string")
+        # Only an ABSENT model defaults to auto. A present-but-falsy value ("", null, 0) is a
+        # broken client config and must fail loudly, never silently engage the router.
+        model = payload.get("model", AUTO_ALIAS)
+        if not isinstance(model, str) or not model:
+            raise BadRequestError("'model' must be a non-empty string (or omitted for 'auto')")
         prompt = flatten_messages(payload.get("messages"))
         max_tokens = payload.get("max_tokens")
         if max_tokens is not None:

@@ -7,6 +7,7 @@ loopback-socket test proves the real handler wiring end-to-end, including that t
 """
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 import unittest
@@ -164,10 +165,16 @@ class HandleChatCompletionTest(unittest.TestCase):
             self.assertEqual(status, 400, f"max_tokens={bad!r}")
             self.assertEqual(body["error"]["type"], "invalid_request_error")
 
-    def test_non_string_model_is_400(self):
-        status, body = handle_chat_completion(_chat_payload(model=42))
-        self.assertEqual(status, 400)
-        self.assertEqual(body["error"]["type"], "invalid_request_error")
+    def test_present_but_falsy_or_non_string_model_is_400_never_routes(self):
+        # Only an ABSENT model defaults to auto — "", null, 0, false are broken client configs
+        # and must fail loudly rather than silently engage the router (Critic S1).
+        run = MagicMock()
+        for bad in (42, "", None, 0, False):
+            with patch("tanglebrain.serve.views.run_once", run):
+                status, body = handle_chat_completion(_chat_payload(model=bad))
+            self.assertEqual(status, 400, f"model={bad!r}")
+            self.assertEqual(body["error"]["type"], "invalid_request_error")
+        run.assert_not_called()
 
     def test_bad_messages_is_400_and_never_routes(self):
         run = MagicMock()
@@ -227,10 +234,13 @@ class SseBodyTest(unittest.TestCase):
         self.assertEqual(finish["choices"][0], {"index": 0, "delta": {}, "finish_reason": "stop"})
         self.assertEqual(events[2], "data: [DONE]")
 
-    def test_wants_stream(self):
+    def test_wants_stream_only_on_json_true(self):
         self.assertTrue(wants_stream({"stream": True}))
         self.assertFalse(wants_stream({"stream": False}))
         self.assertFalse(wants_stream({}))
+        # Non-bool values degrade to a plain JSON envelope the client can still read.
+        for sloppy in ("false", "true", 1, [], {}):
+            self.assertFalse(wants_stream({"stream": sloppy}), f"stream={sloppy!r}")
 
 
 class ListModelsTest(unittest.TestCase):
@@ -282,6 +292,39 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("valid JSON", json.loads(body)["error"]["message"])
         status, _, body = self._post("/v1/chat/completions", ["a", "list"])
         self.assertEqual(status, 400)
+
+    def test_non_json_content_type_is_rejected_before_routing(self):
+        # A cross-origin browser fetch can POST text/plain to localhost with no CORS preflight —
+        # this unauthenticated surface spends real quota, so non-JSON must never reach routing
+        # (Critic S2).
+        run = MagicMock()
+        payload = json.dumps(_chat_payload()).encode("utf-8")
+        with patch("tanglebrain.serve.views.run_once", run):
+            status, ctype, body = dispatch(
+                "POST", "/v1/chat/completions", payload, content_type="text/plain;charset=UTF-8"
+            )
+        self.assertEqual(status, 415)
+        self.assertIn("application/json", json.loads(body)["error"]["message"])
+        run.assert_not_called()
+        # Charset-qualified JSON is fine.
+        run = MagicMock(return_value=("t", dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once", run):
+            status, _, _ = dispatch(
+                "POST", "/v1/chat/completions", payload, content_type="application/json; charset=utf-8"
+            )
+        self.assertEqual(status, 200)
+
+    def test_unexpected_exception_is_clean_json_500_not_a_dropped_connection(self):
+        # e.g. a malformed settings.yaml raises SettingsError on the auto path — any escape must
+        # come back as a JSON error body, never a traceback + connection reset (Critic B1).
+        run = MagicMock(side_effect=RuntimeError("settings file is malformed"))
+        with patch("tanglebrain.serve.views.run_once", run):
+            status, ctype, body = self._post("/v1/chat/completions", _chat_payload())
+        self.assertEqual(status, 500)
+        self.assertIn("application/json", ctype)
+        error = body["error"]
+        self.assertEqual(error["type"], "server_error")
+        self.assertIn("settings file is malformed", error["message"])
 
     def test_models_endpoint(self):
         entry = MagicMock()
@@ -335,6 +378,17 @@ class LiveHandlerTest(unittest.TestCase):
                 body = json.loads(response.read().decode("utf-8"))
         self.assertEqual(body["choices"][0]["message"]["content"], "pong")
         self.assertEqual(body["model"], "claude")
+
+    def test_malformed_content_length_is_400_not_a_reset(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        self.addCleanup(connection.close)
+        connection.putrequest("POST", "/v1/chat/completions")
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", "abc")
+        connection.endheaders()
+        response = connection.getresponse()
+        self.assertEqual(response.status, 400)
+        self.assertIn("Content-Length", json.loads(response.read())["error"]["message"])
 
 
 if __name__ == "__main__":

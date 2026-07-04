@@ -241,7 +241,9 @@ Caveats, by design:
   the `Authorization` header** — local callers need no key, and a client that insists on sending
   a dummy bearer works as-is. It is deliberately never network-exposed: a request spends real
   backend quota, and real money if the paid-API gates are on. Those gates are unchanged — server
-  mode adds no paid path that the CLI doesn't have.
+  mode adds no paid path that the CLI doesn't have. POSTs must send
+  `Content-Type: application/json` (every OpenAI client does; this also keeps no-preflight
+  cross-origin browser requests from ever reaching routing).
 
 ### Delegate (MCP) — let an orchestrator offload sub-tasks to a configured backend
 

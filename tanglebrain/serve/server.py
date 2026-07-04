@@ -34,7 +34,9 @@ def _json_response(status: int, obj: object) -> tuple[int, str, bytes]:
     return status, _JSON, json.dumps(obj).encode("utf-8")
 
 
-def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes]:
+def dispatch(
+    method: str, path: str, body: bytes = b"", content_type: str = "application/json"
+) -> tuple[int, str, bytes]:
     """Route one request to a view and return ``(status, content_type, body)``.
 
     Pure apart from what the views themselves do, so tests call it directly with no socket. The
@@ -42,10 +44,18 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
     envelope framed as the single-chunk SSE emulation; errors are always plain JSON (matching
     OpenAI, which rejects a bad streaming request with a JSON error before any SSE starts).
 
+    POST requires ``Content-Type: application/json``. Besides being what every OpenAI client
+    sends, this closes the browser "simple request" hole: a cross-origin ``fetch`` from a
+    malicious page can POST ``text/plain`` to localhost without a CORS preflight, and this is an
+    unauthenticated surface that spends real quota — a non-JSON content type must never reach
+    routing.
+
     Args:
         method: HTTP method (``GET``/``POST``).
         path: Request path (may include a ``?query``).
         body: Raw request body bytes (for ``POST``).
+        content_type: The request's ``Content-Type`` header value (POST only; defaults to JSON
+            so socket-free tests needn't supply it).
 
     Returns:
         ``(status_code, content_type, body_bytes)``.
@@ -62,6 +72,13 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
 
     if method == "POST":
         if path == "/v1/chat/completions":
+            if not (content_type or "").lower().strip().startswith("application/json"):
+                return _json_response(
+                    415,
+                    error_envelope(
+                        "Content-Type must be application/json", "invalid_request_error"
+                    ),
+                )
             try:
                 payload = json.loads(body.decode("utf-8")) if body else {}
             except (ValueError, UnicodeDecodeError):
@@ -72,7 +89,12 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
                 return _json_response(
                     400, error_envelope("request body must be a JSON object", "invalid_request_error")
                 )
-            status, obj = handle_chat_completion(payload)
+            try:
+                status, obj = handle_chat_completion(payload)
+            except Exception as exc:  # noqa: BLE001 — any escape must be clean JSON, never a
+                # dropped connection (e.g. a malformed settings.yaml raising SettingsError on the
+                # auto path). Typed, expected failures are already mapped inside the handler.
+                return _json_response(500, error_envelope(str(exc), "server_error"))
             if status == 200 and wants_stream(payload):
                 return 200, _SSE, sse_body(obj)
             return _json_response(status, obj)
@@ -84,8 +106,10 @@ def dispatch(method: str, path: str, body: bytes = b"") -> tuple[int, str, bytes
 class Handler(BaseHTTPRequestHandler):
     """Thin HTTP handler delegating all routing to :func:`dispatch`.
 
-    Request headers — including ``Authorization`` — are deliberately never consulted: local
-    callers need no key, and any dummy bearer a client insists on sending is simply ignored.
+    ``Authorization`` is deliberately never consulted: local callers need no key, and any dummy
+    bearer a client insists on sending is simply ignored. The only headers read are the framing
+    ones — ``Content-Length`` and ``Content-Type`` (see :func:`dispatch` for why the latter is
+    enforced).
     """
 
     def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
@@ -94,9 +118,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 (stdlib naming)
         """Handle a POST by reading the body, dispatching, and writing the response."""
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            length = max(0, int(self.headers.get("Content-Length", 0) or 0))
+        except ValueError:
+            self._respond(
+                *_json_response(
+                    400, error_envelope("invalid Content-Length header", "invalid_request_error")
+                )
+            )
+            return
         body = self.rfile.read(length) if length else b""
-        self._respond(*dispatch("POST", self.path, body))
+        self._respond(*dispatch("POST", self.path, body, self.headers.get("Content-Type", "")))
 
     def _respond(self, status: int, content_type: str, body: bytes) -> None:
         """Write a complete HTTP response."""
