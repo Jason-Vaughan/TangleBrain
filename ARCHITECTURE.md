@@ -207,13 +207,17 @@ reach a quota-spending view.
 
 ### Serve endpoint (`serve/`)
 
-An **OpenAI-compatible facade** over the same `cli.run_once` path: `POST /v1/chat/completions`
-translates a chat request into one routed run, and `GET /v1/models` lists the `auto` alias plus
-the roster ids. The `model` param is a routing directive — `auto` engages the full router
-(classifier gate honored per settings), a roster id pins that entry, anything else errors
-(`model_not_found`). Messages are flattened to a role-tagged transcript; `stream: true` is
-emulated (the completed response framed as a single SSE chunk). The routing core is untouched —
-measurement and both paid-API gates behave exactly as for a CLI run.
+An **OpenAI-compatible facade** over the same `cli.run_once` / `cli.run_once_stream` paths:
+`POST /v1/chat/completions` translates a chat request into one routed run, and `GET /v1/models`
+lists the `auto` alias plus the roster ids. The `model` param is a routing directive — `auto`
+engages the full router (classifier gate honored per settings), a roster id pins that entry,
+anything else errors (`model_not_found`). Messages are flattened to a role-tagged transcript.
+`stream: true` streams for real where the backend can (openai-compat/api kinds, via the
+adapters' optional `run_stream` capability): the view primes the pump — the first delta is
+pulled before any headers commit, so connect-time failures stay plain JSON errors — then the
+handler writes one flushed SSE event per delta (close-delimited body). Backends that can't
+stream (cli kinds, hence the router path) deliver the completed text as a single chunk. The
+routing core is untouched — measurement and both paid-API gates behave exactly as for a CLI run.
 
 Like the panel, it binds `127.0.0.1` only and is deliberately keyless: the `Authorization` header
 is never read (local callers need no credential), and the loopback bind is what keeps an

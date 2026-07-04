@@ -227,6 +227,69 @@ class LiveRouterTest(unittest.TestCase):
         self.assertTrue(text.strip(), "expected non-empty text from an orchestrator")
 
 
+@unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the live serve streaming test")
+class LiveServeStreamTest(unittest.TestCase):
+    """c13-S2 acceptance: ``stream: true`` through ``tanglebrain-serve`` with the real ``openai``
+    client delivers **multiple** incremental chunks from a pinned local backend (true streaming),
+    and the full-router ``auto`` path still round-trips (single-chunk emulation, ratified v2).
+    """
+
+    def setUp(self):
+        try:
+            import openai  # noqa: F401
+        except ImportError:  # pragma: no cover
+            self.skipTest("openai client not installed (pip install openai)")
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        from tanglebrain.serve.server import Handler
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = self.server.server_address[1]
+        self.base_url = f"http://127.0.0.1:{port}/v1"
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def _client(self):
+        import openai
+
+        # Local endpoint needs no key; the serve layer ignores Authorization entirely.
+        return openai.OpenAI(base_url=self.base_url, api_key="unused", timeout=300.0)
+
+    def test_pinned_local_stream_delivers_multiple_incremental_chunks(self):
+        local_id = select_local(load_roster()).id
+        stream = self._client().chat.completions.create(
+            model=local_id,
+            messages=[{"role": "user", "content": "Count from 1 to 20, one number per line."}],
+            stream=True,
+            max_tokens=2048,
+        )
+        contents = [
+            chunk.choices[0].delta.content
+            for chunk in stream
+            if chunk.choices and chunk.choices[0].delta.content
+        ]
+        # >1 content chunk is the acceptance bar: emulation always frames exactly one.
+        self.assertGreater(len(contents), 1, "expected multiple incremental chunks (not emulation)")
+        self.assertTrue("".join(contents).strip())
+
+    def test_auto_router_stream_round_trips_via_emulation(self):
+        stream = self._client().chat.completions.create(
+            model="auto",
+            messages=[{"role": "user", "content": "Reply with exactly the word: pong"}],
+            stream=True,
+        )
+        contents = [
+            chunk.choices[0].delta.content
+            for chunk in stream
+            if chunk.choices and chunk.choices[0].delta.content
+        ]
+        self.assertTrue("".join(contents).strip(), "expected non-empty text from the auto path")
+
+
 @unittest.skipUnless(LIVE, "set TANGLEBRAIN_LIVE=1 to run the env-scrub safety proof")
 class LiveEnvScrubTest(unittest.TestCase):
     """Safety-critical: claude must run with ANTHROPIC_API_KEY scrubbed from its env."""

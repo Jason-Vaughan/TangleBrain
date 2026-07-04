@@ -234,9 +234,13 @@ measurement log uses (served requests are metered exactly like CLI runs).
 
 Caveats, by design:
 
-- **Streaming is emulated in v1.** `stream: true` works, but the whole response arrives as a
-  single SSE chunk once routing completes — which can take minutes when an orchestrator CLI
-  serves the request. Set generous client read timeouts.
+- **Streaming is real where the backend can stream.** `stream: true` delivers incremental
+  `chat.completion.chunk` deltas from backends that stream (a pinned `openai-compat`/`api`
+  entry, or the classifier-gate's local path). Backends that can't — subprocess CLIs, and the
+  full-router `auto` path they serve — still work but deliver the completed response as a
+  single chunk, which can take minutes when an orchestrator CLI serves the request; set
+  generous client read timeouts for those. A stream that dies mid-way ends with an in-stream
+  `{"error": ...}` event and no `[DONE]` terminator, never a fake `finish_reason: stop`.
 - **Localhost-only, keyless.** The endpoint binds `127.0.0.1` (not configurable) and **ignores
   the `Authorization` header** — local callers need no key, and a client that insists on sending
   a dummy bearer works as-is. It is deliberately never network-exposed: a request spends real

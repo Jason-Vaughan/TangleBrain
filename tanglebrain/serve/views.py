@@ -16,8 +16,13 @@ Translation contract (issue #70):
   message renders as a ``[role]``-tagged block, joined by blank lines, in order. Text content
   parts are concatenated; non-text parts (images, audio) are rejected with a clear error rather
   than silently dropped.
-- ``stream: true`` is emulated: the request runs to completion, then the whole response is framed
-  as a single SSE chunk + finish chunk + ``[DONE]`` (see :func:`sse_body`). Not incremental.
+- ``stream: true`` is real where the backend can stream (c13 v2, issue #73): the request runs
+  through :func:`~tanglebrain.cli.run_once_stream`, and ``chat.completion.chunk`` deltas flow as
+  the backend produces them (pinned ``openai-compat``/``api`` entries, and the gate-local path).
+  Backends that cannot stream (``cli`` kinds, the full-router ``auto`` path) still deliver the
+  completed text as a single chunk — same client contract, no early tokens. Early failures (before
+  the first delta) return plain JSON errors with the right status; a stream that dies mid-way ends
+  with one in-stream ``{"error": ...}`` event and **no** ``[DONE]`` (see :func:`sse_stream_events`).
 - Sampling knobs (``temperature``, ``top_p``, ``n``, …) and tool definitions are accepted and
   ignored — the serving backend controls its own generation, and orchestrator CLIs bring their
   own tools. ``max_tokens`` is honored (passed through to the adapter).
@@ -29,9 +34,10 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from typing import Iterator
 
 from tanglebrain.adapters import AdapterError
-from tanglebrain.cli import run_once
+from tanglebrain.cli import run_once, run_once_stream
 from tanglebrain.measurement import estimate_tokens
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.router import RouterError
@@ -190,39 +196,81 @@ def completion_envelope(text: str, served: dict | None, requested_model: str, pr
     }
 
 
-def sse_body(envelope: dict) -> bytes:
-    """Frame a completed response as the v1 streaming emulation — a single-chunk SSE body.
+def _sse_frame(event: dict | str) -> bytes:
+    """Frame one SSE event (a JSON-serializable chunk, or the literal ``[DONE]``) as bytes."""
+    data = event if isinstance(event, str) else json.dumps(event)
+    return f"data: {data}\n\n".encode("utf-8")
 
-    The request has already run to completion; this emits one ``chat.completion.chunk`` carrying
-    the whole text, a finish chunk, and ``[DONE]``, so ``stream: true`` clients work unmodified.
-    Not incremental — the first byte arrives only when routing completes (documented caveat).
+
+def sse_stream_events(
+    first: str,
+    rest: Iterator[str],
+    served: dict | None,
+    requested_model: str,
+    prompt: str,
+) -> Iterator[bytes]:
+    """Frame a routed delta stream as ``chat.completion.chunk`` SSE events (c13 D5/D6).
+
+    The caller has already pulled ``first`` (prime-the-pump: connect-time failures surface
+    before any headers commit), so every event this yields belongs to a stream that genuinely
+    started. Event sequence: a role+content chunk carrying ``first``, one content chunk per
+    remaining delta, a finish chunk (``finish_reason: stop``) that always carries the estimated
+    ``usage`` block and the ``tanglebrain`` extension, then ``[DONE]``.
+
+    A mid-stream backend failure (``AdapterError``/``RouterError`` from ``rest``) ends the
+    stream with a single ``{"error": ...}`` event and **no** finish chunk or ``[DONE]`` — the
+    absence tells spec-following clients the stream terminated abnormally rather than lying
+    with a fake ``stop``.
 
     Args:
-        envelope: A successful :func:`completion_envelope` body.
+        first: The already-pulled first delta.
+        rest: The remaining deltas (a :func:`~tanglebrain.cli.run_once_stream` iterator, so
+            metering happens as a side-effect of exhaustion).
+        served: ``run_once_stream``'s served summary (``{path, tier, model, task_id}``) or
+            ``None``.
+        requested_model: The ``model`` value from the request (after the ``auto`` default).
+        prompt: The flattened prompt (for the usage estimate).
 
-    Returns:
-        The complete ``text/event-stream`` body bytes.
+    Yields:
+        Complete ``data: ...\\n\\n`` SSE event byte strings, one per event.
     """
-    head = {k: envelope[k] for k in ("id", "created", "model")}
-    text = envelope["choices"][0]["message"]["content"]
-    content_chunk = {
-        **head,
+    served = served or {}
+    head = {
+        "id": f"chatcmpl-{served.get('task_id') or uuid.uuid4().hex}",
         "object": "chat.completion.chunk",
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"role": "assistant", "content": text},
-                "finish_reason": None,
-            }
-        ],
+        "created": int(time.time()),
+        "model": served.get("model") or requested_model,
     }
-    finish_chunk = {
-        **head,
-        "object": "chat.completion.chunk",
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+
+    def chunk(delta: dict, finish_reason: str | None = None) -> dict:
+        return {**head, "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]}
+
+    pieces = [first]
+    yield _sse_frame(chunk({"role": "assistant", "content": first}))
+    try:
+        for piece in rest:
+            pieces.append(piece)
+            yield _sse_frame(chunk({"content": piece}))
+    except (AdapterError, RouterError) as exc:
+        yield _sse_frame({"error": {"message": str(exc), "type": "upstream_error", "code": None}})
+        return
+
+    prompt_tokens = estimate_tokens(prompt)
+    completion_tokens = estimate_tokens("".join(pieces))
+    finish = chunk({}, finish_reason="stop")
+    finish["usage"] = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
     }
-    events = [json.dumps(content_chunk), json.dumps(finish_chunk), "[DONE]"]
-    return "".join(f"data: {event}\n\n" for event in events).encode("utf-8")
+    finish["tanglebrain"] = {
+        "requested_model": requested_model,
+        "path": served.get("path"),
+        "tier": served.get("tier"),
+        "tokens_estimated": True,
+    }
+    yield _sse_frame(finish)
+    yield _sse_frame("[DONE]")
 
 
 def list_models() -> dict:
@@ -244,6 +292,77 @@ def list_models() -> dict:
     return {"object": "list", "data": data}
 
 
+def _parse_chat_request(payload: dict) -> tuple[str, str, int | None]:
+    """Validate and extract ``(model, prompt, max_tokens)`` from a chat-completions payload.
+
+    Shared by the plain and streaming handlers so a bad request fails identically on both.
+
+    Args:
+        payload: The parsed JSON request body (a dict).
+
+    Returns:
+        ``(model, prompt, max_tokens)`` — model after the absent→``auto`` default, prompt
+        flattened via :func:`flatten_messages`.
+
+    Raises:
+        BadRequestError: On a malformed ``model``, ``messages``, or ``max_tokens``.
+    """
+    # Only an ABSENT model defaults to auto. A present-but-falsy value ("", null, 0) is a
+    # broken client config and must fail loudly, never silently engage the router.
+    model = payload.get("model", AUTO_ALIAS)
+    if not isinstance(model, str) or not model:
+        raise BadRequestError("'model' must be a non-empty string (or omitted for 'auto')")
+    prompt = flatten_messages(payload.get("messages"))
+    max_tokens = payload.get("max_tokens")
+    if max_tokens is not None:
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise BadRequestError("'max_tokens' must be a positive integer")
+    return model, prompt, max_tokens
+
+
+def handle_chat_completion_stream(payload: dict) -> tuple[int, dict | Iterator[bytes]]:
+    """Handle one ``stream: true`` ``POST /v1/chat/completions`` request body.
+
+    Same validation and error mapping as :func:`handle_chat_completion`, but the request runs
+    through :func:`~tanglebrain.cli.run_once_stream` and the pump is primed here: the first
+    delta is pulled **before** anything is returned, so every failure up to and including the
+    backend connection comes back as a plain ``(status, error_body)`` pair — the transport
+    never commits SSE headers for a request that dies before its first token (c13 D4).
+
+    Args:
+        payload: The parsed JSON request body (a dict).
+
+    Returns:
+        ``(status, body)`` where a non-200 ``body`` is an OpenAI-style error dict (serialize as
+        JSON), and a 200 ``body`` is the :func:`sse_stream_events` byte iterator (write as
+        ``text/event-stream``, one event per pull).
+    """
+    try:
+        model, prompt, max_tokens = _parse_chat_request(payload)
+    except BadRequestError as exc:
+        return 400, error_envelope(str(exc), "invalid_request_error")
+
+    pinned = None if model == AUTO_ALIAS else model
+    try:
+        deltas, served = run_once_stream(prompt, model=pinned, max_tokens=max_tokens)
+        first = next(deltas)
+    except StopIteration:
+        # Defensive: adapters raise on zero-content streams, and emulated paths always carry
+        # one item — but a well-behaved endpoint maps an impossible-empty stream to 502 anyway.
+        return 502, error_envelope("stream ended before any content", "upstream_error")
+    except SelectionError as exc:
+        if pinned is not None:
+            # The only selection to fail on the pinned path is the id lookup itself.
+            return 404, error_envelope(str(exc), "invalid_request_error", "model_not_found")
+        return 502, error_envelope(str(exc), "upstream_error")
+    except (RouterError, AdapterError) as exc:
+        return 502, error_envelope(str(exc), "upstream_error")
+    except RosterError as exc:
+        return 500, error_envelope(str(exc), "server_error")
+
+    return 200, sse_stream_events(first, deltas, served, model, prompt)
+
+
 def handle_chat_completion(payload: dict) -> tuple[int, dict]:
     """Handle one ``POST /v1/chat/completions`` request body.
 
@@ -261,20 +380,11 @@ def handle_chat_completion(payload: dict) -> tuple[int, dict]:
         payload: The parsed JSON request body (a dict).
 
     Returns:
-        ``(status_code, body_dict)``. Streaming framing is the transport layer's concern — this
-        always returns the plain envelope.
+        ``(status_code, body_dict)``. This is the non-streaming handler — a ``stream: true``
+        request is routed to :func:`handle_chat_completion_stream` by the transport instead.
     """
     try:
-        # Only an ABSENT model defaults to auto. A present-but-falsy value ("", null, 0) is a
-        # broken client config and must fail loudly, never silently engage the router.
-        model = payload.get("model", AUTO_ALIAS)
-        if not isinstance(model, str) or not model:
-            raise BadRequestError("'model' must be a non-empty string (or omitted for 'auto')")
-        prompt = flatten_messages(payload.get("messages"))
-        max_tokens = payload.get("max_tokens")
-        if max_tokens is not None:
-            if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
-                raise BadRequestError("'max_tokens' must be a positive integer")
+        model, prompt, max_tokens = _parse_chat_request(payload)
     except BadRequestError as exc:
         return 400, error_envelope(str(exc), "invalid_request_error")
 
