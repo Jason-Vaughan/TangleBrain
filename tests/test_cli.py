@@ -222,6 +222,8 @@ class RunOnceTest(unittest.TestCase):
         ):
             text, served = run_once("hi", return_served=True)
         self.assertEqual(text, "routed")
+        # task_id is minted per run — assert it's present and well-formed, then the stable rest.
+        self.assertTrue(served.pop("task_id"))
         self.assertEqual(served, {"path": "router", "tier": "sub", "model": "codex"})
 
     def test_default_return_is_plain_str(self):

@@ -199,6 +199,52 @@ hand-edits. The panel binds `127.0.0.1` only: running a prompt spends real backe
 the roster, so it is never network-exposed. The roster view shows each entry's `key_ref` as the
 reference string only — secrets are never resolved or sent to the browser.
 
+### Server mode (`tanglebrain-serve`) — the router as an OpenAI-compatible endpoint
+
+`tanglebrain-serve` exposes the same routing path the CLI uses as a local
+**OpenAI-compatible endpoint**, so any OpenAI-compat consumer (an agent framework, an engine
+config, a plain `openai` client) can point its `base_url` at TangleBrain and pick a *routing
+strategy* instead of a model. Zero extra dependencies (stdlib `http.server`):
+
+```sh
+.venv/bin/tanglebrain-serve             # serves http://127.0.0.1:3251/v1  (Ctrl-C to stop)
+.venv/bin/tanglebrain-serve --port 3261 # override the port if 3251 is busy
+
+curl -s http://127.0.0.1:3251/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "auto", "messages": [{"role": "user", "content": "Refactor this module."}]}'
+```
+
+The `model` param is a **routing directive**:
+
+| `model` | Behavior |
+|---|---|
+| `auto` (or absent) | The full router — identical to a bare `tanglebrain "…"` run (classifier gate honored per settings). |
+| a roster entry id | Explicit pin, parity with `--model <id>`. |
+| anything else | A clear `model_not_found` error — never a silent fallback. |
+
+`GET /v1/models` lists `auto` plus every roster id. Chat `messages` arrays are flattened to a
+role-tagged transcript for the serving backend; text content parts are concatenated, and non-text
+parts (images) are rejected loudly rather than dropped. `max_tokens` is honored; sampling knobs
+(`temperature`, `top_p`, …) and tool definitions are accepted and ignored — the serving backend
+controls its own generation, and orchestrator CLIs bring their own tools. The response's `model`
+field reports **which backend actually served**; the requested directive and routing detail ride
+in a `tanglebrain` extension field, and `usage` carries the same `chars/4` estimate the
+measurement log uses (served requests are metered exactly like CLI runs).
+
+Caveats, by design:
+
+- **Streaming is emulated in v1.** `stream: true` works, but the whole response arrives as a
+  single SSE chunk once routing completes — which can take minutes when an orchestrator CLI
+  serves the request. Set generous client read timeouts.
+- **Localhost-only, keyless.** The endpoint binds `127.0.0.1` (not configurable) and **ignores
+  the `Authorization` header** — local callers need no key, and a client that insists on sending
+  a dummy bearer works as-is. It is deliberately never network-exposed: a request spends real
+  backend quota, and real money if the paid-API gates are on. Those gates are unchanged — server
+  mode adds no paid path that the CLI doesn't have. POSTs must send
+  `Content-Type: application/json` (every OpenAI client does; this also keeps no-preflight
+  cross-origin browser requests from ever reaching routing).
+
 ### Delegate (MCP) — let an orchestrator offload sub-tasks to a configured backend
 
 `tanglebrain-delegate` is an MCP server that lets an orchestrator offload bulk sub-tasks instead of

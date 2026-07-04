@@ -46,6 +46,7 @@ Releases = "https://github.com/Jason-Vaughan/TangleBrain/releases"
 tanglebrain = "tanglebrain.cli:main"
 tanglebrain-delegate = "tanglebrain.mcp_server:main"
 tanglebrain-gui = "tanglebrain.gui.server:main"
+tanglebrain-serve = "tanglebrain.serve.server:main"
 
 [tool.setuptools.packages.find]
 include = ["tanglebrain*"]

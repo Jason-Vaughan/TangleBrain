@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Server mode (`tanglebrain-serve`) — the router as a local OpenAI-compatible endpoint**
+  (issue #70, S1). `POST /v1/chat/completions` fronts the same routing path the CLI uses: the
+  `model` param is a routing directive (`auto` = full router, a roster id = explicit pin, unknown
+  ids → a clear `model_not_found` error), chat `messages` arrays are flattened to a role-tagged
+  transcript (non-text content parts rejected loudly), and `GET /v1/models` lists `auto` + the
+  roster ids. `stream: true` is emulated in v1 — the completed response is framed as a single SSE
+  chunk (true incremental streaming is a follow-up). The endpoint binds `127.0.0.1` only and
+  ignores the `Authorization` header (local callers need no key); POSTs must send
+  `Content-Type: application/json` (415 otherwise — keeps no-preflight cross-origin browser
+  requests from reaching routing); the paid-API tier stays behind both existing billing gates,
+  and served requests are metered exactly like CLI runs. Zero new
+  runtime dependencies (stdlib `http.server`, mirroring the knob panel's pure-`dispatch` split).
+  `run_once(return_served=True)`'s served summary now also carries the minted `task_id` (the
+  endpoint reuses it as the completion id, linking a response to its usage record).
+
 ## [0.17.0] - 2026-07-03
 
 ### Internal
