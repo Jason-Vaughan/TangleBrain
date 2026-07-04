@@ -223,7 +223,9 @@ def run_once(
     return (text, _served(path, entry, task_id)) if return_served else text
 
 
-def _recording_stream(deltas: Iterator[str], path: str, entry, prompt: str, task_id: str) -> Iterator[str]:
+def _recording_stream(
+    deltas: Iterator[str], path: str, entry, prompt: str, task_id: str
+) -> Iterator[str]:
     """Wrap a delta stream so the task is metered exactly once, however the stream ends.
 
     Accumulates every yielded fragment and calls
@@ -255,7 +257,9 @@ def _recording_stream(deltas: Iterator[str], path: str, entry, prompt: str, task
         if recorded or (require_text and not pieces):
             return
         recorded = True
-        record_task(path=path, entry=entry, prompt=prompt, response="".join(pieces), task_id=task_id)
+        record_task(
+            path=path, entry=entry, prompt=prompt, response="".join(pieces), task_id=task_id
+        )
 
     try:
         for piece in deltas:
@@ -265,6 +269,8 @@ def _recording_stream(deltas: Iterator[str], path: str, entry, prompt: str, task
         _record(require_text=True)
         raise
     except Exception:
+        # Deliberately Exception, not BaseException: on KeyboardInterrupt/SystemExit we skip
+        # metering I/O and just propagate — don't "fix" this to catch interrupts.
         _record(require_text=True)
         raise
     _record(require_text=False)

@@ -303,6 +303,43 @@ class RunStreamTest(unittest.TestCase):
         with self._patched_client(lambda req: httpx.Response(200, content=body)):
             self.assertEqual(list(self._adapter().run_stream("q")), ["a"])
 
+    def test_shape_broken_event_maps_to_adapter_error(self):
+        # Spec-valid JSON, broken shape: choices[0] is null. Must be AdapterError, never a raw
+        # AttributeError leaking out of the stream (S2's error framing catches AdapterError).
+        body = sse_bytes(json.dumps({"choices": [None]}))
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            with self.assertRaises(AdapterError) as ctx:
+                list(self._adapter().run_stream("q"))
+        self.assertIn("unexpected SSE event shape", str(ctx.exception))
+
+    def test_non_dict_event_raises(self):
+        body = sse_bytes("42", delta_event("never reached"))
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            with self.assertRaises(AdapterError) as ctx:
+                list(self._adapter().run_stream("q"))
+        self.assertIn("unexpected SSE event shape", str(ctx.exception))
+
+    def test_zero_content_stream_raises(self):
+        # A 200 stream that ends (with or without [DONE]) having produced no content is a dead
+        # backend, not an empty success — mirrors run()'s null-content stance.
+        for events in (["[DONE]"], [delta_event(role="assistant"), "[DONE]"], []):
+            with self.subTest(events=events):
+                body = sse_bytes(*events)
+                with self._patched_client(lambda req: httpx.Response(200, content=body)):
+                    with self.assertRaises(AdapterError) as ctx:
+                        list(self._adapter().run_stream("q"))
+                self.assertIn("no content", str(ctx.exception))
+
+    def test_reasoning_content_deltas_dropped(self):
+        # Parity with run(): chain-of-thought arrives in reasoning_content and is never yielded.
+        body = sse_bytes(
+            delta_event(reasoning_content="thinking hard…"),
+            delta_event("answer"),
+            "[DONE]",
+        )
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            self.assertEqual(list(self._adapter().run_stream("q")), ["answer"])
+
 
 class FromEntryTest(unittest.TestCase):
     """from_entry() wires a roster entry into an adapter, rejecting the wrong kind."""

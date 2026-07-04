@@ -227,10 +227,16 @@ class OpenAICompatAdapter:
         - Yields ``choices[0].delta.content`` fragments; empty/role-only deltas and chunks with
           no choices (e.g. a trailing usage chunk) are skipped, never yielded.
         - ``reasoning_content`` deltas are dropped, matching ``run``.
+        - Each ``data:`` line is decoded as one standalone JSON event. Spec-legal multi-line
+          ``data:`` events are NOT reassembled — every real OpenAI-compat backend emits
+          one-line events, and an exotic one fails loudly (``AdapterError``), never corrupts.
         - ``data: [DONE]`` ends the stream; a clean close **without** ``[DONE]`` also ends it
           (some local gateways omit the terminator — treat honest EOF as done, not an error).
-        - An in-stream ``{"error": ...}`` event, a malformed ``data:`` line, a non-2xx status,
-          or a transport failure raises :class:`AdapterError`.
+        - A stream that ends cleanly having produced **no content at all** raises
+          :class:`AdapterError`, mirroring ``run``'s null-content stance — a dead backend that
+          200s with an empty stream must be a loud error, not a silent empty success.
+        - An in-stream ``{"error": ...}`` event, a malformed ``data:`` line, a shape-broken
+          event, a non-2xx status, or a transport failure raises :class:`AdapterError`.
 
         Args:
             prompt: The prompt to send as the sole user message.
@@ -265,9 +271,10 @@ class OpenAICompatAdapter:
             Non-empty content fragments.
 
         Raises:
-            AdapterError: On non-2xx status, transport failure, a malformed SSE data line, or
-                an in-stream error event.
+            AdapterError: On non-2xx status, transport failure, a malformed SSE data line, a
+                shape-broken event, an in-stream error event, or a clean end with no content.
         """
+        produced = False
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 with client.stream("POST", url, headers=headers, json=payload) as response:
@@ -283,7 +290,7 @@ class OpenAICompatAdapter:
                             continue  # SSE comments / event: lines / keep-alive blanks
                         data = line[len("data:"):].strip()
                         if data == "[DONE]":
-                            return
+                            break
                         try:
                             event = json.loads(data)
                         except ValueError as exc:
@@ -298,14 +305,28 @@ class OpenAICompatAdapter:
                             raise AdapterError(
                                 f"in-stream error from model {self.model!r}: {event['error']!r}"
                             )
-                        choices = event.get("choices") or []
-                        if not choices:
-                            continue  # e.g. a trailing usage-only chunk
-                        delta = choices[0].get("delta") or {}
-                        content = delta.get("content")
+                        try:
+                            choices = event.get("choices") or []
+                            if not choices:
+                                continue  # e.g. a trailing usage-only chunk
+                            delta = choices[0].get("delta") or {}
+                            content = delta.get("content")
+                        except (AttributeError, TypeError, KeyError, IndexError) as exc:
+                            # e.g. {"choices": [null]} — spec-valid JSON, broken shape. Must map
+                            # to AdapterError like every other decode failure (S2's mid-stream
+                            # error framing catches AdapterError, not raw AttributeError).
+                            raise AdapterError(
+                                f"unexpected SSE event shape from model {self.model!r}: {event!r}"
+                            ) from exc
                         if content:
+                            produced = True
                             yield content
         except httpx.HTTPError as exc:
             raise AdapterError(
                 f"transport error streaming {url} for model {self.model!r}: {exc}"
             ) from exc
+        if not produced:
+            raise AdapterError(
+                f"stream from model {self.model!r} ended with no content "
+                "(often a truncated response — try a larger max_tokens)"
+            )
