@@ -218,6 +218,23 @@ class EnvelopeTest(unittest.TestCase):
         self.assertIsNone(body["tanglebrain"]["path"])
 
 
+class _CloseTracking:
+    """A delta-iterator stand-in that records whether close() was called."""
+
+    def __init__(self, inner, closed: list):
+        self._inner = inner
+        self._closed = closed
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._inner)
+
+    def close(self):
+        self._closed.append(True)
+
+
 def _decode_events(chunks: list[bytes]) -> list[dict | str]:
     """Decode framed SSE event byte strings into parsed JSON dicts (or the ``[DONE]`` literal)."""
     events = []
@@ -288,6 +305,44 @@ class SseStreamEventsTest(unittest.TestCase):
         self.assertEqual(events[0]["model"], "auto")
         self.assertTrue(events[0]["id"].startswith("chatcmpl-"))
 
+    def test_non_adapter_escape_still_frames_an_error_event(self):
+        # A nonconforming backend / internal bug must NOT silently close the stream (the exact
+        # alternative D5 rejected) — it frames as server_error, still no [DONE] (Critic S2).
+        def buggy():
+            yield "ok"
+            raise ValueError("nonconforming adapter leaked a raw error")
+
+        events = _decode_events(
+            list(sse_stream_events("first", buggy(), dict(_SERVED), "auto", "p"))
+        )
+        error = events[-1]["error"]
+        self.assertEqual(error["type"], "server_error")
+        self.assertIn("nonconforming adapter", error["message"])
+        self.assertNotIn("[DONE]", events)
+
+    def test_rest_iterator_is_closed_however_the_stream_ends(self):
+        # Metering-on-abandonment rides on the delta iterator's close — it must fire
+        # deterministically, not on GC timing, for all three endings (Critic S2).
+        def endings():
+            yield "exhausted", iter(["a"])
+
+            def dying():
+                yield "b"
+                raise AdapterError("died")
+            yield "error", dying()
+            yield "abandoned", iter(["c", "never-pulled"])
+
+        for label, rest in endings():
+            closed = []
+            wrapped = _CloseTracking(rest, closed)
+            stream = sse_stream_events("first", wrapped, dict(_SERVED), "auto", "p")
+            if label == "abandoned":
+                next(stream)
+                stream.close()  # client walked away after the first event
+            else:
+                list(stream)
+            self.assertEqual(closed, [True], f"rest not closed on {label!r} ending")
+
 
 class HandleChatCompletionStreamTest(unittest.TestCase):
     """handle_chat_completion_stream — prime-the-pump status mapping (c13-S2)."""
@@ -295,12 +350,15 @@ class HandleChatCompletionStreamTest(unittest.TestCase):
     def test_success_returns_200_and_event_iterator(self):
         stream = MagicMock(return_value=(iter(["a", "b"]), dict(_SERVED)))
         with patch("tanglebrain.serve.views.run_once_stream", stream):
-            status, body = handle_chat_completion_stream(_chat_payload(stream=True))
+            status, body = handle_chat_completion_stream(
+                _chat_payload(stream=True, max_tokens=512)
+            )
         self.assertEqual(status, 200)
         events = _decode_events(list(body))
         self.assertEqual(events[0]["choices"][0]["delta"], {"role": "assistant", "content": "a"})
         self.assertEqual(events[-1], "[DONE]")
         self.assertIsNone(stream.call_args.kwargs["model"])  # auto → no pin
+        self.assertEqual(stream.call_args.kwargs["max_tokens"], 512)  # threaded through
 
     def test_connect_time_failure_is_plain_502_never_sse(self):
         # The first pull raises (lazy connect failed) — must map to (502, json), no iterator.
@@ -554,6 +612,9 @@ class LiveHandlerTest(unittest.TestCase):
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
             self.assertIn("text/event-stream", response.getheader("Content-Type"))
+            # Streamed framing: length unknown up front, connection close delimits the body.
+            self.assertIsNone(response.getheader("Content-Length"))
+            self.assertEqual(response.getheader("Connection"), "close")
             first_line = response.fp.readline().decode("utf-8")
             self.assertIn("early token", first_line)  # read while the backend is still gated
             gate.set()
@@ -561,6 +622,49 @@ class LiveHandlerTest(unittest.TestCase):
         self.assertIn("late token", remainder)
         self.assertIn('"finish_reason": "stop"', remainder)
         self.assertIn("data: [DONE]", remainder)
+
+    def test_client_disconnect_finalizes_the_stream_and_server_survives(self):
+        # Quota-accounting integrity: when the client walks away mid-stream, the delta iterator
+        # must still be finalized (S1's metering-on-abandonment fires from its close), and the
+        # server must survive to take the next request (Critic S2).
+        finalized = threading.Event()
+        release = threading.Event()
+
+        def deltas():
+            try:
+                yield "first"
+                release.wait(5)
+                yield "second"
+                yield "third"
+            finally:
+                finalized.set()
+
+        stream = MagicMock(return_value=(deltas(), dict(_SERVED)))
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        with patch("tanglebrain.serve.views.run_once_stream", stream):
+            connection.request(
+                "POST", "/v1/chat/completions",
+                json.dumps(_chat_payload(stream=True)),
+                {"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            self.assertIn("first", response.fp.readline().decode("utf-8"))
+            connection.close()  # client gives up mid-stream
+            release.set()
+            self.assertTrue(
+                finalized.wait(5), "delta iterator was not finalized after client disconnect"
+            )
+        # The handler thread absorbed the disconnect; the server still serves.
+        run = MagicMock(return_value=("still alive", dict(_SERVED)))
+        with patch("tanglebrain.serve.views.run_once", run):
+            follow_up = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/v1/chat/completions",
+                data=json.dumps(_chat_payload()).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(follow_up, timeout=5) as after:
+                self.assertEqual(after.status, 200)
 
     def test_malformed_content_length_is_400_not_a_reset(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)

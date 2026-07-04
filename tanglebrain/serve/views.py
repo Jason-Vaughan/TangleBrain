@@ -217,10 +217,14 @@ def sse_stream_events(
     remaining delta, a finish chunk (``finish_reason: stop``) that always carries the estimated
     ``usage`` block and the ``tanglebrain`` extension, then ``[DONE]``.
 
-    A mid-stream backend failure (``AdapterError``/``RouterError`` from ``rest``) ends the
-    stream with a single ``{"error": ...}`` event and **no** finish chunk or ``[DONE]`` — the
-    absence tells spec-following clients the stream terminated abnormally rather than lying
-    with a fake ``stop``.
+    A mid-stream failure ends the stream with a single ``{"error": ...}`` event and **no**
+    finish chunk or ``[DONE]`` — the absence tells spec-following clients the stream terminated
+    abnormally rather than lying with a fake ``stop``. Backend failures
+    (``AdapterError``/``RouterError``) frame as ``upstream_error``; anything else (a
+    nonconforming adapter, an internal bug) frames as ``server_error`` — either way the client
+    gets an explicit event, never a silent close. However the stream ends, ``rest`` is
+    explicitly closed, so the routing layer's metering (including on client abandonment) fires
+    deterministically rather than riding on GC.
 
     Args:
         first: The already-pulled first delta.
@@ -246,14 +250,29 @@ def sse_stream_events(
         return {**head, "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]}
 
     pieces = [first]
-    yield _sse_frame(chunk({"role": "assistant", "content": first}))
     try:
-        for piece in rest:
-            pieces.append(piece)
-            yield _sse_frame(chunk({"content": piece}))
-    except (AdapterError, RouterError) as exc:
-        yield _sse_frame({"error": {"message": str(exc), "type": "upstream_error", "code": None}})
-        return
+        # The first yield lives inside this guard too: a client that abandons after the very
+        # first event must still trigger the finally-close below.
+        yield _sse_frame(chunk({"role": "assistant", "content": first}))
+        try:
+            for piece in rest:
+                pieces.append(piece)
+                yield _sse_frame(chunk({"content": piece}))
+        except (AdapterError, RouterError) as exc:
+            yield _sse_frame(error_envelope(str(exc), "upstream_error"))
+            return
+        except Exception as exc:  # noqa: BLE001 — a nonconforming backend / internal bug must
+            # still end the stream with an explicit error event (D5), never a silent close that
+            # reads as a network blip plus a server-side traceback.
+            yield _sse_frame(error_envelope(str(exc), "server_error"))
+            return
+    finally:
+        # Explicitly finalize the delta iterator (don't lean on GC): S1's metering-on-
+        # abandonment fires from its close, including when THIS generator is closed because
+        # the client disconnected mid-stream.
+        close = getattr(rest, "close", None)
+        if close is not None:
+            close()
 
     prompt_tokens = estimate_tokens(prompt)
     completion_tokens = estimate_tokens("".join(pieces))

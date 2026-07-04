@@ -158,17 +158,21 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Connection", "close")
-        self.end_headers()
         try:
+            # Header writes sit inside the guard too: a client that gives up during a slow
+            # pump-prime can close the socket before headers, and that must not traceback.
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Connection", "close")
+            self.end_headers()
             for event in body:
                 self.wfile.write(event)
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass  # client went away mid-stream — nothing left to tell it
         finally:
+            # Always finalize the body iterator so the routing layer's metering-on-abandonment
+            # fires deterministically (quota accounting must not depend on GC timing).
             close = getattr(body, "close", None)
             if close is not None:
                 close()
