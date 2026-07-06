@@ -1,6 +1,6 @@
 """Delegation logic — the sub-task offload behind the MCP tools.
 
-A frontier orchestrator (e.g. claude / codex / gemini) decomposes a task and hands sub-tasks to a
+A frontier orchestrator (e.g. claude / codex / antigravity) decomposes a task and hands sub-tasks to a
 **configured** backend, then reviews the result. The default target is TangleBrain's **free local
 tier** at $0 marginal cost (:func:`run_local_delegate` / ``target=None``); the orchestrator may also
 target any roster entry flagged ``can_delegate`` (:func:`run_delegate`) — a cheaper sub or a

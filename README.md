@@ -80,7 +80,7 @@ posture.
 | Tier | Example | Default |
 |---|---|---|
 | **Free local** | a local model via Ollama / any OpenAI-compatible server you run | **active** |
-| **Subscription / authenticated CLI** | command-line tools you've installed and logged in (e.g. `claude -p`, `codex exec`, `gemini -p`) | opt-in (commented) |
+| **Subscription / authenticated CLI** | command-line tools you've installed and logged in (e.g. `claude -p`, `codex exec`, `agy -p`) | opt-in (commented) |
 | **Paid API** | bring-your-own-key overflow (any OpenAI-compatible endpoint you hold a key for) | opt-in, off by default |
 
 > **Opt-in adapters & your responsibility.** The subscription / authenticated-CLI tier and the
@@ -322,9 +322,9 @@ Register it with an orchestrator CLI (exact flags vary by CLI version — check 
 ```sh
 # Claude Code:
 claude mcp add tanglebrain-delegate -- tanglebrain-delegate
-# Gemini CLI:
-gemini mcp add tanglebrain-delegate tanglebrain-delegate
 # Codex: add a stdio MCP server entry pointing at `tanglebrain-delegate` in its MCP config.
+# Antigravity CLI (`agy`, the gemini CLI's successor): no per-invocation MCP flags as of
+# 1.0.10 — antigravity orchestrates without the delegate for now (TangleBrain #81).
 ```
 
 Claude Code users can instead install it as a **plugin** — this repo is its own plugin marketplace
