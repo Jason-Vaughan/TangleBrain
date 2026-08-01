@@ -2,7 +2,7 @@
 name: Add a backend / adapter
 about: Propose or document support for a new routable backend
 title: "[backend] "
-labels: feature, backend
+labels: enhancement, backend
 ---
 
 Adding a backend is usually a **config edit, not a code change** — a new roster entry, not new
