@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Reconciled `FEATURES.md` and `PROJECT-MAP.md` with the current generator.** Both landed in the
+  repo carrying a superseded TangleClaw scaffold: `FEATURES.md` documented the abandoned
+  `file.js:line` pointer format (the generator now mandates stable `file.js#symbolName` anchors,
+  precisely because line pointers rot) and named its third section `Methodologies / Engines` rather
+  than `Governance / Engines`, and `PROJECT-MAP.md` omitted the `Tangle-Shared` doc group. Both
+  files now match `TangleClaw/lib/projects.js`, the three auto-stubbed `TBD` entries are resolved,
+  and the `<!-- describe -->` placeholders are filled.
+
 - **Issue templates now declare labels that exist.** `feature.md` and `add-backend.md` asked for a
   `feature` label the repo has never had, so `gh issue create` failed outright on it and
   UI-filed issues landed unlabeled. Both now use `enhancement`; the `backend` label
