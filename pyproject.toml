@@ -33,7 +33,10 @@ dependencies = [
 # that run `tanglebrain-delegate` (so an orchestrator CLI can offload grunt to local) need the
 # MCP stack. Install with: pip install "tanglebrain[delegate]".
 [project.optional-dependencies]
-delegate = ["mcp >= 1.0"]
+# Capped below 2.0: the SDK's 2.0.0 (2026-07-28) renamed FastMCP to MCPServer and removed the
+# `mcp.server.fastmcp` import path that `tanglebrain/mcp_server.py` uses, so an uncapped resolve
+# installs an SDK this code cannot import. Lifting the cap means migrating to the 2.x API.
+delegate = ["mcp >= 1.0, < 2"]
 
 [project.urls]
 Homepage = "https://github.com/Jason-Vaughan/TangleBrain"
