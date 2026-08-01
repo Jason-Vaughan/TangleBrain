@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **Issue templates now declare labels that exist.** `feature.md` and `add-backend.md` asked for a
+  `feature` label the repo has never had, so `gh issue create` failed outright on it and
+  UI-filed issues landed unlabeled. Both now use `enhancement`; the `backend` label
+  `add-backend.md` also referenced has been created. Every label named across the three
+  templates now resolves.
+
 ## [0.20.1] - 2026-08-01
 
 ### Fixed
