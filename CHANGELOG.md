@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `delegate` extra no longer installs an SDK it cannot import (#87).** `mcp` 2.0.0
+  (2026-07-28) renamed `FastMCP` to `MCPServer` and removed the `mcp.server.fastmcp` path
+  `tanglebrain/mcp_server.py` imports, so the open-ended `mcp >= 1.0` constraint resolved to a
+  broken install — `pip install "tanglebrain[delegate]"` produced a delegate server that failed at
+  import, and CI went red on every branch. The constraint is now `mcp >= 1.0, < 2`; a new
+  `tests/test_packaging.py` asserts the upper bound stays, since nothing at runtime exercises a
+  dependency constraint and the gap went unnoticed until a resolve happened to pick up the new
+  major. Migrating to the 2.x API is tracked separately — lifting the cap moves the floor to
+  `mcp >= 2` and drops 1.x users, which is a decision rather than a bump.
+
 ## [0.20.0] - 2026-07-06
 
 ### Added
