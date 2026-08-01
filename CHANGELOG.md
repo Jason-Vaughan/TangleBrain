@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-08-01
+
 ### Fixed
 
 - **The `delegate` extra no longer installs an SDK it cannot import (#87).** `mcp` 2.0.0
