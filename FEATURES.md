@@ -28,3 +28,7 @@ they rot.
   `tanglebrain/config/roster.yaml`. It is a starting point, not the live config: resolution is
   `$TANGLEBRAIN_ROSTER` → `~/.config/tanglebrain/roster.yaml` → this file, so a real roster lives
   outside the repo and survives `git pull`. Loaded by `tanglebrain/roster.py`.
+
+## TODO (auto-stubbed 2026-08-01)
+
+- **TBD** — touched in this session: `PROJECT-MAP.md`. <!-- describe -->
