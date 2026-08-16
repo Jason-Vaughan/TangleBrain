@@ -1,0 +1,141 @@
+# Operations
+
+How TangleBrain is installed, run, configured, and recovered.
+
+## Deployment model
+
+There is no deployment. It is a Python package on the operator's own machine:
+
+```sh
+pip install tanglebrain                # base
+pip install "tanglebrain[delegate]"    # + the MCP delegate server
+```
+
+`requires-python = ">=3.10"`. Four console scripts: `tanglebrain`, `tanglebrain-gui`,
+`tanglebrain-serve`, `tanglebrain-delegate`. The delegate server additionally ships as a Claude Code
+plugin — the repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json` →
+`plugins/tanglebrain-delegate/`), which registers the console script declaratively without vendoring
+it.
+
+**A fresh install is inert and free.** The packaged roster has exactly one active entry — the free
+local tier — with the subscription-CLI and paid-API tiers present as commented opt-in examples.
+Nothing contacts a paid or remote service until the operator configures it to.
+
+## Configuration
+
+| What | Where | Notes |
+|---|---|---|
+| Roster | `$TANGLEBRAIN_ROSTER` → `$XDG_CONFIG_HOME/tanglebrain/roster.yaml` → packaged example | First hit wins. A bad `$TANGLEBRAIN_ROSTER` errors clearly rather than silently falling back. |
+| Settings | `config/settings.yaml` | Both gates default off. |
+| Pricing reference | `config/pricing.yaml` | Feeds the cloud-equivalent figure. |
+| State directory | `~/.cache/tanglebrain/`, override `TANGLEBRAIN_STATE_DIR` | Rotation cursor + usage log. |
+
+**The operator's real roster lives outside the repo on purpose** — `git pull` and `pip install -U`
+cannot clobber it. This is a supported guarantee, not a convention.
+
+**Credentials** are referenced, never embedded: `key_ref` is `env:NAME` or `file:PATH`, resolved
+lazily at call time. The intended posture for a key file is mode `0600` — **note that nothing
+enforces or checks this** ([#99](https://github.com/Jason-Vaughan/TangleBrain/issues/99)).
+
+## Enabling a paid backend
+
+The one genuinely consequential operation, so it is spelled out:
+
+1. Set `settings.api_billing_enabled: true`.
+2. Set the specific entry's `enabled: true`.
+3. Confirm the entry's `key_ref` resolves.
+
+Both gates are required. Both are strictly bool-validated. Until both are true the entry parses and
+is inspectable but is **never routable**. Reversing either step disables billing immediately — no
+cached state keeps it live.
+
+`api` is never auto-selected by capability, so even fully enabled it is reached only as a genuine
+last resort (all orchestrators failed) or when named explicitly.
+
+## Running
+
+| Task | Command |
+|---|---|
+| Route a prompt | `tanglebrain "…"` |
+| Force free local | `tanglebrain --local "…"` |
+| Pin a backend | `tanglebrain --model <id> "…"` |
+| Task-fit hint | `tanglebrain --task code "…"` |
+| See what routing saved | `tanglebrain --stats` |
+| Knob panel | `tanglebrain-gui` |
+| OpenAI-compatible endpoint | `tanglebrain-serve` |
+| MCP delegate server | registered by the orchestrator; not launched by hand |
+
+## Runbook — diagnosing common failures
+
+**"It routed to the wrong backend."**
+Check which roster is actually in play first — `default_roster_path()` resolution means it may not
+be the file you are editing. Note that the `--roster` help text currently misstates this default
+([#102](https://github.com/Jason-Vaughan/TangleBrain/issues/102)), so trust the resolution order
+above rather than `--help`. Then check `enabled`, `can_orchestrate`, and `good_at` on the entries,
+and whether the classifier gate diverted the request.
+
+**"Everything failed."**
+`RouterError` lists every attempt with its failure, and annotates rate-limit errors. Read the list —
+a uniform failure across backends usually means a local config or network problem, not a backend
+problem.
+
+**"A hard task went to the local model."**
+The classifier gate misjudged it. It fails toward frontier by design, so this means it classified
+confidently and wrongly rather than erroring. Use `--no-gate` to bypass for a run; disable
+`classifier_gate_enabled` if it keeps happening.
+
+**"Delegations are not linked to their parent task."**
+The `TANGLEBRAIN_TASK_ID` environment hop was not forwarded by the orchestrator. Records show
+`unlinked`. This degrades silently by design and is not recoverable after the fact — see
+[`architecture.md`](architecture.md).
+
+**"My pinned backend stopped delegating."**
+Known defect: `--model` on an orchestrator-capable entry strips its delegate tool
+([#96](https://github.com/Jason-Vaughan/TangleBrain/issues/96)). Use the router path until that
+lands.
+
+**"The delegate server offers a target that does not exist."**
+The tool description enumerating the target menu is built **once at server startup**. A roster edit
+is invisible to a running server. Restart it.
+
+**"Stats look wrong / spend-avoided dropped."**
+Most likely the usage log was deleted. It lives under `~/.cache/`, which any cleanup tool may clear.
+It is **not reconstructible** ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+
+## Backup and recovery
+
+| Asset | Backup | Recovery |
+|---|---|---|
+| Roster | **Operator's responsibility — nothing does this automatically.** The GUI writes a timestamped backup on *its* edits only; a hand-edit is unprotected. | Rewrite by hand, or fall back to the packaged example. |
+| Settings | Same | Recreate; defaults are safe (both gates off). |
+| Usage log | **None** | **None.** Historical spend-avoided is permanently lost. |
+| Rotation cursor | None needed | Regenerates; rotation restarts. |
+
+**Stated plainly:** the two assets that matter — the operator's hand-authored roster and the
+accumulated usage history — have no automatic backup, and one of them is irreplaceable and stored in
+a directory conventionally treated as disposable.
+
+## Maintenance
+
+- **The usage log grows without bound.** No rotation, no cap, no pruning. Currently manual: truncate
+  or archive it. Tracked with the cache-tier placement question in
+  [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) — same owner, probably the same
+  answer.
+- **Dependency drift is the demonstrated operational risk.** v0.20.1 was a hotfix for a live
+  breakage of the *published* package: mcp 2.0.0 removed `mcp.server.fastmcp`, and an open-ended
+  `mcp >= 1.0` meant `pip install "tanglebrain[delegate]"` installed a server that could not import.
+  It was caught by a user-facing break, not by CI.
+- **CI runs on `push` to `main` and on `pull_request` only — there is no `schedule:` trigger.** An
+  upstream release that breaks the published package is therefore invisible until someone pushes a
+  commit or a user reports it. This is the concrete gap behind
+  [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92), and scheduled CI is the
+  higher-value half of that issue — a version cap only helps if something notices.
+
+## Release
+
+Semver, [`CHANGELOG.md`](../../CHANGELOG.md) in Keep a Changelog format, a GitHub Release per tag,
+publish on release via `.github/workflows/publish.yml`.
+
+**Verify from a clean venv against real PyPI, not from the working tree.** The v0.20.1 class of bug
+— a broken optional extra — is invisible to a source checkout where the dependency is already
+installed and importable. That is how it reached users in the first place.

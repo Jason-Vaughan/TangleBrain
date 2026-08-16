@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Published the design documents as [`docs/design/`](docs/design/README.md).** Eight documents
+  covering runtime architecture, the four API contract surfaces, the data model and what survives a
+  crash, the security model, contract boundaries, observability, nonfunctional requirements, and
+  operations — plus an index. They state what the project promises and why, and they name their own
+  gaps rather than only their strengths. Linked from `README.md` and `CONTRIBUTING.md`, which now
+  asks that changes to routing, adapters, or either HTTP surface update the matching document in the
+  same PR.
+
+- **Filed every gap the design documents disclose as a tracking issue**, so each admission carries a
+  fix path: the missing loopback-bind test (#98), unchecked `key_ref` file permissions (#99),
+  unrecorded failures and lost failover attempts (#100), the `usage.jsonl` growth and cache-tier
+  placement question (#101), and the incorrect `--roster` help text (#102). Three coordination-layer
+  gaps found while designing a multi-backend setup are filed alongside them: no way to designate an
+  orchestrator rather than round-robin (#95), `--model` silently stripping an orchestrator's
+  delegate tool (#96), and capability routing being unable to route upward (#97).
+
 ### Internal
 
 - **Reconciled `FEATURES.md` and `PROJECT-MAP.md` with the current generator.** Both landed in the

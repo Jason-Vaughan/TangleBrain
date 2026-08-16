@@ -404,6 +404,16 @@ make test          # lint + run the unit test suite (hermetic; HTTP is mocked)
 make test-live     # opt-in: hit the real local endpoint your roster points at, end-to-end
 ```
 
+## Design documents
+
+The reasoning behind the system — what each surface promises, what data survives a crash, what's
+protected and what's accepted risk — is published in
+[`docs/design/`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/docs/design/README.md).
+
+These are deliberately candid: each document names its own gaps, and every gap named there links to
+a tracking issue. If you're evaluating whether to depend on TangleBrain, or looking for somewhere to
+start contributing, that directory is the honest picture.
+
 ## Contributing
 
 Contributions are welcome — see [`CONTRIBUTING.md`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/CONTRIBUTING.md) for dev setup, branch/PR

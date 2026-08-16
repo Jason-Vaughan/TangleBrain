@@ -39,6 +39,10 @@ reviewers rely on `make test`.
 - `tests/` — stdlib `unittest`, mock-based, hermetic.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the pieces fit together. Read this first if you're
   changing routing behavior.
+- [`docs/design/`](docs/design/) — the design reasoning: what each surface promises, what data
+  survives a crash, what's protected and what's accepted risk, and where the project is currently
+  weak. Start with [`docs/design/README.md`](docs/design/README.md). Every gap named there has a
+  tracking issue, so it doubles as a map of what's open.
 
 ## Good first contributions
 
@@ -66,6 +70,10 @@ code change to `adapters/` + `roster.py` — open an issue first so we can agree
   - **Test plan** — how you verified it (`make test` output, manual steps).
 - **Update docs in the same PR as the code.** If behavior changes, update the relevant doc
   (`README.md` / `ARCHITECTURE.md`) and add a `CHANGELOG.md` entry under `[Unreleased]`.
+- **Changes to routing, adapters, or either HTTP surface should update the matching document in
+  [`docs/design/`](docs/design/) in the same PR.** Those documents state what the project promises
+  and why; a change that makes one of them wrong is incomplete, not merely undocumented. If your
+  change closes a gap one of them names, delete the admission rather than leaving it stale.
 
 ## Code style & tests
 
