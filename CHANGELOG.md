@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Corrected `--roster` CLI help text to state the true discovery resolution order (#102).**
+  `tanglebrain --help` previously claimed the default was exclusively the packaged example
+  `tanglebrain/config/roster.yaml`. It now accurately describes resolution: `$TANGLEBRAIN_ROSTER`
+  env var → `~/.config/tanglebrain/roster.yaml` (if present) → packaged generic example fallback.
+
 ### Added
 
 - **Published the design documents as [`docs/design/`](docs/design/README.md).** Eight documents

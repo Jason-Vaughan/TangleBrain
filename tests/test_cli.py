@@ -610,6 +610,20 @@ class MainTest(unittest.TestCase):
         self.assertIn(__version__, out.getvalue())
         run.assert_not_called()  # --version never routes
 
+    def test_roster_help_text_states_discovery_order(self):
+        # Regression test for #102: --roster help must state the actual discovery resolution order,
+        # not merely claim the packaged example is the sole default.
+        out = io.StringIO()
+        with redirect_stdout(out):
+            with self.assertRaises(SystemExit) as ctx:
+                main(["--help"])
+        self.assertEqual(ctx.exception.code, 0)
+        # Normalize whitespace as argparse wraps text across lines
+        help_output = " ".join(out.getvalue().split())
+        self.assertIn("$TANGLEBRAIN_ROSTER", help_output)
+        self.assertIn("~/.config/tanglebrain/roster.yaml", help_output)
+        self.assertIn("packaged example", help_output)
+
 
 if __name__ == "__main__":
     unittest.main()
