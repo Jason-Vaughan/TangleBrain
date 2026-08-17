@@ -112,8 +112,21 @@ class RunOnceTest(unittest.TestCase):
                 run_once("hello", model="claude", roster_path=_pinned_roster(self)), "claude reply"
             )
         selected = build.call_args.args[0]
+        value = build.call_args.kwargs.get("inject_delegate")
+        self.assertEqual(value, True)
         self.assertEqual(selected.id, "claude")
         self.assertEqual(selected.tier, "sub")
+    
+    def test_model_does_not_inject_delegate_for_leaf(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "ollama reply"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter) as build:
+            self.assertEqual(
+                run_once("hello", model="local-ollama", roster_path=_pinned_roster(self)), "ollama reply"
+            )
+        value = build.call_args.kwargs.get("inject_delegate", False)
+        self.assertEqual(value, False)
+
 
     def test_unknown_model_raises_selection_error(self):
         with self.assertRaises(SelectionError):
@@ -351,7 +364,7 @@ class RunOnceStreamTest(unittest.TestCase):
 
     def test_model_path_streams_and_records_on_exhaustion(self):
         fake = self._streaming_adapter("Hel", "lo")
-        with patch("tanglebrain.cli.build_adapter", return_value=fake):
+        with patch("tanglebrain.cli.build_adapter", return_value=fake) as build:
             deltas, served = run_once_stream(
                 "hi", model="claude", roster_path=_pinned_roster(self)
             )
@@ -362,6 +375,8 @@ class RunOnceStreamTest(unittest.TestCase):
             self.assertEqual(self._records(), [])
             self.assertEqual(list(deltas), ["Hel", "lo"])
         records = self._records()
+        value = build.call_args.kwargs.get("inject_delegate")
+        self.assertEqual(value, True)
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["path"], "model")
         self.assertEqual(records[0]["model"], "claude")
