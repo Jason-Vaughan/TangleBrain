@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orchestrator rather than round-robin (#95), `--model` silently stripping an orchestrator's
   delegate tool (#96), and capability routing being unable to route upward (#97).
 
+- **`key_ref: file:PATH` now warns when the key file is group- or world-readable (#99).** The file
+  is `stat`-checked before reading; a permissive mode raises a `UserWarning` (once per path per
+  process, POSIX-only, never a failure) instead of the credential being used silently. The `0600`
+  intent in `ARCHITECTURE.md` is now surfaced rather than assumed.
+
 ### Internal
 
 - **Reconciled `FEATURES.md` and `PROJECT-MAP.md` with the current generator.** Both landed in the

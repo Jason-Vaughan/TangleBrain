@@ -9,6 +9,7 @@ import json
 import os
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,8 @@ from tanglebrain.adapters.openai_compat import (
     DEFAULT_MAX_TOKENS,
     AdapterError,
     OpenAICompatAdapter,
+    _warn_if_permissive,
+    _warned_paths,
     resolve_key_ref,
 )
 from tanglebrain.roster import Invoke, RosterEntry
@@ -48,6 +51,17 @@ def make_response(status: int, *, json_body=None, text="") -> httpx.Response:
 
 class ResolveKeyRefTest(unittest.TestCase):
     """key_ref resolution covers file / env / none / unknown forms."""
+
+    def setUp(self) -> None:
+        _warned_paths.clear()
+
+    def _key_file(self, mode: int) -> str:
+        handle = tempfile.NamedTemporaryFile("w", suffix=".key", delete=False)
+        handle.write("sk-scoped-123\n")
+        handle.close()
+        os.chmod(handle.name, mode)
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
 
     def test_none_literal_and_python_none(self):
         self.assertIsNone(resolve_key_ref(None))
@@ -90,6 +104,46 @@ class ResolveKeyRefTest(unittest.TestCase):
     def test_unknown_form(self):
         with self.assertRaises(AdapterError):
             resolve_key_ref("vault:secret/x")
+
+    def test_group_or_world_readable_file_warns(self):
+        for mode in (0o640, 0o604, 0o644, 0o666):
+            with self.subTest(mode=oct(mode)):
+                path = self._key_file(mode)
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    self.assertEqual(resolve_key_ref(f"file:{path}"), "sk-scoped-123")
+                self.assertTrue(
+                    any(
+                        issubclass(w.category, UserWarning)
+                        and "group- or world-readable" in str(w.message)
+                        for w in caught
+                    )
+                )
+
+    def test_private_file_is_quiet(self):
+        path = self._key_file(0o600)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            resolve_key_ref(f"file:{path}")
+        self.assertEqual(caught, [])
+
+    def test_warns_once_per_path_per_process(self):
+        path = self._key_file(0o644)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            resolve_key_ref(f"file:{path}")
+            resolve_key_ref(f"file:{path}")
+        self.assertEqual(sum(1 for w in caught if issubclass(w.category, UserWarning)), 1)
+
+    @unittest.skipIf(os.name != "posix", "POSIX-only check")
+    def test_noop_on_non_posix(self):
+        # pathlib dispatches on os.name at construction time, so test the gate directly.
+        path = Path(self._key_file(0o644))
+        with patch.object(os, "name", "nt"):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                _warn_if_permissive(path)
+        self.assertEqual(caught, [])
 
 
 class RunTest(unittest.TestCase):

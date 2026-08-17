@@ -65,7 +65,9 @@ so there is no at-rest exposure to defend.
 
 `key_ref` holds `env:NAME` or `file:PATH` and is resolved lazily at call time. The value never
 enters the roster, never enters the repo, and never reaches the browser — the GUI renders the
-reference string.
+reference string. `file:PATH` is `stat`-checked before reading: a group- or world-readable key
+file raises a `UserWarning` (once per path per process, POSIX-only) instead of being used
+silently — warn, never fail, so an operator who accepted the risk is informed, not broken.
 
 **Buys:** a leaked roster file, a screenshot of the panel, or an accidental `git add` of a config
 exposes no secret. Given the repo is public and the roster is the file operators are most likely to
@@ -155,14 +157,11 @@ Recorded, not fixed. Each is a decision someone should make deliberately.
    not record gate state at time of call, which credential path was used, or that a paid backend was
    engaged. After an unexpected bill there is no way to reconstruct *why* a paid entry was
    reachable. Related: [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100).
-2. **`key_ref: file:PATH` permissions are unverified.** `ARCHITECTURE.md` describes the intent as a
-   `0600` file, but nothing checks the mode before reading. A world-readable key file is used
-   silently. [#99](https://github.com/Jason-Vaughan/TangleBrain/issues/99).
-3. **No integrity check on the roster.** A modified roster silently changes where prompts go,
+2. **No integrity check on the roster.** A modified roster silently changes where prompts go,
    including to a paid or attacker-controlled backend. Consistent with the local-trust model — noted
    because "a config edit changes where your data goes" deserves to be stated out loud rather than
    assumed.
-4. **Unbounded core dependency constraints.**
+3. **Unbounded core dependency constraints.**
    [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92), above.
 
 ## Reporting a vulnerability

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import warnings
 from pathlib import Path
 from typing import Iterator, Mapping
 
@@ -31,6 +33,29 @@ __all__ = ["AdapterError", "OpenAICompatAdapter", "resolve_key_ref"]
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAX_TOKENS = 2048
 
+_warned_paths: set[Path] = set()
+
+
+def _warn_if_permissive(path: Path) -> None:
+    """Warn once per path per process when a key file is group- or world-readable.
+
+    POSIX-only: Windows has no mode bits to check, so the check no-ops there. Warn, never
+    fail — a permissive file still works; the operator is told, not broken.
+    """
+    if os.name != "posix" or path in _warned_paths:
+        return
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return
+    if mode & (stat.S_IRGRP | stat.S_IROTH):
+        _warned_paths.add(path)
+        warnings.warn(
+            f"key_ref file {path} is group- or world-readable "
+            f"(mode {oct(stat.S_IMODE(mode))}); chmod 600 to keep it private",
+            stacklevel=2,
+        )
+
 
 def resolve_key_ref(key_ref: str | None) -> str | None:
     """Resolve a roster ``key_ref`` to a credential string, without embedding secrets.
@@ -38,7 +63,8 @@ def resolve_key_ref(key_ref: str | None) -> str | None:
     Supported forms (see the contract's key-ref convention):
 
     - ``file:PATH`` — read the key from a file (``~`` is expanded); the file is the source of
-      truth, never the config.
+      truth, never the config. Warns once per path per process (POSIX-only, never fails) if
+      the file is group- or world-readable.
     - ``env:NAME`` — read the key from environment variable ``NAME``.
     - ``none`` (or ``None``) — no credential; the endpoint is open.
 
@@ -60,6 +86,7 @@ def resolve_key_ref(key_ref: str | None) -> str | None:
         path = Path(raw_path).expanduser()
         if not path.exists():
             raise AdapterError(f"key_ref file not found: {path}")
+        _warn_if_permissive(path)
         key = path.read_text().strip()
         if not key:
             raise AdapterError(f"key_ref file is empty: {path}")
