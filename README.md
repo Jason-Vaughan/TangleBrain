@@ -7,6 +7,12 @@
 [![CI](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Jason-Vaughan/TangleBrain/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/tanglebrain)](https://pypi.org/project/tanglebrain/)
 [![Python](https://img.shields.io/pypi/pyversions/tanglebrain)](https://pypi.org/project/tanglebrain/)
+[![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
+
+```bash
+# 1-Click Installation (PyPI)
+pip install tanglebrain
+```
 
 A **local-first, config-driven router across OpenAI-compatible backends you own.**
 
