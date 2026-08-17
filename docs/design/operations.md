@@ -89,11 +89,6 @@ The `TANGLEBRAIN_TASK_ID` environment hop was not forwarded by the orchestrator.
 `unlinked`. This degrades silently by design and is not recoverable after the fact — see
 [`architecture.md`](architecture.md).
 
-**"My pinned backend stopped delegating."**
-Known defect: `--model` on an orchestrator-capable entry strips its delegate tool
-([#96](https://github.com/Jason-Vaughan/TangleBrain/issues/96)). Use the router path until that
-lands.
-
 **"The delegate server offers a target that does not exist."**
 The tool description enumerating the target menu is built **once at server startup**. A roster edit
 is invisible to a running server. Restart it.

@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orchestrator rather than round-robin (#95), `--model` silently stripping an orchestrator's
   delegate tool (#96), and capability routing being unable to route upward (#97).
 
+### Fixed
+
+- **Pinned orchestrators keep their delegate tool (#96).** `tanglebrain --model <id>` now builds
+  orchestrator-capable entries with delegate injection enabled, matching the router path instead of
+  silently running the pinned backend as a leaf.
+
 ### Internal
 
 - **Reconciled `FEATURES.md` and `PROJECT-MAP.md` with the current generator.** Both landed in the

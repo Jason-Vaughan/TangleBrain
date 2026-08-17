@@ -115,6 +115,13 @@ class RunOnceTest(unittest.TestCase):
         self.assertEqual(selected.id, "claude")
         self.assertEqual(selected.tier, "sub")
 
+    def test_model_keeps_delegate_injection_for_orchestrator(self):
+        fake_adapter = MagicMock()
+        fake_adapter.run.return_value = "claude reply"
+        with patch("tanglebrain.cli.build_adapter", return_value=fake_adapter) as build:
+            run_once("hello", model="claude", roster_path=_pinned_roster(self))
+        self.assertIs(build.call_args.kwargs.get("inject_delegate"), True)
+
     def test_unknown_model_raises_selection_error(self):
         with self.assertRaises(SelectionError):
             run_once("hello", model="no-such-model")
@@ -365,6 +372,13 @@ class RunOnceStreamTest(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["path"], "model")
         self.assertEqual(records[0]["model"], "claude")
+
+    def test_model_path_stream_keeps_delegate_injection_for_orchestrator(self):
+        fake = self._streaming_adapter("hello")
+        with patch("tanglebrain.cli.build_adapter", return_value=fake) as build:
+            deltas, _ = run_once_stream("hi", model="claude", roster_path=_pinned_roster(self))
+            list(deltas)
+        self.assertIs(build.call_args.kwargs.get("inject_delegate"), True)
 
     def test_non_streaming_adapter_falls_back_to_single_delta(self):
         fake = MagicMock(spec=["run"])  # no run_stream — per-backend emulation

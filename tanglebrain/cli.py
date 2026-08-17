@@ -208,7 +208,7 @@ def run_once(
 
     if model is not None:
         path, entry = "model", select_by_id(roster, model)
-        text = build_adapter(entry).run(prompt, opts)
+        text = build_adapter(entry, inject_delegate=entry.can_orchestrate).run(prompt, opts)
     elif local:
         path, entry = "local", select_local(roster)
         text = build_adapter(entry).run(prompt, opts)
@@ -372,7 +372,7 @@ def run_once_stream(
             )
             return iter([text]), _served("router", entry, task_id)
 
-    adapter = build_adapter(entry)
+    adapter = build_adapter(entry, inject_delegate=entry.can_orchestrate)
     run_stream = getattr(adapter, "run_stream", None)
     if run_stream is None:
         # Per-backend emulation: no streaming capability — run blocking, frame as one delta.
