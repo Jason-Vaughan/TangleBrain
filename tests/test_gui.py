@@ -17,6 +17,7 @@ from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
 from tanglebrain.gui import server, views
+from tanglebrain.serve import server as serve_server
 from tanglebrain.roster import Invoke, Roster, RosterEntry, packaged_roster_path
 from tanglebrain.router import RouterError
 
@@ -28,6 +29,35 @@ def _entry(eid, tier, *, key_ref=None, model=None, kind="cli", good_at=(), orch=
         cost="free" if tier == "local" else "subscription",
         good_at=list(good_at), can_orchestrate=orch,
     )
+
+
+class LoopbackBindingTest(unittest.TestCase):
+    class _FakeServer:
+        instances = []
+
+        def __init__(self, address, handler):
+            self.address = address
+            self.handler = handler
+            self.__class__.instances.append(self)
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    def setUp(self):
+        self._FakeServer.instances.clear()
+
+    def test_gui_binds_loopback_only(self):
+        with patch.object(server, "ThreadingHTTPServer", self._FakeServer):
+            self.assertEqual(server.main(["--port", "0"]), 0)
+        self.assertEqual(self._FakeServer.instances[0].address[0], "127.0.0.1")
+
+    def test_serve_binds_loopback_only(self):
+        with patch.object(serve_server, "ThreadingHTTPServer", self._FakeServer):
+            self.assertEqual(serve_server.main(["--port", "0"]), 0)
+        self.assertEqual(self._FakeServer.instances[0].address[0], "127.0.0.1")
 
 
 class ViewRosterTest(unittest.TestCase):
