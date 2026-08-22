@@ -10,6 +10,7 @@ to file paths — this maps the layout itself.
 
 ## Structure
 
+- `docs/` — <!-- describe -->
 - `plugins/` — the Claude Code plugin this repo's own marketplace publishes
 - `tanglebrain/` — the package. Routing core at the top level (`router.py`, `selector.py`,
 - `tanglebrain.egg-info/` — build detritus from an editable install. Gitignored; ignore it.
@@ -17,10 +18,4 @@ to file paths — this maps the layout itself.
 
 ## Shared directories / doc groups
 
-- **AI Inference** → _(no shared directory)_
-  - `LITELLM`
-  - `TANGLEBRAIN`
-  - `TANGLEBRAIN-C1-REPORT`
-  - `TANGLEBRAIN-PLAN`
-- **Tangle-Shared** → `/Users/jasonvaughan/Documents/Projects/Shared/Tangle-Shared`
-  - _(no docs registered)_
+_This project belongs to 2 shared-doc groups. Membership is machine-local state, not project structure, so it is not published here — see the TangleClaw UI for this install's groups._
