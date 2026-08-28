@@ -408,6 +408,23 @@ class DelegateObservabilityTest(unittest.TestCase):
         self.assertEqual(s["tasks"], 1)
         self.assertEqual(s["delegates"]["count"], 0)
 
+    def test_rollup_excludes_failures_from_headline(self):
+        # #100: failure records are counted, but held out of the headline like delegates, and
+        # every lost attempt (behind a failover success or a total failure) is tallied.
+        records = [
+            {"kind": "task", "tier": "sub", "spend_avoided_usd": 1.0,
+             "failures": [{"entry": "claude", "error": "boom"}]},
+            {"kind": "failure", "path": "router", "in_tokens_est": 10, "spend_avoided_usd": 0.0,
+             "failures": [{"entry": "claude", "error": "e1"}, {"entry": "gemini", "error": "e2"}]},
+        ]
+        s = rollup(records)
+        self.assertEqual(s["tasks"], 1)  # the failure record is not a routed task
+        self.assertEqual(s["failures"], 1)
+        self.assertEqual(s["lost_attempts"], 3)  # 1 lost failover + 2 exhausted attempts
+        self.assertEqual(s["in_tokens_est"], 0)  # failure tokens stay out of the headline
+        self.assertEqual(s["by_tier"], {"sub": 1})
+        self.assertAlmostEqual(s["spend_avoided_usd"], 1.0)
+
     def test_by_backend_aggregates_multiple(self):
         records = [
             {"kind": "delegate", "model": "local-x", "in_tokens_est": 10, "out_tokens_est": 5},

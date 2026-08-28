@@ -184,6 +184,24 @@ class FailoverTest(RouterTestBase):
         for eid in ("claude", "codex", "gemini"):
             self.assertIn(eid, msg)
 
+    def test_last_failures_surfaces_lost_attempts(self):
+        # #100: route() exposes the attempts it lost — like last_served — so the CLI's
+        # measurement seam can record failovers and total failures.
+        out = self._router({"claude": ("err", "boom"), "codex": ("ok", "from-codex"), "gemini": ("ok", "x")})
+        self.assertEqual(out.route("q"), "from-codex")
+        self.assertEqual(out.last_failures, [("claude", "boom")])
+        # A later first-try success (rotation now starts at gemini) resets the list.
+        self.assertEqual(out.route("q"), "x")
+        self.assertEqual(out.last_failures, [])
+
+    def test_last_failures_on_total_failure(self):
+        out = self._router({"claude": ("err", "e1"), "codex": ("err", "e2"), "gemini": ("err", "e3")})
+        with self.assertRaises(RouterError):
+            out.route("q")
+        self.assertEqual(
+            out.last_failures, [("claude", "e1"), ("codex", "e2"), ("gemini", "e3")]
+        )
+
     def test_total_failure_does_not_advance_cursor(self):
         out = self._router({"claude": ("err", "e"), "codex": ("err", "e"), "gemini": ("err", "e")})
         with self.assertRaises(RouterError):

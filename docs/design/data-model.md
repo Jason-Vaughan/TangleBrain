@@ -86,18 +86,19 @@ coincidentally enable a feature.
 
 Written by `tanglebrain/measurement.py`. Always-present fields:
 
-`ts` · `kind` (`task` \| `delegate`) · `path` · `tier` · `model` · `in_tokens_est` ·
+`ts` · `kind` (`task` \| `delegate` \| `failure`) · `path` · `tier` · `model` · `in_tokens_est` ·
 `out_tokens_est` · `cloud_equiv_usd` · `spend_avoided_usd` · `pricing_ref`
 
 Optional, written only when present: `task_id` · `parent_task_id` · `origin` (`cli` \| `gui` \|
-`serve`).
+`serve`) · `failures` (#100 — the `[{entry, error}, …]` attempts lost before the outcome: the
+failovers behind a served task, or every attempt on a `kind: "failure"` record).
 
 Two things this record deliberately does **not** contain: the prompt and the response. Token counts
 are estimated with a uniform `chars/4` heuristic over the text, and the text is then discarded.
 There is no redaction step because there is nothing to redact.
 
-`spend_avoided_usd` is `0.0` for `tier: api` (real spend avoids nothing) and equal to
-`cloud_equiv_usd` otherwise.
+`spend_avoided_usd` is `0.0` for `tier: api` (real spend avoids nothing) and for `kind: "failure"`
+records (a task no backend served avoided nothing), and equal to `cloud_equiv_usd` otherwise.
 
 ## Persistence boundaries
 

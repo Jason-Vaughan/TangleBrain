@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Failed tasks and lost failover attempts are recorded in the usage log** (#100). A task that
+  fails at every backend now writes a `kind: "failure"` record carrying the per-backend attempt
+  list, and a task served only after failover carries the attempts it lost in a new optional
+  `failures` field. Both are held out of the spend-avoided headline the way delegate records
+  already are, and `--stats` shows a `Tasks failed` line (with the lost-attempt count) once there
+  is anything to report. The new fields are optional and additive, so existing readers and
+  pre-existing log lines are unaffected.
+
 - **Published the design documents as [`docs/design/`](docs/design/README.md).** Eight documents
   covering runtime architecture, the four API contract surfaces, the data model and what survives a
   crash, the security model, contract boundaries, observability, nonfunctional requirements, and

@@ -39,6 +39,9 @@ One JSON line per task or delegation, appended to `~/.cache/tanglebrain/usage.js
 - `kind: "task"` — a top-level routed request. **Counts toward the spend-avoided headline.**
 - `kind: "delegate"` — a sub-call offloaded through `run_delegate`, metered at that single seam so
   every delegation including each `delegate_many` item is captured. **Held out of the headline.**
+- `kind: "failure"` — a task that failed at every backend (#100). **Held out of the headline** —
+  nothing was served, so nothing was avoided. Carries the per-backend attempt list in `failures`;
+  a task served only after failover carries the same list on its `task` record.
 
 The exclusion is the correct call and worth stating: the parent task already credits the whole job,
 so counting sub-calls again would double-count the saving. Delegates aggregate **separately** into a
@@ -105,28 +108,20 @@ on not overclaiming it.
 | Distributed tracing | Absent, defensible | The parent-task tree already covers the one cross-process relationship. |
 | Alerting | Absent, correct | Nothing to alert; nobody on call. |
 | Health endpoint | Absent, correct | Not a service. Failure is visible in the response. |
-| Structured error log | **Absent, a real gap** | See below. |
+| Structured error log | Folded into the usage log | Failures are `kind: "failure"` records carrying the per-backend attempt list (#100). |
 
 ## Gaps
 
 Recorded, not fixed.
 
-1. **No error signal at all.** The usage log records what *succeeded* — a task that failed at every
-   backend produces `RouterError` on stderr and **no record**. Failures are therefore invisible to
-   `--stats`, to the GUI, and to any later analysis. That is a genuine hole for a product whose
-   value proposition is routing decisions: you can see what routing saved you, but not what it cost
-   you in retries and failovers.
-2. **Failover is not observable.** A request served by the third orchestrator after two failures
-   records exactly the same shape as one served first try. The `path` field captures the route taken
-   but not the attempts that lost.
-3. **No `unlinked` visibility.** Per the correlation section above.
-4. **Unbounded log growth**, with no rotation or pruning — the operational cost of append-only. See
+1. **No `unlinked` visibility.** Per the correlation section above.
+2. **Unbounded log growth**, with no rotation or pruning — the operational cost of append-only. See
    [`operations.md`](operations.md).
-5. **Cache-tier placement.** The log is the only record of accumulated spend-avoided and it lives
+3. **Cache-tier placement.** The log is the only record of accumulated spend-avoided and it lives
    where cleanup tools delete things. See [`data-model.md`](data-model.md).
 
-Gaps 1–3 share a root: the log was designed to answer *"what did routing save me?"* and is now also
-the only tool for *"why did that go wrong?"*. Closing them means recording failure alongside success
-— a design decision, not a bug fix. Tracked in
-[#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100). Gaps 4–5 are tracked in
+Two former gaps here — no failure record at all, and failover being unobservable — were closed by
+[#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100): a task that fails at every backend
+is recorded as `kind: "failure"`, a failover success carries the attempts it lost, and `--stats`
+surfaces both. Gaps 2–3 are tracked in
 [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101).
