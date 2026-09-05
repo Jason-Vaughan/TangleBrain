@@ -38,6 +38,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An unreadable `key_ref` file now fails with a clean error instead of a traceback.** The
+  permission check stats the file, but the read that followed was unguarded: a file the process
+  could not open (wrong owner, restrictive mode, removed mid-run) raised a raw `PermissionError`,
+  which is outside `resolve_key_ref`'s documented `Raises` contract and outside the `AdapterError`
+  clause `cli.main` catches. The operator saw a stack trace where every other credential failure
+  prints one line. It now raises `AdapterError` naming the path and the OS reason.
+
+- **A paid last-resort backend reached by failover no longer receives the delegate tool.** The
+  fix for #96 asserted the pin/delegate rule at the call sites that had the symptom; the router's
+  failover loop still passed a blanket `inject_delegate=True`, so a `tier: api` CLI entry that is
+  not `can_orchestrate` was built as an orchestrator whenever the rotation exhausted. The decision
+  now lives in one place — `build_adapter` derives it from the entry's own `can_orchestrate` when
+  the caller has no opinion — so every current and future call site is correct by default rather
+  than by restating the rule. The delegate server still passes `False` explicitly, which is the
+  no-recursion rule and not an absence of opinion.
+
 - **`--model` on a `can_orchestrate` entry no longer strips its delegate tool.** Pinning a
   backend built its adapter without `inject_delegate`, so an orchestrator pinned with `--model`
   ran the whole task alone — no delegate tool registered, no warning, no error. The only visible

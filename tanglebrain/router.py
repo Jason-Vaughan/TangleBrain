@@ -122,7 +122,9 @@ class Router:
             adapter_factory: Builds an adapter for an entry. Defaults to the selector's
                 ``build_adapter``; injectable for tests. Called as
                 ``adapter_factory(entry, inject_delegate=...)``.
-            inject_delegate: Make the local-delegate tool available to each orchestrator, so it
+            inject_delegate: Master switch for delegation. When true (the default) each entry's
+                own ``can_orchestrate`` decides; when false, delegation is off for every entry
+                this router builds. Make the local-delegate tool available to each orchestrator, so it
                 offloads sub-tasks to the free local backend. On by default; set false to route to
                 bare orchestrators (e.g. for debugging).
             settings: Global settings carrying the paid-API billing gate. Loaded from the
@@ -191,7 +193,11 @@ class Router:
 
         failures: list[tuple[str, str]] = []
         for entry in candidates:
-            adapter = self._adapter_factory(entry, inject_delegate=self.inject_delegate)
+            # None lets build_adapter derive from the entry: a paid last-resort entry that is
+            # not an orchestrator must not receive the delegate tool merely by reaching this loop.
+            adapter = self._adapter_factory(
+                entry, inject_delegate=None if self.inject_delegate else False
+            )
             try:
                 text = adapter.run(prompt, opts)
             except AdapterError as exc:
@@ -216,7 +222,12 @@ class Router:
                 # a paid entry ``can_orchestrate: true``, putting it in the rotation — don't re-run it).
                 if not entry.enabled or entry.id in attempted:
                     continue
-                adapter = self._adapter_factory(entry, inject_delegate=self.inject_delegate)
+                # None lets build_adapter derive from the entry: a paid last-resort entry that
+                # is not an orchestrator must not receive the delegate tool merely by reaching
+                # this loop.
+                adapter = self._adapter_factory(
+                    entry, inject_delegate=None if self.inject_delegate else False
+                )
                 try:
                     text = adapter.run(prompt, opts)
                 except AdapterError as exc:

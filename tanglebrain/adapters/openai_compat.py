@@ -57,14 +57,20 @@ def _warn_if_readable_beyond_owner(path: Path) -> None:
     try:
         mode = stat.S_IMODE(path.stat().st_mode)
     except OSError:
-        # An unreadable stat is not this check's business to report — the read that follows
-        # will raise a better-targeted error.
+        # The read below turns any real access failure into an AdapterError, so a stat that
+        # cannot run is not this check's to report.
         return
     if not mode & (stat.S_IRGRP | stat.S_IROTH):
         return
-    if str(path) in _PERMISSION_WARNED:
+    # Key on the resolved path: the same file reached by two spellings (relative, symlink, a
+    # differing ~ expansion) is one file and should warn once.
+    try:
+        key = str(path.resolve())
+    except OSError:
+        key = str(path)
+    if key in _PERMISSION_WARNED:
         return
-    _PERMISSION_WARNED.add(str(path))
+    _PERMISSION_WARNED.add(key)
     print(
         f"tanglebrain: warning: key_ref file {path} is readable beyond its owner "
         f"(mode {mode:04o}); expected 0600",
@@ -101,7 +107,13 @@ def resolve_key_ref(key_ref: str | None) -> str | None:
         if not path.exists():
             raise AdapterError(f"key_ref file not found: {path}")
         _warn_if_readable_beyond_owner(path)
-        key = path.read_text().strip()
+        try:
+            key = path.read_text().strip()
+        except OSError as exc:
+            # Unreadable (wrong owner, bad mode, vanished mid-run) must surface as the documented
+            # error type: cli.main catches AdapterError and prints one clean line, where a raw
+            # PermissionError escapes it as a traceback.
+            raise AdapterError(f"key_ref file unreadable: {path} ({exc.strerror or exc})")
         if not key:
             raise AdapterError(f"key_ref file is empty: {path}")
         return key
