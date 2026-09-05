@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`key_ref: file:PATH` now warns when the credential file is group- or world-readable.**
+  `ARCHITECTURE.md` describes the intended posture as a `0600` file and nothing verified it, so
+  a world-readable key was read in silence. Resolution now stats the file first and writes a
+  warning to stderr naming the path and its octal mode. It **warns rather than fails**,
+  deliberately: refusing to run would break a working setup over a condition the operator may
+  have accepted, while a warning still surfaces the misconfiguration at the moment it matters.
+  The notice fires once per file per process — the credential is resolved on every routed
+  request, and a per-call warning would train the operator to ignore it. POSIX only; Windows
+  mode-bit semantics differ, so the check is a clean no-op there rather than a guess. The
+  warning never echoes the credential.
+
 - **Published the design documents as [`docs/design/`](docs/design/README.md).** Eight documents
   covering runtime architecture, the four API contract surfaces, the data model and what survives a
   crash, the security model, contract boundaries, observability, nonfunctional requirements, and
@@ -27,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--model` on a `can_orchestrate` entry no longer strips its delegate tool.** Pinning a
+  backend built its adapter without `inject_delegate`, so an orchestrator pinned with `--model`
+  ran the whole task alone — no delegate tool registered, no warning, no error. The only visible
+  symptom was a lower spend-avoided figure in `--stats`, which reads as a routing mystery rather
+  than a bug. Pinning *which* backend serves a request is a different decision from *whether*
+  that backend may delegate, and one must not silently imply the other. The same defect was
+  present on the streaming path (`run_once_stream`) and is fixed alongside it; delegation now
+  tracks the entry's own `can_orchestrate` flag on both.
+
 - **`--roster` help text now states the real default.** It claimed the default was the packaged
   `tanglebrain/config/roster.yaml`; the actual resolution is `$TANGLEBRAIN_ROSTER`, then
   `~/.config/tanglebrain/roster.yaml` if it exists, then the packaged example. This matters more
@@ -36,6 +56,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
+
+- **The loopback bind is now a tested contract, for both HTTP surfaces.** `tanglebrain-gui` and
+  `tanglebrain-serve` are unauthenticated by design and spend real backend quota, so the
+  `127.0.0.1` bind is not a default — it is the whole authorization model, and widening it does
+  not weaken the posture but voids it. Nothing tested it: a one-character edit to `0.0.0.0`
+  passed green. `tests/test_bind_address.py` asserts the address handed to the server rather
+  than that a server starts, since a test connecting over localhost passes just as happily
+  against `0.0.0.0`. It covers the three ways the invariant can be voided — widening the
+  literal, binding every interface with an empty host, and adding a `--host` flag that leaves
+  the literal untouched — the last of which the address assertions alone do not catch. No
+  production code changed and no socket is opened.
+
+- **`README.md` leads with the install command.** A visitor arriving from the PyPI listing had to
+  scroll past the pitch to find out how to install; the `pip install tanglebrain` line now sits
+  directly under the badges, alongside a MIT license badge that makes the licensing explicit
+  without a click.
 
 - **Reconciled `FEATURES.md` and `PROJECT-MAP.md` with the current generator.** Both landed in the
   repo carrying a superseded TangleClaw scaffold: `FEATURES.md` documented the abandoned

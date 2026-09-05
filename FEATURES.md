@@ -32,3 +32,15 @@ they rot.
 ## TODO (auto-stubbed 2026-08-01)
 
 - **TBD** — touched in this session: `PROJECT-MAP.md`. <!-- describe -->
+
+## TODO (auto-stubbed 2026-08-21)
+
+- **TBD** — touched in this session: `CONTRIBUTING.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/api-contract.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/architecture.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/boundaries.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/data-model.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/nonfunctional-requirements.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/observability.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/operations.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/security-model.md`. <!-- describe -->
