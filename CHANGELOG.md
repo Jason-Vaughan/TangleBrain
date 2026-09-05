@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--model` on a `can_orchestrate` entry no longer strips its delegate tool.** Pinning a
+  backend built its adapter without `inject_delegate`, so an orchestrator pinned with `--model`
+  ran the whole task alone — no delegate tool registered, no warning, no error. The only visible
+  symptom was a lower spend-avoided figure in `--stats`, which reads as a routing mystery rather
+  than a bug. Pinning *which* backend serves a request is a different decision from *whether*
+  that backend may delegate, and one must not silently imply the other. The same defect was
+  present on the streaming path (`run_once_stream`) and is fixed alongside it; delegation now
+  tracks the entry's own `can_orchestrate` flag on both.
+
 - **The `delegate` extra no longer installs an SDK it cannot import (#87).** `mcp` 2.0.0
   (2026-07-28) renamed `FastMCP` to `MCPServer` and removed the `mcp.server.fastmcp` path
   `tanglebrain/mcp_server.py` imports, so the open-ended `mcp >= 1.0` constraint resolved to a
