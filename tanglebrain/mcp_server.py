@@ -8,7 +8,7 @@ target by id or by capability), ``delegate_many`` (fan several sub-tasks out con
 ``delegate_targets`` (the configured target menu).
 
 It is a **thin wrapper** over :mod:`tanglebrain.delegate` (which reuses the roster + selector +
-adapters): the routing logic lives there, MCP plumbing lives here. The tools are **sync** — FastMCP
+adapters): the routing logic lives there, MCP plumbing lives here. The tools are **sync** — MCPServer
 runs sync tools in a worker thread, so they can call the sync adapter directly without duplicating
 the HTTP call as async.
 
@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from tanglebrain.delegate import (
     DEFAULT_DELEGATE_MAX_TOKENS,
@@ -46,7 +46,7 @@ from tanglebrain.delegate import (
     run_local_delegate,
 )
 
-mcp = FastMCP("tanglebrain-delegate")
+mcp = MCPServer("tanglebrain-delegate")
 
 
 def _delegate_tool_description() -> str:

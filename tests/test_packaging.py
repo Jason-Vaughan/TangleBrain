@@ -27,7 +27,7 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+; covered by the 3.11/3.12 CI jobs")
 class DependencyBoundTest(unittest.TestCase):
-    """Every declared dependency must carry an upper bound, and ``mcp`` must stay below 2.x."""
+    """Every declared dependency must carry an upper bound, and ``mcp`` must stay within 2.x."""
 
     def setUp(self):
         """Parse pyproject.toml once per test."""
@@ -66,20 +66,30 @@ class DependencyBoundTest(unittest.TestCase):
                     "lets the next major land unannounced (see the module docstring)",
                 )
 
-    def test_mcp_stays_below_the_2x_api_break(self):
+    def test_mcp_is_pinned_to_the_2x_major(self):
         # Stronger than the general rule above, and separate from it on purpose. `mcp` needs a
-        # specific ceiling rather than merely *a* ceiling, because 2.x is an API break this code
-        # has not migrated to — `mcp >= 2, < 3` would satisfy the general rule while shipping an
-        # extra that cannot import. Raising this is the migration, so it must fail loudly and be
-        # changed deliberately rather than drift upward with a dependency refresh.
+        # specific major rather than merely *a* ceiling: `mcp_server.py` imports
+        # `mcp.server.mcpserver`, which exists in 2.x and in no earlier major, so a floor that
+        # admits 1.x ships an extra that cannot import. That is the failure the < 2 cap was
+        # holding off before the migration, pointing the other way.
+        #
+        # Both ends are asserted. The floor stops a resolve reaching an SDK without the module;
+        # the ceiling stops the next major landing unannounced, which is the rule every other
+        # dependency here follows. Moving either end is a breaking change for installs and is
+        # announced as one — docs/design/deprecation-policy.md, "Dependency floors".
         delegate = self.pyproject["project"]["optional-dependencies"]["delegate"]
         mcp_requirements = [req for req in delegate if req.startswith("mcp")]
         self.assertEqual(len(mcp_requirements), 1, "expected exactly one mcp requirement")
+        requirement = mcp_requirements[0]
         self.assertIn(
-            "< 2",
-            mcp_requirements[0],
-            f"the mcp requirement must stay below 2.x until mcp_server.py is migrated, got "
-            f"{mcp_requirements[0]!r}",
+            ">= 2",
+            requirement,
+            f"mcp_server.py imports mcp.server.mcpserver, which needs 2.x; got {requirement!r}",
+        )
+        self.assertIn(
+            "< 3",
+            requirement,
+            f"the mcp requirement must stay below the next major; got {requirement!r}",
         )
 
 

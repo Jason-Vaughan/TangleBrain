@@ -102,9 +102,9 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 - **Consumer:** every `pip install`
 - **Contract:** console-script names, the optional `delegate` extra, dependency constraints,
   `requires-python`.
-- **Crossing it means:** the v0.20.1 failure class. Guarded by `tests/test_packaging.py` — **update
-  that test deliberately when [#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90) lifts
-  the `mcp < 2` cap; never delete it to green a build.** Verify from a clean venv against real PyPI,
+- **Crossing it means:** the v0.20.1 failure class. Guarded by `tests/test_packaging.py`, which asserts
+  both ends of the `mcp` major (`>= 2, < 3`) — **update that test deliberately when a floor or
+  ceiling moves; never delete it to green a build.** Verify from a clean venv against real PyPI,
   since a source checkout has the dependency already importable and cannot see the break.
 
 ## Test levels
