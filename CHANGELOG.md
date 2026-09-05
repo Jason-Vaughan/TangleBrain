@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The loopback bind is now a tested contract, for both HTTP surfaces.** `tanglebrain-gui` and
+  `tanglebrain-serve` are unauthenticated by design and spend real backend quota, so the
+  `127.0.0.1` bind is not a default — it is the whole authorization model, and widening it does
+  not weaken the posture but voids it. Nothing tested it: a one-character edit to `0.0.0.0`
+  passed green. `tests/test_bind_address.py` asserts the address handed to the server rather
+  than that a server starts, since a test connecting over localhost passes just as happily
+  against `0.0.0.0`. It covers the three ways the invariant can be voided — widening the
+  literal, binding every interface with an empty host, and adding a `--host` flag that leaves
+  the literal untouched — the last of which the address assertions alone do not catch. No
+  production code changed and no socket is opened.
+
 - **`README.md` leads with the install command.** A visitor arriving from the PyPI listing had to
   scroll past the pitch to find out how to install; the `pip install tanglebrain` line now sits
   directly under the badges, alongside a MIT license badge that makes the licensing explicit
