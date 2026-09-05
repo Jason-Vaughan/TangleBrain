@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The install contract is published as data** — an `installReference` key in
+  `.claude-plugin/marketplace.json` naming the marketplace entry (`ref: "main"`,
+  `autoUpdate: true`), the plugin key to enable, and the console script that must be present.
+  Until now the only statement of how TangleBrain should be installed was prose in `README.md`,
+  and prose is not checkable: the entry `/plugin marketplace add` actually wrote carries no `ref`
+  and no `autoUpdate`, a shape that reads as governed, resolves to nothing wherever the plugin is
+  not already cached, and let a local checkout sit four releases behind in silence. An install
+  monitor caught the incomplete entry but could not repair it, because there was nothing canonical
+  to repair it *to*.
+
+  `tests/test_plugin_manifest.py` derives every field from the thing it describes rather than
+  restating it — the marketplace key from the manifest's own name, the enabled-plugin key from both
+  manifests, the required command from `pyproject.toml`'s console scripts, the repo from the
+  plugin's homepage. A confidently wrong install reference is worse than none, because a reader who
+  trusts it stops looking for a better source.
+
 - **A written deprecation policy** — [`docs/design/deprecation-policy.md`](docs/design/deprecation-policy.md).
   The policy existed in practice (usage-log fields additive-by-default, `--route` retained as an
   accepted no-op) but had never been stated, so it could not be relied on from outside the repo or

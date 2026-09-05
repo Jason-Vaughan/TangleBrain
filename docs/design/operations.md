@@ -17,6 +17,14 @@ plugin — the repo doubles as its own plugin marketplace (`.claude-plugin/marke
 `plugins/tanglebrain-delegate/`), which registers the console script declaratively without vendoring
 it.
 
+That manifest also publishes an **`installReference`**: the correct marketplace entry as data, so a
+monitor or a fresh machine can read the install contract instead of parsing prose. It exists
+because `/plugin marketplace add` writes an entry with no `ref` and no `autoUpdate` — a shape that
+reads as governed, resolves to nothing wherever the plugin is not already cached, and let a local
+checkout drift four releases behind in silence. `tests/test_plugin_manifest.py` derives every field
+of it from the thing it describes, since a confidently wrong install reference is worse than none:
+a reader who trusts it stops looking for a better source.
+
 **A fresh install is inert and free.** The packaged roster has exactly one active entry — the free
 local tier — with the subscription-CLI and paid-API tiers present as commented opt-in examples.
 Nothing contacts a paid or remote service until the operator configures it to.

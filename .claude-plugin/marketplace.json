@@ -12,5 +12,23 @@
       "homepage": "https://github.com/Jason-Vaughan/TangleBrain",
       "license": "MIT"
     }
-  ]
+  ],
+  "installReference": {
+    "extraKnownMarketplaces": {
+      "tanglebrain": {
+        "source": {
+          "source": "github",
+          "repo": "Jason-Vaughan/TangleBrain",
+          "ref": "main"
+        },
+        "autoUpdate": true
+      }
+    },
+    "enabledPlugins": {
+      "tanglebrain-delegate@tanglebrain": true
+    },
+    "requiresCommands": [
+      "tanglebrain-delegate"
+    ]
+  }
 }
