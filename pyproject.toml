@@ -46,6 +46,12 @@ dependencies = [
 # lands unannounced. Users who need mcp 1.x install TangleBrain 0.20.1, the last release for it.
 delegate = ["mcp >= 2, < 3"]
 
+# The lint and type-check toolchain (#113). Dev-only: nothing here is imported at runtime, so the
+# minimal-dependency stance — which is about what a *user* installs — is untouched. Bounded at the
+# next major like every other declared dependency; ruff is pre-1.0, so its ceiling sits at the next
+# minor, which is where it makes breaking changes.
+dev = ["ruff >= 0.16, < 0.17", "mypy >= 2, < 3", "types-PyYAML >= 6, < 7"]
+
 [project.urls]
 Homepage = "https://github.com/Jason-Vaughan/TangleBrain"
 Repository = "https://github.com/Jason-Vaughan/TangleBrain"
@@ -65,3 +71,59 @@ include = ["tanglebrain*"]
 [tool.setuptools.package-data]
 tanglebrain = ["config/*.yaml"]
 "tanglebrain.gui" = ["static/*.html", "static/*.png"]
+
+# --- Code quality gates -------------------------------------------------------------------------
+# The ruling behind this configuration is recorded in docs/design/nonfunctional-requirements.md,
+# "Code quality gates". In short: lint and type-check for *defects*, do not enforce *style*.
+# A formatter was measured and declined — it would have rewritten 41 of 45 files while catching
+# nothing — so no rule here exists to make code look a particular way.
+
+[tool.ruff]
+target-version = "py310"
+# Recorded so the rules that reference a width use the width this codebase is actually written to.
+# It is NOT gated: E501 is deliberately unselected, because wrapping is a style opinion and the
+# long lines here are prose in docstrings that reads worse when broken.
+line-length = 100
+
+[tool.ruff.lint]
+# Every rule here answers "would a human reviewer call this a bug?" — unused names, late-binding
+# closures, unchained re-raises, swallowed exceptions. Style families (import order, quote shape,
+# modernization rewrites) are deliberately absent; they are the formatter question under another
+# name, and the formatter was declined.
+select = [
+    "F",      # pyflakes — unused imports and names, undefined references
+    "E4",     # import placement
+    "E7",     # statement-level defects (comparison to None/True, bare except, type comparison)
+    "E9",     # syntax and IO errors
+    "B",      # bugbear — late-binding closures, mutable defaults, unchained re-raises
+    "BLE",    # blind except — see below
+    "N",      # naming, so an exported name cannot quietly stop matching its kind
+    "S110",   # try/except/pass: a swallowed exception with no rationale
+    "RUF100", # unused noqa
+]
+ignore = [
+    # Multiple statements on one line. Pure layout, and the test suite uses `a = 1; b = 2` setup
+    # lines deliberately to keep a long arrange block scannable.
+    "E701",
+    "E702",
+]
+
+# BLE and RUF100 are the pair that matters most here, and they were chosen together. This codebase
+# already carried `# noqa: BLE001` and `# noqa: N802` comments written as though a linter were
+# running — every one of them was inert, because no linter had ever selected those rules. BLE makes
+# each broad catch a deliberate, justified waiver instead of a silent one; RUF100 makes the waivers
+# themselves honest, by failing when a suppression stops suppressing anything.
+
+[tool.ruff.lint.per-file-ignores]
+# `RouterCls` and friends name a patched *class*, so the capital is correct and the rule is wrong.
+"tests/*" = ["N806"]
+
+[tool.mypy]
+python_version = "3.10"
+# Production only. The annotations here are load-bearing documentation of a public surface; the
+# test suite's are convenience, and checking it would add noise without adding a guarantee.
+files = ["tanglebrain"]
+# Default strictness, deliberately. `--strict` was measured at 62 errors, 39 of them `type-arg`
+# ceremony over bare `dict`/`list`; default mode found 11, and every one was a real Optional-handling
+# gap. The reasoning, and what would justify revisiting, is in the design doc named above.
+ignore_missing_imports = true
