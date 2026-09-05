@@ -8,7 +8,7 @@ Every gap below has a tracking issue.
 
 ## Invariants
 
-The two highest-consequence rules in the project. These bind.
+The three highest-consequence rules in the project. These bind.
 
 - **Nothing binds off-loopback.** Both `tanglebrain-gui` and `tanglebrain-serve` bind `127.0.0.1`
   and only `127.0.0.1`. Not a default — a prohibition.
