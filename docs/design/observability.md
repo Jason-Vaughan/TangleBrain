@@ -114,7 +114,9 @@ on not overclaiming it.
 
 Recorded, not fixed.
 
-1. **No `unlinked` visibility.** Per the correlation section above.
+1. **No `unlinked` visibility.** A lost `TANGLEBRAIN_TASK_ID` hop and a genuinely parentless
+   sub-call land in the same bucket, so the count answers no question. Per the correlation
+   section above. [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123).
 2. **Unbounded log growth**, with no rotation or pruning — the operational cost of append-only. See
    [`operations.md`](operations.md).
 3. **Cache-tier placement.** The log is the only record of accumulated spend-avoided and it lives

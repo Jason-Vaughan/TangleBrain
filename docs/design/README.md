@@ -50,6 +50,7 @@ Every gap these documents disclose has an issue:
 | Gap | Issue |
 |---|---|
 | `usage.jsonl` growth + cache-tier placement | [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) |
+| A lost delegate hop is indistinguishable from a parentless record | [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123) |
 | Unbounded core dependencies, no scheduled CI | [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92) |
 | Capability routing ranks by cost only — it routes down, never up | [#97](https://github.com/Jason-Vaughan/TangleBrain/issues/97) |
 | No written deprecation policy | [#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90) |
