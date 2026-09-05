@@ -67,7 +67,7 @@ def select_by_id(roster: Roster, entry_id: str) -> RosterEntry:
 
 def build_adapter(
     entry: RosterEntry,
-    inject_delegate: bool = False,
+    inject_delegate: bool | None = None,
     settings: Settings | None = None,
 ) -> Adapter:
     """Build the adapter for a roster entry.
@@ -81,9 +81,11 @@ def build_adapter(
 
     Args:
         entry: The roster entry to build an adapter for.
-        inject_delegate: For ``cli`` entries, make the local-delegate tool available to the CLI as
-            an orchestrator — the router sets this so an orchestrator can offload sub-tasks to the
-            free local backend. Ignored for non-``cli`` kinds.
+        inject_delegate: Whether a ``cli`` entry receives the local-delegate tool. Leave ``None``
+            (the default) to derive it from the entry's own ``can_orchestrate`` flag, which is
+            where the answer actually lives — an entry may delegate exactly when it is an
+            orchestrator, whichever code path built it. Pass ``False`` to override, which the
+            delegate path does to stop a sub-call recursing. Ignored for non-``cli`` kinds.
         settings: Global settings carrying the billing gate. Loaded from the packaged
             ``config/settings.yaml`` when ``None`` (and only when an ``api`` entry is actually being
             built, so non-paid builds never touch the file). Injectable for tests.
@@ -95,6 +97,10 @@ def build_adapter(
         AdapterError: If an ``api`` entry is selected while billing is gated off or the entry is
             disabled, or if the invoke kind is unknown.
     """
+    # Delegation is a property of the entry, not of the caller: deriving it here means a new
+    # call site cannot silently get the wrong answer by omitting the argument.
+    if inject_delegate is None:
+        inject_delegate = entry.can_orchestrate
     if entry.invoke.kind == "openai-compat":
         return OpenAICompatAdapter.from_entry(entry)
     if entry.invoke.kind == "cli":

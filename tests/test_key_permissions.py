@@ -60,6 +60,15 @@ class KeyFilePermissionWarningTest(unittest.TestCase):
         self.assertIn("0640", err)
         self.assertIn(str(self.key_path), err)
 
+    def test_warning_never_echoes_the_credential(self) -> None:
+        """The warning names the path and mode, never the secret it is about.
+
+        Holds by construction today (the helper never reads the file), which is exactly why it
+        needs pinning: nothing would fail if a future edit added the key to the message.
+        """
+        _key, err = self.resolve(0o644)
+        self.assertNotIn("sk-secret", err)
+
     def test_world_readable_warns(self) -> None:
         """World-readable is the worst case and must be surfaced."""
         _key, err = self.resolve(0o644)
@@ -102,3 +111,28 @@ class KeyFilePermissionWarningTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.name == "posix", "POSIX mode bits only")
+class UnreadableKeyFileTest(unittest.TestCase):
+    """An unreadable key file must surface as AdapterError, not a raw OSError.
+
+    ``cli.main`` catches ``AdapterError`` and prints a single ``tanglebrain: ...`` line. A
+    ``PermissionError`` escaping that clause gives the operator a Python traceback instead, and
+    contradicts the function's documented ``Raises:`` contract.
+    """
+
+    def test_unreadable_file_raises_adapter_error(self) -> None:
+        """A present-but-unreadable credential file yields the documented error type."""
+        from tanglebrain.adapters.base import AdapterError
+
+        if os.geteuid() == 0:
+            self.skipTest("root bypasses file permissions")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "locked.key"
+            path.write_text("sk-secret\n")
+            path.chmod(0o000)
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(AdapterError) as raised:
+                    resolve_key_ref(f"file:{path}")
+            self.assertIn("unreadable", str(raised.exception))

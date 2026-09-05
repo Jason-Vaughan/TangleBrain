@@ -123,8 +123,8 @@ Recorded, not fixed.
 1. **No automated test covers the `TANGLEBRAIN_TASK_ID` orchestrator hop.** It is verified live
    against one orchestrator (Claude Code), by hand. It cannot be tested hermetically because the
    middle hop belongs to software this project does not own.
-2. **No socket-level test for either HTTP server.** `dispatch()` is tested directly; the
-   `ThreadingHTTPServer` wrapper and the loopback bind itself are not. Given the bind is the entire
-   authorization model, a test asserting it never binds off-loopback would be cheap and would guard
-   the project's highest-consequence invariant.
-   [#98](https://github.com/Jason-Vaughan/TangleBrain/issues/98).
+2. **No socket-level test for either HTTP server.** `dispatch()` is tested directly and the bind
+   address is now asserted (`tests/test_bind_address.py`), but nothing exercises a real socket: the
+   `ThreadingHTTPServer` wrapper is verified by substitution, so a request never traverses an actual
+   connection. The highest-consequence part — that the bind is loopback and not configurable — is
+   covered; end-to-end transport behaviour is not.

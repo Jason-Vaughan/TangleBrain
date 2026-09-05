@@ -212,10 +212,18 @@ class FailoverTest(RouterTestBase):
         self.assertEqual(captured["opts"], {"max_tokens": 99})
 
     def test_router_enables_delegate_injection_by_default(self):
+        """Orchestrators the router builds end up holding the delegate tool.
+
+        Asserts the adapter that results rather than the argument the factory received: the
+        router defers the decision to build_adapter, which derives it from the entry, so a test
+        pinned to the argument would track the mechanism instead of the contract.
+        """
+        from tanglebrain.selector import build_adapter
+
         seen = {}
 
-        def fac(entry, inject_delegate=False):
-            seen[entry.id] = inject_delegate
+        def fac(entry, inject_delegate=None):
+            seen[entry.id] = build_adapter(entry, inject_delegate=inject_delegate).inject_delegate
             adapter = MagicMock()
             adapter.run.return_value = "ok"
             return adapter

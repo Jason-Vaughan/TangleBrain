@@ -172,7 +172,9 @@ def run_once(
 
     Args:
         prompt: The prompt to route.
-        roster_path: Optional roster YAML path (defaults to the packaged roster).
+        roster_path: Optional roster YAML path (defaults to ``default_roster_path()``:
+            ``$TANGLEBRAIN_ROSTER``, then the user's ``~/.config`` roster if present, then the
+            packaged example).
         max_tokens: Optional completion token cap (honoured by the openai-compat adapter; the
             CLI adapter ignores it, as each CLI controls its own limits).
         model: Optional roster entry id to route to explicitly.
@@ -204,7 +206,8 @@ def run_once(
     # Mint a task id for this routed task. It is recorded on the task and threaded through opts so
     # the orchestrator-CLI adapter can propagate it to delegated sub-calls (see CliAdapter.run /
     # PARENT_TASK_ID_ENV), linking the delegation tree back to this task. Cheap and side-effect-free
-    # to mint on every path; only the router path (orchestrators with the delegate tool) acts on it.
+    # to mint on every path; the paths that act on it are those building an orchestrator with the
+    # delegate tool — the router, and a --model pin on a can_orchestrate entry.
     task_id = uuid.uuid4().hex
     opts: dict = {"task_id": task_id}
     if max_tokens is not None:
@@ -213,9 +216,8 @@ def run_once(
     if model is not None:
         path, entry = "model", select_by_id(roster, model)
         # Pinning WHICH backend serves a request is a different decision from WHETHER that
-        # backend may delegate. An orchestrator-capable entry keeps its delegate tool here
-        # exactly as it has it on the router path.
-        text = build_adapter(entry, inject_delegate=entry.can_orchestrate).run(prompt, opts)
+        # backend may delegate; build_adapter derives the latter from the entry itself.
+        text = build_adapter(entry).run(prompt, opts)
     elif local:
         path, entry = "local", select_local(roster)
         text = build_adapter(entry).run(prompt, opts)
@@ -331,7 +333,9 @@ def run_once_stream(
 
     Args:
         prompt: The prompt to route.
-        roster_path: Optional roster YAML path (defaults to the packaged roster).
+        roster_path: Optional roster YAML path (defaults to ``default_roster_path()``:
+            ``$TANGLEBRAIN_ROSTER``, then the user's ``~/.config`` roster if present, then the
+            packaged example).
         max_tokens: Optional completion token cap (honoured by the openai-compat adapter).
         model: Optional roster entry id to route to explicitly.
         local: Force the free local tier instead of the frontier-first router.
@@ -379,9 +383,7 @@ def run_once_stream(
             )
             return iter([text]), _served("router", entry, task_id)
 
-    # Same rule as the non-streaming path: a pinned orchestrator keeps its delegate tool.
-    # ``select_local`` yields a local openai-compat entry, for which this is ignored.
-    adapter = build_adapter(entry, inject_delegate=entry.can_orchestrate)
+    adapter = build_adapter(entry)
     run_stream = getattr(adapter, "run_stream", None)
     if run_stream is None:
         # Per-backend emulation: no streaming capability — run blocking, frame as one delta.

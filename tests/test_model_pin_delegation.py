@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from tanglebrain.cli import run_once, run_once_stream
+from tanglebrain.selector import build_adapter as _real_build_adapter
 
 # An orchestrator-capable CLI entry carrying delegate_args, plus a local backend for it to
 # offload to, plus a non-orchestrator sub to prove the flag tracks the entry rather than the
@@ -68,33 +69,54 @@ class ModelPinDelegationTest(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
+    def _delegation_of(self, model: str, stream: bool = False) -> bool:
+        """Return whether the adapter actually built for ``model`` carries the delegate tool.
+
+        Runs the real ``build_adapter`` and inspects the adapter it produces, rather than the
+        argument the CLI passed. The rule lives inside ``build_adapter``, so asserting the
+        argument would pin the mechanism instead of the behaviour.
+
+        Args:
+            model: Roster id to pin with ``--model``.
+            stream: Exercise ``run_once_stream`` instead of ``run_once``.
+
+        Returns:
+            The built adapter's effective ``inject_delegate``.
+        """
+        seen: dict[str, bool] = {}
+
+        def spy(entry, **kwargs):
+            built = _real_build_adapter(entry, **kwargs)
+            seen["injected"] = getattr(built, "inject_delegate", False)
+            stub = MagicMock(spec=["run"])
+            stub.run.return_value = "reply"
+            return stub
+
+        with patch("tanglebrain.cli.build_adapter", side_effect=spy):
+            if stream:
+                deltas, _served = run_once_stream("hello", model=model, roster_path=_roster(self))
+                # Drain the delta iterator: listing the returned 2-tuple would never enter the
+                # streaming branch, so the assertion would pass without reaching the subject.
+                self.assertEqual("".join(deltas), "reply")
+            else:
+                run_once("hello", model=model, roster_path=_roster(self))
+        return seen["injected"]
+
     def test_pinned_orchestrator_gets_the_delegate_tool(self) -> None:
-        """The regression: the pinned orchestrator must be built with delegation on."""
-        adapter = MagicMock()
-        adapter.run.return_value = "reply"
-        with patch("tanglebrain.cli.build_adapter", return_value=adapter) as build:
-            run_once("hello", model="claude", roster_path=_roster(self))
+        """The regression: the pinned orchestrator must end up holding delegation."""
         self.assertTrue(
-            build.call_args.kwargs.get("inject_delegate"),
+            self._delegation_of("claude"),
             "a pinned can_orchestrate entry was built without its delegate tool",
         )
 
     def test_pinned_non_orchestrator_does_not_get_it(self) -> None:
         """Delegation tracks the entry's own flag, not merely the pinned code path."""
-        adapter = MagicMock()
-        adapter.run.return_value = "reply"
-        with patch("tanglebrain.cli.build_adapter", return_value=adapter) as build:
-            run_once("hello", model="plain-sub", roster_path=_roster(self))
-        self.assertFalse(build.call_args.kwargs.get("inject_delegate"))
+        self.assertFalse(self._delegation_of("plain-sub"))
 
     def test_streaming_path_matches(self) -> None:
         """``run_once_stream`` carried the identical defect and must behave identically."""
-        adapter = MagicMock(spec=["run"])
-        adapter.run.return_value = "reply"
-        with patch("tanglebrain.cli.build_adapter", return_value=adapter) as build:
-            list(run_once_stream("hello", model="claude", roster_path=_roster(self)))
         self.assertTrue(
-            build.call_args.kwargs.get("inject_delegate"),
+            self._delegation_of("claude", stream=True),
             "the streaming path built a pinned orchestrator without its delegate tool",
         )
 
@@ -116,3 +138,56 @@ class ModelPinDelegationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DelegationIsDerivedFromTheEntryTest(unittest.TestCase):
+    """Delegation is a property of the entry, resolved once inside ``build_adapter``.
+
+    The rule was previously restated at each call site, so a site that omitted the argument got
+    the default rather than the right answer. These tests pin the derivation itself, which is
+    what stops the defect class returning at the next new call site.
+    """
+
+    def test_orchestrator_gets_it_without_the_caller_asking(self) -> None:
+        """Omitting the argument must yield the correct answer, not the old default."""
+        from tanglebrain.roster import Invoke, RosterEntry
+        from tanglebrain.selector import build_adapter
+
+        entry = RosterEntry(
+            id="claude", tier="sub",
+            invoke=Invoke(kind="cli", cmd=["claude"], delegate_args=["--mcp-config", "x"]),
+            can_orchestrate=True,
+        )
+        self.assertTrue(build_adapter(entry).inject_delegate)
+
+    def test_paid_cli_entry_reached_by_failover_does_not_get_it(self) -> None:
+        """The live case the per-call-site rule missed.
+
+        The router's last-resort paid loop iterates ``in_tier("api")``, which is not the
+        orchestrator rotation. A paid entry invoked as a CLI, carrying ``delegate_args`` but not
+        flagged ``can_orchestrate``, must not receive the delegate tool merely by being reached
+        after every orchestrator failed.
+        """
+        from tanglebrain.roster import Invoke, RosterEntry
+        from tanglebrain.selector import build_adapter
+
+        entry = RosterEntry(
+            id="paid-cli", tier="sub",
+            invoke=Invoke(kind="cli", cmd=["paid"], delegate_args=["--mcp-config", "x"]),
+            can_orchestrate=False,
+        )
+        adapter = build_adapter(entry)
+        self.assertFalse(adapter.inject_delegate)
+        self.assertNotIn("--mcp-config", adapter._effective_cmd())
+
+    def test_explicit_false_still_overrides(self) -> None:
+        """The delegate path passes False explicitly to stop a sub-call recursing."""
+        from tanglebrain.roster import Invoke, RosterEntry
+        from tanglebrain.selector import build_adapter
+
+        entry = RosterEntry(
+            id="claude", tier="sub",
+            invoke=Invoke(kind="cli", cmd=["claude"], delegate_args=["--mcp-config", "x"]),
+            can_orchestrate=True,
+        )
+        self.assertFalse(build_adapter(entry, inject_delegate=False).inject_delegate)

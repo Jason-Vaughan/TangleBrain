@@ -49,11 +49,8 @@ Every gap these documents disclose has an issue:
 
 | Gap | Issue |
 |---|---|
-| No test asserts the loopback bind | [#98](https://github.com/Jason-Vaughan/TangleBrain/issues/98) |
-| `key_ref: file:PATH` permissions unchecked | [#99](https://github.com/Jason-Vaughan/TangleBrain/issues/99) |
 | Failures and lost failover attempts are unrecorded | [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100) |
 | `usage.jsonl` growth + cache-tier placement | [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) |
-| `--roster` help text misstates the default | [#102](https://github.com/Jason-Vaughan/TangleBrain/issues/102) |
 | Unbounded core dependencies, no scheduled CI | [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92) |
 | No written deprecation policy | [#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90) |
 
