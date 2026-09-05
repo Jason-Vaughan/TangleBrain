@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import sys
 from pathlib import Path
 from typing import Iterator, Mapping
 
@@ -30,6 +32,44 @@ __all__ = ["AdapterError", "OpenAICompatAdapter", "resolve_key_ref"]
 
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAX_TOKENS = 2048
+
+# Key files already warned about, so the notice fires once per file per process. The credential
+# is resolved on every routed request, and a warning repeated per call trains the operator to
+# ignore it — which would cost more than it buys.
+_PERMISSION_WARNED: set[str] = set()
+
+
+def _warn_if_readable_beyond_owner(path: Path) -> None:
+    """Warn on stderr when a key file is group- or world-readable.
+
+    Warns rather than fails, deliberately: refusing to run would break a working setup over a
+    condition the operator may have accepted, while a warning still surfaces the
+    misconfiguration at the moment it matters. The intended posture is a ``0600`` file.
+
+    POSIX only. Windows permission semantics do not map onto these mode bits, so the check is
+    skipped there rather than guessed at.
+
+    Args:
+        path: The resolved path to the credential file.
+    """
+    if os.name != "posix":
+        return
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        # An unreadable stat is not this check's business to report — the read that follows
+        # will raise a better-targeted error.
+        return
+    if not mode & (stat.S_IRGRP | stat.S_IROTH):
+        return
+    if str(path) in _PERMISSION_WARNED:
+        return
+    _PERMISSION_WARNED.add(str(path))
+    print(
+        f"tanglebrain: warning: key_ref file {path} is readable beyond its owner "
+        f"(mode {mode:04o}); expected 0600",
+        file=sys.stderr,
+    )
 
 
 def resolve_key_ref(key_ref: str | None) -> str | None:
@@ -60,6 +100,7 @@ def resolve_key_ref(key_ref: str | None) -> str | None:
         path = Path(raw_path).expanduser()
         if not path.exists():
             raise AdapterError(f"key_ref file not found: {path}")
+        _warn_if_readable_beyond_owner(path)
         key = path.read_text().strip()
         if not key:
             raise AdapterError(f"key_ref file is empty: {path}")
