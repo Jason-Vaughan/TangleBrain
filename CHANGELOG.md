@@ -81,6 +81,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **`observability.md`'s first gap now carries its issue.** "No `unlinked` visibility" was the
+  one gap in the design set with no tracking issue behind it, which broke `README.md`'s claim that
+  every disclosed gap has one. Filed as #123 and linked from both, with the actual defect stated:
+  a lost `TANGLEBRAIN_TASK_ID` hop and a genuinely parentless sub-call land in the same bucket, so
+  the count answers no question.
+
 - **The design-doc gap table lists every gap the documents disclose.** `docs/design/README.md`
   claims "every gap these documents disclose has an issue" and then omitted #97 — capability
   routing ranking by cost only, named in `api-contract.md`. A completeness claim with a missing
