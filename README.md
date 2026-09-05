@@ -170,7 +170,7 @@ truncating — raise its token budget.
 ### Cost avoided (measurement)
 
 Every routed task is logged as one JSON line in an append-only usage log
-(`~/.cache/tanglebrain/usage.jsonl`, or under `TANGLEBRAIN_STATE_DIR`): path, tier, model,
+(`~/.local/share/tanglebrain/usage.jsonl`, or under `XDG_DATA_HOME` / `TANGLEBRAIN_STATE_DIR`): path, tier, model,
 estimated tokens, and the **cloud-equivalent cost it avoided** — what the work would have cost on a
 paid frontier API. `tanglebrain --stats` rolls those records up into a single figure.
 

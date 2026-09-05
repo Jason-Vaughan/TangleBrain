@@ -38,7 +38,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tanglebrain.adapters.base import AdapterError
-from tanglebrain.router import RouterError
+from tanglebrain.router import RouterError, migrate_state_root
 from tanglebrain.delegate import (
     DEFAULT_DELEGATE_MAX_TOKENS,
     NoDelegateFit,
@@ -232,6 +232,9 @@ def delegate_many(tasks: list[dict], max_concurrency: int | None = None) -> str:
 
 def main() -> None:
     """Console entry point: serve the delegate over stdio (``tanglebrain-delegate``)."""
+    # Move a pre-0.21 cache-tier state root forward before anything reads it. Idempotent,
+    # never raises; the notice goes to stderr so a piped answer stays clean.
+    migrate_state_root()
     mcp.run()
 
 

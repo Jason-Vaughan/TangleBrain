@@ -13,6 +13,9 @@ Design notes:
   tiers — one consistent, if approximate, methodology (see :func:`estimate_tokens`).
 - **Pricing is config-driven** (``config/pricing.yaml``): a reference frontier price the operator
   tunes (the knob GUI edits it).
+- **State lives in the XDG data tier**, not ``~/.cache`` (see
+  :func:`~tanglebrain.router.state_root`). The usage log is not reconstructible, so a
+  cache-tier home would have made every historical figure deletable by any cleanup tool.
 - **All I/O is fault-tolerant.** A logging failure must never break the user's actual answer, and a
   corrupt log line must never break the rollup. Reads return sensible defaults; the writer swallows
   every exception. This mirrors the router's state-file idiom (:mod:`tanglebrain.router`).
@@ -29,7 +32,7 @@ from pathlib import Path
 
 import yaml
 
-from tanglebrain.router import DEFAULT_STATE_SUBDIR, STATE_DIR_ENV
+from tanglebrain.router import state_root
 
 LOG_FILENAME = "usage.jsonl"
 
@@ -81,15 +84,15 @@ PLACEHOLDER_PRICING = Pricing(
 def default_log_path() -> Path:
     """Return the usage-log file path.
 
-    Honors ``TANGLEBRAIN_STATE_DIR`` (``~`` expanded); otherwise ``~/.cache/tanglebrain/``. The log
-    lives alongside the router's state file (same dir, same env override).
+    Resolves under :func:`~tanglebrain.router.state_root` — the data tier, not the cache tier.
+    This log is the only record of the lifetime spend-avoided figure and is not reconstructible
+    (prompt and response text is never persisted, by design), so it cannot live anywhere a
+    cleaner is entitled to delete.
 
     Returns:
         The absolute path to the append-only usage JSONL file.
     """
-    base = os.environ.get(STATE_DIR_ENV)
-    root = Path(base).expanduser() if base else Path.home() / DEFAULT_STATE_SUBDIR
-    return root / LOG_FILENAME
+    return state_root() / LOG_FILENAME
 
 
 def default_pricing_path() -> Path:
@@ -205,10 +208,12 @@ def validate_pricing(data: dict) -> Pricing:
 
 
 def _backup_dir() -> Path:
-    """Return the directory for config backups (under the state dir, never the repo config dir)."""
-    base = os.environ.get(STATE_DIR_ENV)
-    root = Path(base).expanduser() if base else Path.home() / DEFAULT_STATE_SUBDIR
-    return root / "backups"
+    """Return the directory for config backups (under the state root, never the repo config dir).
+
+    Data tier, like the rest of the state root: a backup is the only copy of a config the operator
+    hand-edited, so a cleaner deleting it defeats the entire point of taking one.
+    """
+    return state_root() / "backups"
 
 
 def _atomic_write(path: Path, text: str) -> None:
