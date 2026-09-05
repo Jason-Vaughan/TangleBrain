@@ -606,6 +606,22 @@ class MainTest(unittest.TestCase):
                 main(["--no-gate", "hi"])
         self.assertIs(run.call_args.kwargs["gate"], False)
 
+    def test_deprecated_route_flag_is_still_accepted_and_inert(self):
+        # docs/design/deprecation-policy.md makes a commitment with this flag as its stated
+        # precedent: a removed flag becomes an accepted no-op, not an error. The consumer is a
+        # script someone wrote once and forgot, so deleting --route would turn a silent no-op into
+        # a broken pipeline for a flag whose behavior is now the default anyway. Nothing read the
+        # flag and nothing tested it, which meant the policy's own example could be deleted
+        # without a failure. It cannot now.
+        with patch("tanglebrain.cli.run_once", return_value="ok") as run:
+            with redirect_stdout(io.StringIO()):
+                code = main(["--route", "hi"])
+        self.assertEqual(code, 0)
+        run.assert_called_once()
+        # Inert, not merely tolerated: it reaches run_once as no argument of any kind, so the
+        # frontier-first default it once selected is what actually happens.
+        self.assertNotIn("route", run.call_args.kwargs)
+
     def test_router_error_returns_one_and_writes_stderr(self):
         from tanglebrain.router import RouterError
 
