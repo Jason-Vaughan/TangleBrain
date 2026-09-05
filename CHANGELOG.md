@@ -187,6 +187,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Closed the observations the verify pass demoted.** Two were defects rather than polish. Editing
+  `project-state.yaml` to retire the answered contrast question had orphaned a `priority: low` line
+  into the *next* entry, giving it a duplicate key that YAML silently resolves last-wins — the #92
+  question's priority had flipped from `medium` without anything saying so. And the contrast suite's
+  colour-property guard omitted `border-bottom` and `border-right` while `border-bottom` is used
+  twice in the shipped stylesheet, so its docstring's "every colour-bearing declaration" was still
+  not true. The pattern is now hoisted to module scope and shared with a new test that runs it
+  against synthetic CSS for every syntax and every border side — the guard's coverage is asserted
+  in-repo rather than claimed, and narrowing it now reds the suite. Also: the streaming type guard
+  is a `raise` rather than an `assert`, because `python -O` strips asserts and a stripped guard
+  would have handed the client a dict *as* the byte iterator.
+
 - **Resolved the Critic findings for Chunk C.** The substantive ones were a stale-claim class and a
   real threshold bug. `ApiAdapter.from_entry` was a near-verbatim copy of its base differing only in
   one string, and this chunk had deepened it by copying a new guard into both; the kind is now a

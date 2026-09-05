@@ -37,6 +37,15 @@ COLOUR_LITERAL = re.compile(
     r"#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?|color|oklch|lab)\([^)]*\)|[a-z]{3,20}", re.IGNORECASE
 )
 
+#: Declarations whose value paints something. Checking the *property* rather than hunting colour
+#: syntaxes is what makes the guard total — a new syntax needs no new pattern. Shared with the test
+#: that proves the guard fires, so the two cannot drift apart.
+COLOUR_BEARING_DECLARATION = re.compile(
+    r"\b(color|background(?:-color)?|border(?:-(?:color|top|right|bottom|left|"
+    r"top-color|right-color|bottom-color|left-color))?|outline(?:-color)?|"
+    r"box-shadow|fill|stroke)\s*:\s*([^;{}]+)"
+)
+
 # WCAG 2.1 thresholds. 1.4.3 Contrast (Minimum) for text, 1.4.11 Non-text Contrast for the visual
 # information required to identify a control.
 NORMAL_TEXT = 4.5
@@ -187,11 +196,7 @@ class PaletteParsingTest(unittest.TestCase):
         # and bare CSS names like `white` all fail it, and a new syntax needs no new pattern.
         offenders = [
             f"{prop}: {value.strip()}"
-            for prop, value in re.findall(
-                r"\b(color|background|background-color|border|border-color|border-top|"
-                r"border-left|outline|outline-color|box-shadow|fill|stroke)\s*:\s*([^;{}]+)",
-                outside,
-            )
+            for prop, value in re.findall(COLOUR_BEARING_DECLARATION, outside)
             if "var(" not in value and value.strip() not in {"none", "inherit", "transparent"}
         ]
         self.assertEqual(
@@ -214,6 +219,49 @@ class ContrastTest(unittest.TestCase):
                     f"{label}: --{fg} ({palette[fg]}) on --{bg} ({palette[bg]}) is "
                     f"{ratio:.2f}:1, below the {required}:1 WCAG 2.1 AA requires",
                 )
+
+    def test_the_literal_guard_fires_on_every_colour_syntax(self):
+        """The guard's coverage is asserted here rather than claimed in a docstring.
+
+        `test_no_colour_literal_outside_the_root_block` can only be trusted if it actually
+        rejects the syntaxes it says it rejects. Running its logic against synthetic CSS proves
+        that without mutating the shipped file, and it fails if the property list ever loses a
+        member — `border-bottom` was missing from an earlier version of it while being used twice
+        in the stylesheet.
+        """
+        offenders = lambda css: [  # noqa: E731 — one expression, reads better inline than as a def
+            f"{prop}: {value.strip()}"
+            for prop, value in re.findall(COLOUR_BEARING_DECLARATION, css)
+            if "var(" not in value and value.strip() not in {"none", "inherit", "transparent"}
+        ]
+        for css in (
+            ".a { color: #F00; }",
+            ".a { color: rgba(255,0,0,.5); }",
+            ".a { color: hsl(0 100% 50%); }",
+            ".a { color: white; }",
+            ".a { background: #123456; }",
+            ".a { background-color: red; }",
+            ".a { border: 1px solid #FFF; }",
+            ".a { border-top: 1px solid #FFF; }",
+            ".a { border-right: 1px solid #FFF; }",
+            ".a { border-bottom: 1px solid #FFF; }",
+            ".a { border-left: 1px solid #FFF; }",
+            ".a { border-color: #FFF; }",
+            ".a { outline: 2px solid #FFF; }",
+            ".a { fill: #FFF; }",
+            ".a { stroke: #FFF; }",
+        ):
+            with self.subTest(css=css):
+                self.assertTrue(offenders(css), f"guard did not fire on {css!r}")
+
+        for allowed in (
+            ".a { color: var(--text); }",
+            ".a { border-bottom: 1px solid var(--border); }",
+            ".a { background: none; }",
+            ".a { color: inherit; }",
+        ):
+            with self.subTest(css=allowed):
+                self.assertEqual([], offenders(allowed), f"guard wrongly fired on {allowed!r}")
 
     def test_the_ratio_maths_matches_the_wcag_worked_examples(self):
         # Pins the formula itself, so a regression here cannot quietly pass the palette.

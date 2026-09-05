@@ -112,10 +112,13 @@ def dispatch(
                         # iterator a total pairing, so this cannot fire. Asserting it keeps that
                         # invariant stated in one place — the alternative narrowing silently hands
                         # an SSE client a JSON body if the pairing is ever broken.
-                        assert not isinstance(result, dict), (
-                            "handle_chat_completion_stream returned 200 with a JSON body; "
-                            "200 means the SSE iterator"
-                        )
+                        if isinstance(result, dict):
+                            # `raise`, not `assert`: -O strips asserts, and a stripped guard
+                            # would hand the client this dict *as* the byte iterator.
+                            raise TypeError(
+                                "handle_chat_completion_stream returned 200 with a JSON body; "
+                                "200 means the SSE iterator"
+                            )
                         return 200, _SSE, result  # Iterator[bytes] — pump already primed
                     return _json_response(status, result)
                 status, obj = handle_chat_completion(payload, caller_task)

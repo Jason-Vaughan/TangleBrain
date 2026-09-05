@@ -11,8 +11,9 @@
     --bg: #000; --card-bg: #0D0D0D; --elevated-bg: #1A1A1A;
     --text: #E8E8E8; --text-muted: #888; --danger: #EF5350; --amber: #FFA726;
     /* --border is decorative only (cards, table rules, pills): WCAG 1.4.11 governs what is
-       needed to *identify a component*, and none of those are. --field-border is the one that
-       outlines a real control, so it carries the 3:1 the SC requires. Ratios are asserted in
+       needed to *identify a component*, and none of those are. The outlines that DO identify a
+       control carry the 3:1 the SC requires: --field-border on text inputs, --primary-dark on
+       buttons, --primary-bright on focus. Ratios are asserted in
        tests/test_gui_contrast.py — change a value here and it will tell you what it broke. */
     --border: #222; --field-border: #666;
   }
