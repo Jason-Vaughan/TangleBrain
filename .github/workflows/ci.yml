@@ -4,6 +4,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A dependency can break the build with no commit to blame, and a push-only CI never notices:
+  # after the mcp 2.0.0 release, `main` read green for days because its last run predated the
+  # release, and the failure first surfaced on an unrelated markdown-only PR. This run resolves
+  # dependencies fresh (`pip install -e ".[delegate]"`, no lockfile, no cache), so it sees what a
+  # user's install would resolve to today rather than what it resolved to at the last push.
+  #
+  # Off the hour deliberately — GitHub queues scheduled jobs globally and runs clustered at :00
+  # are the most delayed. Note GitHub disables a repo's scheduled workflows after 60 days with no
+  # activity; this one is a canary, so a silently disabled schedule is worth noticing.
+  schedule:
+    - cron: "17 6 * * 1"
+  # Lets the canary be exercised on demand rather than only by waiting a week for it.
+  workflow_dispatch:
 
 jobs:
   test:

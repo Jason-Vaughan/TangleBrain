@@ -114,10 +114,12 @@ Fully specified in [`security-model.md`](security-model.md). The NFR-level state
   unbounded `mcp >= 1.0` shipped an extra that could not import. `tests/test_packaging.py` encodes
   that constraint — **when [#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90) lifts the
   cap, that test gets updated deliberately, never deleted to green a build.**
-- **Open risk:** `httpx >= 0.27` and `PyYAML >= 6.0` carry the same unbounded shape, and no
-  scheduled CI run exists to catch an upstream break without a push
-  ([#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92)). The v0.20.1 incident is the proof
-  that this class of risk is real here, not theoretical.
+- **Every declared dependency carries an upper bound**, core and extras alike, asserted by
+  `tests/test_packaging.py` over `project.dependencies` and every `optional-dependencies` extra
+  rather than over one named requirement. Bounds sit at the major boundary: tighter caps create
+  resolution conflicts for anyone installing TangleBrain alongside other packages, a real cost paid
+  to prevent a break semver already announces. A weekly scheduled CI run covers what a cap cannot —
+  a compatible-range release that changes behavior rather than API.
 
 ## Maintainability
 

@@ -44,6 +44,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orchestrator rather than round-robin (#95), `--model` silently stripping an orchestrator's
   delegate tool (#96), and capability routing being unable to route upward (#97).
 
+### Changed
+
+- **Every declared dependency now carries an upper bound.** `httpx >= 0.27, < 1` and
+  `PyYAML >= 6.0, < 7` replace open-ended constraints. This changes what a fresh
+  `pip install tanglebrain` resolves to: a future `httpx` 1.0 or `PyYAML` 7.0 will no longer be
+  picked up silently. The bound sits at the major boundary deliberately — tighter caps buy nothing
+  and create resolution conflicts for anyone installing TangleBrain alongside other packages, which
+  is a real cost paid by users to prevent a break semver already announces. What made the `mcp`
+  2.0.0 breakage expensive was not the release but the unbounded constraint that let it land in
+  every fresh resolve with no announcement and no commit to blame.
+
 ### Fixed
 
 - **An unreadable `key_ref` file now fails with a clean error instead of a traceback.** The
@@ -80,6 +91,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
+
+- **The design-doc gap table pointed at the wrong issue for the deprecation policy.** The row
+  reading "No written deprecation policy" linked #90 (the mcp 2.x migration) rather than #114,
+  which is the issue that actually writes the policy. #90 is where the gap *becomes live* — an
+  `mcp >= 2` floor is the first real test of an unwritten rule — but a reader following the link
+  arrived at a migration rather than the policy work. A wrong link satisfies the table's
+  completeness claim while defeating its purpose, which is worse than an absent row.
+
+- **CI now runs on a weekly schedule, not only on push.** A dependency can break the build with no
+  commit to blame, and a push-only CI never notices: after the `mcp` 2.0.0 release `main` read
+  green for days because its last run predated the release, and the failure first surfaced on an
+  unrelated markdown-only PR. The scheduled run resolves dependencies fresh — no lockfile, no cache
+  — so it sees what a user's install would resolve to today. A lockfile was considered and rejected
+  for CI: a green run against frozen versions says nothing about what a fresh install gets, which is
+  the exact signal wanted here. `workflow_dispatch` is enabled alongside it so the canary can be
+  exercised on demand rather than only by waiting a week.
+
+- **`tests/test_packaging.py` asserts the rule, not one instance of it.** The upper-bound check
+  covered only the `mcp` requirement; it now iterates every requirement in `project.dependencies`
+  and in every `optional-dependencies` extra, so a dependency added to a new extra is held to the
+  same rule without anyone remembering to extend the test. The `mcp`-specific test was not deleted
+  in the consolidation but **sharpened** to assert `< 2` rather than merely *an* upper bound —
+  `mcp >= 2, < 3` satisfies the general rule while shipping a delegate extra that cannot import,
+  so the two tests now fail on different mutations rather than restating one another.
 
 - **`observability.md`'s first gap now carries its issue.** "No `unlinked` visibility" was the
   one gap in the design set with no tracking issue behind it, which broke `README.md`'s claim that

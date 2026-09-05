@@ -24,9 +24,15 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+# Every dependency carries an upper bound at the next major. An open-ended constraint is what
+# made #87 expensive: `mcp >= 1.0` let a major land in every fresh resolve with no announcement
+# and no commit to blame. The bound is at the major boundary deliberately — tighter caps buy
+# nothing here and create resolution conflicts for anyone installing TangleBrain alongside other
+# packages, which is a real cost paid by users to prevent a break that semver already announces.
+# Raising a ceiling is a deliberate act with a migration behind it, not a version bump.
 dependencies = [
-    "httpx >= 0.27",
-    "PyYAML >= 6.0",
+    "httpx >= 0.27, < 1",
+    "PyYAML >= 6.0, < 7",
 ]
 
 # Optional: the MCP local-delegate server (C2b). Keeps the core install lean — only consumers
