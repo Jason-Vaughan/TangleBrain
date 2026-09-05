@@ -63,7 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--roster",
         default=None,
-        help="Path to a roster YAML (defaults to the packaged tanglebrain/config/roster.yaml).",
+        help=(
+            "Path to a roster YAML. Without it, the roster resolves in order: "
+            "$TANGLEBRAIN_ROSTER, then ~/.config/tanglebrain/roster.yaml if it exists, "
+            "then the packaged generic example."
+        ),
     )
     parser.add_argument(
         "--model",

@@ -45,6 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--roster` help text now states the real default.** It claimed the default was the packaged
+  `tanglebrain/config/roster.yaml`; the actual resolution is `$TANGLEBRAIN_ROSTER`, then
+  `~/.config/tanglebrain/roster.yaml` if it exists, then the packaged example. This matters more
+  than a typo: the operational runbook's first diagnostic step for a mis-route is "check which
+  roster is actually in play," and `--help` answered it incorrectly — sending an operator to read
+  and edit the packaged example while their own config was live. The symptom of editing the wrong
+  roster is that nothing changes, which reads as a routing bug rather than a documentation one.
+
 - **The `delegate` extra no longer installs an SDK it cannot import (#87).** `mcp` 2.0.0
   (2026-07-28) renamed `FastMCP` to `MCPServer` and removed the `mcp.server.fastmcp` path
   `tanglebrain/mcp_server.py` imports, so the open-ended `mcp >= 1.0` constraint resolved to a
