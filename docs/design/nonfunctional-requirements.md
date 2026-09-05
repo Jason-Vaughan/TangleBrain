@@ -221,4 +221,6 @@ predicted — muted text and control outlines:
 
 **Still not claimed:** full WCAG conformance. This is the colour layer, measured. Keyboard traversal,
 screen-reader semantics beyond native controls, motion, and zoom/reflow are unaudited, and a
-conformance claim covering them would be the dishonest kind.
+conformance claim covering them would be the dishonest kind. Tracked as
+[#131](https://github.com/Jason-Vaughan/TangleBrain/issues/131) — a ratified scope boundary is a
+legitimate answer there, but it has to be *decided* rather than left as prose with nothing behind it.

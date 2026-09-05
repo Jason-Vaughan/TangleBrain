@@ -187,6 +187,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Filed [#131](https://github.com/Jason-Vaughan/TangleBrain/issues/131) for the accessibility
+  surface #115 did not cover.** The new Accessibility section names keyboard traversal,
+  screen-reader semantics, motion and reflow as unaudited — and `docs/design/README.md` promises,
+  twice over, that every gap the design docs disclose has a tracking issue. Disclosing a new one in
+  prose with nothing behind it would have quietly broken that promise on the same page that makes
+  it. The gap ledger and the design-overview Artifact both carry the row now.
+
 - **Closed the observations the verify pass demoted.** Two were defects rather than polish. Editing
   `project-state.yaml` to retire the answered contrast question had orphaned a `priority: low` line
   into the *next* entry, giving it a duplicate key that YAML silently resolves last-wins — the #92
