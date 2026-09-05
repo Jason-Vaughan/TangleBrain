@@ -19,7 +19,7 @@ except ImportError:
 
 
 def run(coro):
-    """Run an async coroutine synchronously (FastMCP's list/call APIs are async)."""
+    """Run an async coroutine synchronously (MCPServer's list/call APIs are async)."""
     return asyncio.run(coro)
 
 
@@ -38,7 +38,7 @@ class McpServerTest(unittest.TestCase):
     def test_tool_exposes_max_tokens_param(self):
         tool = next(t for t in run(self.server.mcp.list_tools()) if t.name == "delegate_local")
         # The tool advertises both params to the orchestrator via its input schema.
-        props = tool.inputSchema.get("properties", {})
+        props = tool.input_schema.get("properties", {})
         self.assertIn("prompt", props)
         self.assertIn("max_tokens", props)
 
@@ -47,9 +47,10 @@ class McpServerTest(unittest.TestCase):
             "tanglebrain.mcp_server.run_local_delegate", return_value="delegated text"
         ) as delegated:
             result = run(self.server.mcp.call_tool("delegate_local", {"prompt": "do grunt"}))
-        # FastMCP returns (content_blocks, structured_result); pull the text out of the blocks
-        # rather than stringifying the whole tuple, so we assert on the actual tool output.
-        content_blocks = result[0]
+        # MCPServer returns a CallToolResult; pull the text out of its content blocks rather
+        # than stringifying the whole result, so we assert on the actual tool output. (In the
+        # 1.x SDK this was a plain (content_blocks, structured_result) tuple.)
+        content_blocks = result.content
         texts = [c.text for c in content_blocks if getattr(c, "type", None) == "text"]
         self.assertIn("delegated text", texts)
         delegated.assert_called_once()
@@ -74,7 +75,7 @@ class McpServerTest(unittest.TestCase):
         self.assertIn("delegate_many", names)
 
     def test_delegate_many_advertises_params(self):
-        props = self._tool("delegate_many").inputSchema.get("properties", {})
+        props = self._tool("delegate_many").input_schema.get("properties", {})
         self.assertIn("tasks", props)
         self.assertIn("max_concurrency", props)
 
@@ -91,12 +92,12 @@ class McpServerTest(unittest.TestCase):
             )
         import json
 
-        texts = [c.text for c in out[0] if getattr(c, "type", None) == "text"]
+        texts = [c.text for c in out.content if getattr(c, "type", None) == "text"]
         self.assertEqual(json.loads(texts[0]), results)
         self.assertEqual(fan.call_args.kwargs.get("max_concurrency"), 2)
 
     def test_delegate_advertises_target_param(self):
-        props = self._tool("delegate").inputSchema.get("properties", {})
+        props = self._tool("delegate").input_schema.get("properties", {})
         self.assertIn("prompt", props)
         self.assertIn("target", props)
         self.assertIn("task", props)
@@ -117,7 +118,7 @@ class McpServerTest(unittest.TestCase):
             side_effect=NoDelegateFit("no delegate target is good_at 'code'; available: grunt"),
         ):
             result = run(self.server.mcp.call_tool("delegate", {"prompt": "q", "task": "code"}))
-        texts = [c.text for c in result[0] if getattr(c, "type", None) == "text"]
+        texts = [c.text for c in result.content if getattr(c, "type", None) == "text"]
         joined = " ".join(texts)
         # Returned as a normal tool result carrying the hand-back instruction — not a raised error.
         self.assertIn("Handle this sub-task yourself", joined)
@@ -132,7 +133,7 @@ class McpServerTest(unittest.TestCase):
             result = run(
                 self.server.mcp.call_tool("delegate", {"prompt": "do it", "target": "cheap"})
             )
-        texts = [c.text for c in result[0] if getattr(c, "type", None) == "text"]
+        texts = [c.text for c in result.content if getattr(c, "type", None) == "text"]
         self.assertIn("routed text", texts)
         routed.assert_called_once()
         self.assertEqual(routed.call_args.args[0], "do it")
@@ -146,7 +147,7 @@ class McpServerTest(unittest.TestCase):
             result = run(self.server.mcp.call_tool("delegate_targets", {}))
         import json
 
-        texts = [c.text for c in result[0] if getattr(c, "type", None) == "text"]
+        texts = [c.text for c in result.content if getattr(c, "type", None) == "text"]
         self.assertEqual(json.loads(texts[0]), menu)
 
 

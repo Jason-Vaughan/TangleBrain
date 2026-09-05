@@ -88,6 +88,14 @@ additive rule as the usage log; routes are stable within a minor.
 3. **A deprecated-but-present surface says so where the user meets it** — `--help` text for a flag,
    the tool description for an MCP tool.
 
+**Pre-1.0, "announced as breaking" does not mean the `BREAKING:` marker.** That marker drives a
+*major* bump, and from `0.20.x` a major bump is `1.0.0` — a claim about the project's maturity that
+no single change earns. Under semver a `0.y.z` breaking change rides a **minor** bump, so a
+breaking change here ships as `0.(y+1).0`, announced in prose under `### Changed` with what breaks
+and what to do about it stated plainly. The marker is reserved for after 1.0, when it means what it
+says. Announcement is a duty to the reader; the marker is a lever on the version number, and
+conflating them would either understate the break or overstate the release.
+
 **Horizon.** A surface announced as deprecated in release *N* is not removed before *N+2*, and never
 inside a patch release. There is no time-based window: this is a tool people install and forget, and
 a calendar deadline would expire against users who simply had no reason to upgrade.

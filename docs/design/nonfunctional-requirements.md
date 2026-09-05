@@ -110,10 +110,13 @@ Fully specified in [`security-model.md`](security-model.md). The NFR-level state
 - **Python:** as declared in `pyproject.toml` and enforced by the CI matrix.
 - **Dependencies:** deliberately minimal — stdlib GUI and serve, no agent framework. Every
   dependency avoided is one that cannot break a published package.
-- **The `mcp < 2` cap is an NFR, not an oversight.** mcp 2.0.0 removed `mcp.server.fastmcp`, so an
-  unbounded `mcp >= 1.0` shipped an extra that could not import. `tests/test_packaging.py` encodes
-  that constraint — **when [#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90) lifts the
-  cap, that test gets updated deliberately, never deleted to green a build.**
+- **The `mcp` requirement pins a major at both ends (`>= 2, < 3`), and that is an NFR.**
+  `mcp_server.py` imports `mcp.server.mcpserver`, which exists in 2.x and no earlier major, so the
+  floor is load-bearing rather than aspirational; the ceiling stops the next major landing
+  unannounced, as for every other dependency. `tests/test_packaging.py` asserts both ends. Moving
+  either is a breaking change for installs even though no TangleBrain API moves — announced under
+  [`deprecation-policy.md`](deprecation-policy.md), "Dependency floors". Users needing mcp 1.x
+  install TangleBrain 0.20.1, the last release that allowed it.
 - **Every declared dependency carries an upper bound**, core and extras alike, asserted by
   `tests/test_packaging.py` over `project.dependencies` and every `optional-dependencies` extra
   rather than over one named requirement. Bounds sit at the major boundary: tighter caps create
