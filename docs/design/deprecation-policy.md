@@ -23,9 +23,10 @@ These commitments are real but they are *policy*, not *semver*. They can be chan
 document, and doing so is a decision that gets recorded. At 1.0 the commitments below become semver
 guarantees and this distinction disappears.
 
-The honest reason for stating it now rather than at 1.0: the policy's first real test arrives with a
-dependency floor decision ([#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90)), and a rule
-invented while the decision is in flight is not a rule.
+The honest reason for stating it before 1.0 rather than after: its first real test was a dependency
+floor decision ([#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90), the mcp 2.x
+migration), and a rule invented while such a decision is in flight is not a rule. Writing it first
+is what made that an application of a policy rather than a justification for one.
 
 ## Per-surface stability
 
@@ -102,9 +103,9 @@ a calendar deadline would expire against users who simply had no reason to upgra
 
 ## Dependency floors
 
-This is the clause that governs [#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90), and
-the one most easily got wrong, because **no TangleBrain code has to change for a user's install to
-break.**
+This is the clause that governed the `mcp >= 2` floor
+([#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90)) and the one most easily got wrong,
+because **no TangleBrain code has to change for a user's install to break.**
 
 **Raising a dependency's major floor is a breaking change, and is announced as one** — even though
 the CLI, the tools and the record shape are all untouched. The user's experience is that

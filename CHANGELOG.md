@@ -112,6 +112,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A delegate failure again tells the orchestrator what went wrong.** The mcp 2.x migration
+  silently dropped the reason: 1.x surfaced `Error executing tool X: endpoint down`, while 2.x
+  reports a bare `Error executing tool X` for any exception that is not a `ToolError`. The tools
+  now wrap `AdapterError` and `RouterError` so the message survives, and the result still carries
+  `is_error`. Losing the reason matters more than it sounds — "endpoint down" and "key_ref file
+  not found" call for completely different responses, and the operator reading the transcript is
+  the one who has to tell them apart. A no-fit is deliberately *not* wrapped: it is a routing
+  signal telling the orchestrator to do the work itself, and reporting it as an error would make a
+  working delegation look broken.
+
 - **An unreadable `key_ref` file now fails with a clean error instead of a traceback.** The
   permission check stats the file, but the read that followed was unguarded: a file the process
   could not open (wrong owner, restrictive mode, removed mid-run) raised a raw `PermissionError`,
@@ -146,6 +156,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
+
+- **Packaging tests assert parsed constraints instead of the characters of a requirement string.**
+  The upper-bound check looked for a literal `<` anywhere in the requirement, which an environment
+  marker satisfies with no ceiling at all (`foo >= 1 ; python_version < "3.13"` passed) — and the
+  `mcp` check was whitespace-sensitive, so the semantically identical `mcp>=2,<3` failed it and a
+  formatter run would have redded the suite over nothing. Both now compare against the version
+  specifier with the marker stripped and whitespace normalized. Verified both ways: the marker-only
+  form now fails, the unspaced form now passes.
+
+- **Retired the `#90` admissions the same bundle closed.** `deprecation-policy.md` and
+  `api-contract.md` still described the mcp floor decision as pending — one of them in the sentence
+  justifying why the policy was written when it was, so a reader assessing whether it was authored
+  under pressure from a live decision got the wrong answer. The bundle applied the closed-gap rule
+  to #92 and #114 and missed the issue it closed itself.
+
+- **The design-doc gap table says what its completeness claim covers.** It read "Every gap these
+  documents disclose has an issue" while `security-model.md` discloses two ratified non-goals — no
+  roster integrity check, permissions warned rather than enforced — that deliberately have none.
+  The claim now scopes itself to open work and says non-goals are decisions rather than backlog.
+
+- **`installReference` verified against the consumer, not only against itself.** The five new tests
+  prove the key is self-consistent; they cannot prove `marketplace.json` still loads with an
+  unrecognized top-level key, which is the failure class that produced v0.20.1. `claude plugin
+  validate` reports validation passing with `Unknown field 'installReference'. Claude Code ignores
+  it at load time.` — ignored being the intended outcome. Recorded in `operations.md` with the
+  command, so it is re-checkable rather than a remembered assurance.
 
 - **The deprecation policy's own precedent is now a test.** `deprecation-policy.md` commits that a
   removed CLI flag becomes an accepted no-op rather than an error, and cites `--route` as the

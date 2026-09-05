@@ -184,9 +184,10 @@ or CLI surfaces are major bumps. The HTTP `/v1` path is OpenAI's, not TangleBrai
 compatibility is defined upstream.
 
 **The deprecation policy is written down** — [`deprecation-policy.md`](deprecation-policy.md). It
-states what each surface promises, how a break is announced, and the rule for dependency floors,
-which is where it first bites: an `mcp >= 2` floor is a breaking change for installs even though no
-TangleBrain code changes ([#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90)).
+states what each surface promises, how a break is announced, and the rule for dependency floors —
+the clause that first bit, when the `mcp >= 2` floor shipped as a breaking change for installs
+even though no TangleBrain code changed
+([#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90)).
 
 Two rules from it are worth repeating here, because this document is where a caller looks first: a
 removed CLI flag becomes an accepted no-op rather than an error, and a usage-log field is never

@@ -7,8 +7,11 @@ that invoking it delegates to run_local_delegate — without spawning a server o
 from __future__ import annotations
 
 import asyncio
+import logging
 import unittest
 from unittest.mock import patch
+
+from tanglebrain.adapters.base import AdapterError
 
 try:
     import mcp  # noqa: F401
@@ -122,6 +125,63 @@ class McpServerTest(unittest.TestCase):
         joined = " ".join(texts)
         # Returned as a normal tool result carrying the hand-back instruction — not a raised error.
         self.assertIn("Handle this sub-task yourself", joined)
+
+    def _call_via_client(self, tool, args):
+        """Invoke a tool the way an orchestrator does, and return the CallToolResult.
+
+        The tests elsewhere call ``mcp.call_tool`` directly, which *raises* on failure. The
+        protocol layer a real client reaches does not: it converts the exception into a result
+        with ``is_error`` set. Those two layers disagree, so an error-path assertion written
+        against the direct call would pin the wrong contract.
+
+        Args:
+            tool: Tool name to invoke.
+            args: Argument mapping for the tool.
+
+        Returns:
+            The ``CallToolResult`` the client receives.
+        """
+        from mcp import Client
+
+        async def _go():
+            async with Client(self.server.mcp) as client:
+                return await client.call_tool(tool, args)
+
+        return run(_go())
+
+    def test_backend_failure_reaches_the_caller_as_an_error_result_naming_the_reason(self):
+        # Two things are asserted together because either alone passes against a broken version.
+        # is_error tells the orchestrator to stop and not treat the text as an answer; the reason
+        # tells the operator reading the transcript WHICH failure it was — "endpoint down" and
+        # "key_ref file not found" call for different responses. The SDK only preserves a message
+        # for a ToolError, reporting anything else as a bare "Error executing tool <name>", so
+        # without the wrapping in mcp_server this test fails on the second assertion alone.
+        logging.disable(logging.CRITICAL)  # the SDK logs the traceback; it is expected, not news
+        self.addCleanup(logging.disable, logging.NOTSET)
+        with patch(
+            "tanglebrain.mcp_server.run_local_delegate",
+            side_effect=AdapterError("endpoint down"),
+        ):
+            result = self._call_via_client("delegate_local", {"prompt": "do grunt"})
+        self.assertTrue(result.is_error)
+        texts = " ".join(c.text for c in result.content if getattr(c, "type", None) == "text")
+        self.assertIn("endpoint down", texts)
+
+    def test_no_fit_is_not_reported_as_an_error(self):
+        # The mirror of the test above, and the reason the two exception paths in `delegate` are
+        # separate. A no-fit is a routing *signal* — the orchestrator is told to do the work
+        # itself, which is a normal outcome. Reporting it as an error would make a working
+        # delegation look broken.
+        from tanglebrain.delegate import NoDelegateFit
+
+        with patch(
+            "tanglebrain.mcp_server.run_delegate",
+            side_effect=NoDelegateFit("no delegate target is good_at 'code'"),
+        ):
+            result = self._call_via_client("delegate", {"prompt": "q", "task": "code"})
+        self.assertFalse(result.is_error)
+        texts = " ".join(c.text for c in result.content if getattr(c, "type", None) == "text")
+        self.assertIn("Handle this sub-task yourself", texts)
 
     def test_delegate_description_has_target_menu_header(self):
         # The description is built from the roster at server startup; whatever roster the test

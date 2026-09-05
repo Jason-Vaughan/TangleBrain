@@ -50,6 +50,24 @@ class DependencyBoundTest(unittest.TestCase):
             pairs.extend((f"optional-dependencies.{extra}", req) for req in reqs)
         return pairs
 
+    @staticmethod
+    def _version_spec(requirement):
+        """Return the version-specifier portion of a PEP 508 requirement string.
+
+        Everything after ``;`` is an environment marker, and markers carry their own comparison
+        operators — ``foo >= 1 ; python_version < "3.13"`` contains a ``<`` while placing no
+        ceiling on ``foo`` at all. Whitespace is stripped because ``mcp>=2,<3`` and
+        ``mcp >= 2, < 3`` are the same constraint, and a test that only accepts one of them reds
+        the suite over formatting.
+
+        Args:
+            requirement: A PEP 508 requirement string as declared in pyproject.toml.
+
+        Returns:
+            The requirement with any environment marker removed and all whitespace stripped.
+        """
+        return requirement.split(";", 1)[0].replace(" ", "")
+
     def test_every_declared_dependency_carries_an_upper_bound(self):
         # The general rule, not a restatement of the mcp case: an unbounded constraint lets a
         # major version land in a user's fresh install with no announcement, no commit to blame,
@@ -61,7 +79,7 @@ class DependencyBoundTest(unittest.TestCase):
             with self.subTest(source=source, requirement=requirement):
                 self.assertIn(
                     "<",
-                    requirement,
+                    self._version_spec(requirement),
                     f"{source}: {requirement!r} has no upper bound — an unbounded constraint "
                     "lets the next major land unannounced (see the module docstring)",
                 )
@@ -81,14 +99,15 @@ class DependencyBoundTest(unittest.TestCase):
         mcp_requirements = [req for req in delegate if req.startswith("mcp")]
         self.assertEqual(len(mcp_requirements), 1, "expected exactly one mcp requirement")
         requirement = mcp_requirements[0]
+        spec = self._version_spec(requirement)
         self.assertIn(
-            ">= 2",
-            requirement,
+            ">=2",
+            spec,
             f"mcp_server.py imports mcp.server.mcpserver, which needs 2.x; got {requirement!r}",
         )
         self.assertIn(
-            "< 3",
-            requirement,
+            "<3",
+            spec,
             f"the mcp requirement must stay below the next major; got {requirement!r}",
         )
 
