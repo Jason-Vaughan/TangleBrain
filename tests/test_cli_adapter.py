@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from tanglebrain.adapters.base import AdapterError
 from tanglebrain.adapters.cli import (
@@ -223,6 +223,21 @@ class RunTest(unittest.TestCase):
     def test_timeout_opt_overrides(self):
         with patch_run(return_value=completed(0, "ok")) as run:
             self._adapter(timeout=300.0).run("q", {"timeout": 5})
+        self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
+
+    def test_non_numeric_timeout_raises_the_documented_error(self):
+        # Same contract as the openai-compat adapter's max_tokens: a caller-supplied opts value
+        # that cannot coerce must surface as AdapterError, not as a raw TypeError from float().
+        for bad in ("soon", None, [5]):
+            with self.subTest(timeout=bad):
+                with patch_run(return_value=completed(0, "ok")):
+                    with self.assertRaises(AdapterError) as ctx:
+                        self._adapter().run("q", {"timeout": bad})
+                self.assertIn("timeout", str(ctx.exception))
+
+    def test_numeric_string_timeout_still_accepted(self):
+        with patch_run(return_value=completed(0, "ok")) as run:
+            self._adapter(timeout=300.0).run("q", {"timeout": "5"})
         self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
 
     def test_unknown_opts_ignored(self):

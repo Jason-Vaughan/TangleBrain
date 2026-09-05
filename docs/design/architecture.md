@@ -90,8 +90,11 @@ The system degrades along a deliberate ladder rather than failing:
 4. All paths failed → `RouterError` listing every failure, rate-limits annotated.
 5. Measurement failure at any point → swallowed; the answer still returns.
 
-Step 5 is the codebase's one deliberately broad exception handler (`measurement.py:376-378`) and it
-is load-bearing: the alternative is a logging bug that eats a successful, already-paid-for answer.
+Step 5 is `record_task`'s own broad exception handler, and it is load-bearing: the alternative is a
+logging bug that eats a successful, already-paid-for answer. It is not the only broad catch in the
+codebase — `grep -rn "noqa: BLE001" tanglebrain/` enumerates them, and ruff fails the build on one
+that is unmarked or on a waiver no longer needed. What is singular is the *rationale*: only the
+side-effect norm licenses swallowing, and it does not generalize.
 
 Per-failure verification is tabulated in
 [`nonfunctional-requirements.md`](nonfunctional-requirements.md).

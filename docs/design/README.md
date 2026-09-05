@@ -56,6 +56,7 @@ not backlog.
 | `usage.jsonl` growth + cache-tier placement | [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) |
 | A lost delegate hop is indistinguishable from a parentless record | [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123) |
 | Capability routing ranks by cost only — it routes down, never up | [#97](https://github.com/Jason-Vaughan/TangleBrain/issues/97) |
+| The GUI panel is audited for contrast only — keyboard, screen reader, motion and reflow are not | [#131](https://github.com/Jason-Vaughan/TangleBrain/issues/131) |
 
 ## Keeping these current
 

@@ -25,7 +25,12 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from tanglebrain.measurement import PARENT_TASK_ID_ENV, record_task
-from tanglebrain.roster import ROSTER_ENV_VAR, Roster, RosterEntry, load_roster
+from tanglebrain.roster import Roster, RosterEntry, load_roster
+# Re-export, not a dead import: other modules import ROSTER_ENV_VAR from here, and removing a name
+# that anything imports is a breaking change under docs/design/deprecation-policy.md — whatever a
+# use-site scan of this file alone concludes. The redundant alias is the form ruff recognises as a
+# deliberate re-export, so it needs no suppression to survive.
+from tanglebrain.roster import ROSTER_ENV_VAR as ROSTER_ENV_VAR
 from tanglebrain.selector import SelectionError, build_adapter, select_local
 from tanglebrain.settings import Settings, load_settings
 
@@ -44,7 +49,7 @@ DELEGATE_SERVER_NAME = "tanglebrain-delegate"
 TIER_RANK = {"local": 0, "sub": 1}
 
 
-class NoDelegateFit(RuntimeError):
+class NoDelegateFit(RuntimeError):  # noqa: N818 — published name; renaming is a breaking change
     """Signal that no delegate target fits a requested capability — *not* a failure.
 
     Raised by :func:`run_delegate` when ``task=`` is given but no ``can_delegate`` target's
@@ -152,7 +157,7 @@ def _resolve_target(roster: Roster, target: str) -> RosterEntry:
         configured = ", ".join(e.id for e in roster.delegate_targets()) or "(none configured)"
         raise SelectionError(
             f"unknown delegate target {target!r}; configured targets: {configured}"
-        )
+        ) from None
     if not entry.can_delegate:
         configured = ", ".join(e.id for e in roster.delegate_targets()) or "(none configured)"
         raise SelectionError(
@@ -290,7 +295,15 @@ def run_delegate(
             kind="delegate",
             parent_task_id=os.environ.get(PARENT_TASK_ID_ENV),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — see below
+        # A side-effect never breaks the main path (nonfunctional-requirements.md): the answer has
+        # already been paid for in local compute or real money, so losing it to a metering bug
+        # would destroy something valuable to record something incidental. `record_task` documents
+        # "Never raises" and implements it, which makes this the caller's independent guarantee
+        # rather than the same one twice — `test_metering_failure_never_breaks_delegation` injects
+        # a raising stub precisely to hold this handler to it. It is silent rather than warning,
+        # which means a metering outage on the delegate path is currently undetectable — that is a
+        # channel-design question the observability work owns, not something settled here.
         pass
     return text
 
@@ -368,7 +381,7 @@ def _run_one_of_many(item: object, index: int, roster_path: str | None) -> dict:
                 f"{exc}. Handle this sub-task yourself — you are the most capable backend available."
             ),
         }
-    except Exception as exc:  # AdapterError / SelectionError / RosterError / anything: isolate it
+    except Exception as exc:  # noqa: BLE001 — one item's failure must never sink the batch
         return {"index": index, "status": "error", "error": str(exc)}
 
 

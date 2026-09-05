@@ -29,7 +29,7 @@ from tanglebrain.measurement import (
     record_task,
     rollup,
 )
-from tanglebrain.roster import RosterError, load_roster
+from tanglebrain.roster import RosterEntry, RosterError, load_roster
 from tanglebrain.router import Router, RouterError
 from tanglebrain.selector import SelectionError, build_adapter, select_by_id, select_local
 from tanglebrain.settings import load_settings
@@ -215,6 +215,9 @@ def run_once(
     if max_tokens is not None:
         opts["max_tokens"] = max_tokens
     failures = None  # lost failover attempts; only the router path produces any (#100)
+    # Every branch below binds this; the router path may leave it None when no backend was
+    # reached, which `record_task` accepts and rolls up as "unknown".
+    entry: RosterEntry | None
 
     if model is not None:
         path, entry = "model", select_by_id(roster, model)
@@ -378,6 +381,9 @@ def run_once_stream(
     opts: dict = {"task_id": task_id}
     if max_tokens is not None:
         opts["max_tokens"] = max_tokens
+    # Every branch below binds this; the router path may leave it None when no backend was
+    # reached, which `record_task` accepts and rolls up as "unknown".
+    entry: RosterEntry | None
 
     if model is not None:
         path, entry = "model", select_by_id(roster, model)

@@ -19,7 +19,7 @@ import os
 import stat
 import sys
 from pathlib import Path
-from typing import Iterator, Mapping
+from typing import Any, Iterator, Mapping
 
 import httpx
 
@@ -113,17 +113,19 @@ def resolve_key_ref(key_ref: str | None) -> str | None:
             # Unreadable (wrong owner, bad mode, vanished mid-run) must surface as the documented
             # error type: cli.main catches AdapterError and prints one clean line, where a raw
             # PermissionError escapes it as a traceback.
-            raise AdapterError(f"key_ref file unreadable: {path} ({exc.strerror or exc})")
+            raise AdapterError(
+                f"key_ref file unreadable: {path} ({exc.strerror or exc})"
+            ) from exc
         if not key:
             raise AdapterError(f"key_ref file is empty: {path}")
         return key
 
     if key_ref.startswith("env:"):
         name = key_ref[len("env:"):]
-        key = os.environ.get(name)
-        if not key:
+        from_env = os.environ.get(name)
+        if not from_env:
             raise AdapterError(f"key_ref env var not set or empty: {name}")
-        return key
+        return from_env
 
     raise AdapterError(
         f"unrecognized key_ref {key_ref!r}; expected 'file:PATH', 'env:NAME', or 'none'"
@@ -163,28 +165,40 @@ class OpenAICompatAdapter:
         self.timeout = timeout
         self.default_max_tokens = default_max_tokens
 
+    #: The ``invoke.kind`` this adapter serves. A subclass that differs only in policy — same
+    #: transport, different tier — sets this and inherits :meth:`from_entry` unchanged.
+    _EXPECTED_INVOKE_KIND = "openai-compat"
+
     @classmethod
     def from_entry(cls, entry: RosterEntry, **overrides: object) -> "OpenAICompatAdapter":
-        """Build an adapter from an ``openai-compat`` roster entry.
+        """Build an adapter from a roster entry whose kind matches ``_EXPECTED_INVOKE_KIND``.
 
         Args:
-            entry: A roster entry whose ``invoke.kind`` is ``openai-compat``.
+            entry: A roster entry whose ``invoke.kind`` is this adapter's expected kind.
             **overrides: Optional constructor overrides (``timeout``, ``default_max_tokens``).
 
         Returns:
-            A configured :class:`OpenAICompatAdapter`.
+            A configured adapter of the calling class.
 
         Raises:
-            AdapterError: If the entry's invoke kind is not ``openai-compat``.
+            AdapterError: If the entry's invoke kind is not the expected one, or its
+                ``base_url``/``model`` are unset.
         """
-        if entry.invoke.kind != "openai-compat":
+        expected = cls._EXPECTED_INVOKE_KIND
+        if entry.invoke.kind != expected:
             raise AdapterError(
-                f"entry {entry.id!r} has invoke.kind {entry.invoke.kind!r}, "
-                "not 'openai-compat'"
+                f"entry {entry.id!r} has invoke.kind {entry.invoke.kind!r}, not {expected!r}"
             )
+        base_url, model = entry.invoke.base_url, entry.invoke.model
+        if base_url is None or model is None:
+            # `load_roster` rejects an entry of this kind missing either field, so this holds for
+            # anything that came through it. `Invoke` is a public dataclass and can be built
+            # directly, though, and without this the None would surface as a TypeError from inside
+            # an HTTP call rather than as the error type this method documents.
+            raise AdapterError(f"entry {entry.id!r} is missing invoke.base_url or invoke.model")
         return cls(
-            base_url=entry.invoke.base_url,  # validated non-None by the roster loader
-            model=entry.invoke.model,
+            base_url=base_url,
+            model=model,
             key_ref=entry.invoke.key_ref,
             **overrides,  # type: ignore[arg-type]
         )
@@ -254,7 +268,13 @@ class OpenAICompatAdapter:
         Raises:
             AdapterError: If ``max_tokens`` < 1 or the credential reference cannot resolve.
         """
-        max_tokens = int(opts.get("max_tokens", self.default_max_tokens))
+        raw_max_tokens: Any = opts.get("max_tokens", self.default_max_tokens)
+        try:
+            max_tokens = int(raw_max_tokens)
+        except (TypeError, ValueError):
+            raise AdapterError(
+                f"max_tokens must be an integer, got {raw_max_tokens!r}"
+            ) from None
         if max_tokens < 1:
             raise AdapterError(
                 f"max_tokens must be >= 1, got {max_tokens} "

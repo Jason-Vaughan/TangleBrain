@@ -164,6 +164,27 @@ class RunTest(unittest.TestCase):
             with self.assertRaises(AdapterError):
                 self._adapter("none").run("q", {"max_tokens": bad})
 
+    def test_non_numeric_max_tokens_raises_the_documented_error(self):
+        # `opts` is a caller-supplied Mapping[str, object]. Coercing straight out of it let a
+        # non-numeric value escape as a raw TypeError/ValueError, past the AdapterError contract
+        # this method documents — which cli.main catches to print one clean line instead of a
+        # traceback. A numeric string still coerces, so no working caller changes behaviour.
+        for bad in ("lots", None, [512]):
+            with self.subTest(max_tokens=bad):
+                with self.assertRaises(AdapterError) as ctx:
+                    self._adapter("none").run("q", {"max_tokens": bad})
+                self.assertIn("max_tokens", str(ctx.exception))
+
+    def test_numeric_string_max_tokens_still_accepted(self):
+        # Pins the half of the coercion that must NOT change: guarding the failure path is not
+        # licence to tighten the success path.
+        fake = fake_client_returning(
+            make_response(200, json_body={"choices": [{"message": {"content": "x"}}]})
+        )
+        with patch("tanglebrain.adapters.openai_compat.httpx.Client", return_value=fake):
+            self._adapter("none").run("q", {"max_tokens": "512"})
+        self.assertEqual(fake.post.call_args.kwargs["json"]["max_tokens"], 512)
+
     def test_null_content_raises_with_budget_hint(self):
         fake = fake_client_returning(make_response(200, json_body={"choices": [{"message": {"content": None}}]}))
         with patch("tanglebrain.adapters.openai_compat.httpx.Client", return_value=fake):
@@ -325,7 +346,9 @@ class RunStreamTest(unittest.TestCase):
         for events in (["[DONE]"], [delta_event(role="assistant"), "[DONE]"], []):
             with self.subTest(events=events):
                 body = sse_bytes(*events)
-                with self._patched_client(lambda req: httpx.Response(200, content=body)):
+                with self._patched_client(
+                    lambda req, body=body: httpx.Response(200, content=body)
+                ):
                     with self.assertRaises(AdapterError) as ctx:
                         list(self._adapter().run_stream("q"))
                 self.assertIn("no content", str(ctx.exception))
@@ -358,6 +381,22 @@ class FromEntryTest(unittest.TestCase):
         entry = RosterEntry(id="claude", tier="sub", invoke=Invoke(kind="cli", cmd=["claude"]))
         with self.assertRaises(AdapterError):
             OpenAICompatAdapter.from_entry(entry)
+
+    def test_rejects_entry_missing_base_url_or_model(self):
+        # `load_roster` rejects these, so this guard only fires for an Invoke built directly.
+        # It exists because the alternative is a None reaching httpx and surfacing as a
+        # TypeError from inside the request, past the AdapterError this method documents.
+        for missing in ("base_url", "model"):
+            with self.subTest(missing=missing):
+                fields = {"base_url": URL, "model": "gpt-oss-120b", missing: None}
+                entry = RosterEntry(
+                    id="half-configured",
+                    tier="local",
+                    invoke=Invoke(kind="openai-compat", key_ref="none", **fields),
+                )
+                with self.assertRaises(AdapterError) as ctx:
+                    OpenAICompatAdapter.from_entry(entry)
+                self.assertIn("base_url", str(ctx.exception))
 
 
 if __name__ == "__main__":

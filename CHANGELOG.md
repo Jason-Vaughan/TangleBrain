@@ -112,6 +112,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The GUI panel's colour layer now meets WCAG 2.1 AA, and is asserted rather than audited once
+  (#115).** Nine of twenty-seven pairs failed, all of them muted text or control outlines. Two
+  findings are worth repeating. `--text-muted` cleared 4.5:1 against the *page* background but not
+  against the two surfaces it is actually used on (4.34:1 on cards, 3.89:1 on the elevated tiles) —
+  measuring against the page alone would have declared it conformant. And form fields were outlined
+  at 1.09:1 against their own fill, so the boundary of a text input carried essentially no contrast;
+  that outline is now its own token, kept separate from the decorative border so the fix does not
+  restyle cards and tables that never needed it. Raising the rest-state outline then dropped the
+  *focus* outline to 1.40:1 against it — passing SC 1.4.11 while quietly failing SC 2.4.7 Focus
+  Visible — so the focus colour moved too. `tests/test_gui_contrast.py` parses the palette out of
+  the stylesheet and checks every pair, plus two structural assertions that stop the pair table
+  falling behind the stylesheet: every `:root` token must be measured or explicitly exempt, and no
+  colour literal may live outside `:root`. Decorative borders and disabled controls are exempt by
+  the explicit carve-outs in SC 1.4.11 and 1.4.3; both exemptions are recorded in
+  `docs/design/nonfunctional-requirements.md` rather than left silent.
+
+- **Two adapters coerced caller-supplied options past their own error contract.** `opts` is a
+  `Mapping[str, object]`, and both the openai-compat and CLI adapters ran a bare `int()` / `float()`
+  over it — so a non-numeric `max_tokens` or `timeout` escaped as a raw `TypeError`, past the
+  `AdapterError` each method documents and past `cli.main`'s handler that turns that contract into
+  one clean line instead of a traceback. Both now raise the documented type. A numeric string still
+  coerces: guarding the failure path is not licence to tighten the success path, and a test pins
+  that half too. Surfaced by adopting mypy (#113).
+
+- **`from_entry` checks the invariant it claimed in a comment.** Both adapters passed
+  `entry.invoke.base_url` and `.model` through with the note "validated non-None by the roster
+  loader". True of any entry that came through `load_roster` — but `Invoke` is a public dataclass
+  that can be built directly, and a `None` reaching that path surfaced as a `TypeError` from inside
+  the HTTP request rather than as the documented `AdapterError`. It is now a check, with a test.
+
 - **A delegate failure again tells the orchestrator what went wrong.** The mcp 2.x migration
   silently dropped the reason: 1.x surfaced `Error executing tool X: endpoint down`, while 2.x
   reports a bare `Error executing tool X` for any exception that is not a `ToolError`. The tools
@@ -156,6 +186,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
+
+- **Filed [#131](https://github.com/Jason-Vaughan/TangleBrain/issues/131) for the accessibility
+  surface #115 did not cover.** The new Accessibility section names keyboard traversal,
+  screen-reader semantics, motion and reflow as unaudited — and `docs/design/README.md` promises,
+  twice over, that every gap the design docs disclose has a tracking issue. Disclosing a new one in
+  prose with nothing behind it would have quietly broken that promise on the same page that makes
+  it. The gap ledger and the design-overview Artifact both carry the row now.
+
+- **Closed the observations the verify pass demoted.** Two were defects rather than polish. Editing
+  `project-state.yaml` to retire the answered contrast question had orphaned a `priority: low` line
+  into the *next* entry, giving it a duplicate key that YAML silently resolves last-wins — the #92
+  question's priority had flipped from `medium` without anything saying so. And the contrast suite's
+  colour-property guard omitted `border-bottom` and `border-right` while `border-bottom` is used
+  twice in the shipped stylesheet, so its docstring's "every colour-bearing declaration" was still
+  not true. The pattern is now hoisted to module scope and shared with a new test that runs it
+  against synthetic CSS for every syntax and every border side — the guard's coverage is asserted
+  in-repo rather than claimed, and narrowing it now reds the suite. Also: the streaming type guard
+  is a `raise` rather than an `assert`, because `python -O` strips asserts and a stripped guard
+  would have handed the client a dict *as* the byte iterator.
+
+- **Resolved the Critic findings for Chunk C.** The substantive ones were a stale-claim class and a
+  real threshold bug. `ApiAdapter.from_entry` was a near-verbatim copy of its base differing only in
+  one string, and this chunk had deepened it by copying a new guard into both; the kind is now a
+  class attribute and the subclass has no override. `ignore_missing_imports` was global, which would
+  have silenced a renamed or misspelled *first-party* import — exactly the defect the gate was
+  adopted to catch — and is now scoped to `mcp.*`. The mypy pin was bounded at the next major by
+  reflex, but mypy adds checks at a *minor*, which reds untouched PRs in a lockfile-free CI; both
+  dev tools are now bounded at their real breaking-change unit. The contrast suite classified a
+  20.8px normal-weight value as WCAG large text, asserting 3:1 where 1.4.3 requires 4.5:1, and
+  missed two pairings that exist in the shipped stylesheet (`--danger` on the output pane, the
+  button outline on hover). Its literal guard now checks colour-bearing *properties* rather than
+  hunting hex, so `rgba()`, `hsl()` and bare CSS names cannot slip past — and the docstring now
+  states plainly what the guards do **not** cover (a new pairing of two existing tokens) instead of
+  implying the AA claim is fully mechanical.
+
+- **De-anchored every line-numbered citation into `.py` files, and retired a claim that outlived its
+  correction.** "The codebase's one deliberately broad exception handler (`measurement.py:376-378`)"
+  appeared in six renderings; the previous commit fixed the one it happened to be editing and left
+  the rest — including a normative Direction statement, which would have made the eight waivers this
+  chunk legitimised read as departures. Every site now cites by symbol and points at the grep. The
+  cited line ranges had already drifted: `376-378` is the linkage block today.
+
+- **Adopted ruff and mypy as defect gates; declined the formatter and `--strict`, with reasons
+  (#113).** `make lint` now runs both, `make test` depends on it, and CI runs `make test`, so a gate
+  cannot be green locally and absent in CI. Both tools sit in a new `dev` extra — nothing there is
+  imported at runtime, so the minimal-dependency posture, which is about what a *user* installs, is
+  untouched. Each half of the ruling was measured against this codebase first: `ruff format` would
+  have rewritten 41 of 45 files while catching no defects, and `mypy --strict` reported 62 errors
+  against default mode's 11, 39 of them `type-arg` ceremony. The rule set selects for defects and
+  deliberately omits the style families, which are the formatter question under another name. The
+  full ruling, and what would justify revisiting either decline, is in
+  `docs/design/nonfunctional-requirements.md`, "Code quality gates".
+
+- **Twelve inert suppressions removed or made real.** The codebase was already written as though
+  these tools were running: it carried `# noqa: BLE001`, `N802`, `F401` and `E731` directives, plus
+  a `# type: ignore[arg-type]` in `measurement.py` that named the wrong error code. Every one
+  suppressed a rule nothing had selected, so none of them did anything. That is the same defect
+  #113 describes for annotations, one level up — a decision documented but not enforced. `RUF100` is
+  now in the rule set so a waiver that stops being needed fails the build.
+
+- **A latent closure bug and a truncating comparison in the suite.** A `lambda` in
+  `test_openai_compat.py` closed over a loop variable rather than capturing it — harmless only
+  because each iteration consumes its lambda before the next rebinds it — and `test_roster_edit.py`
+  zipped two line lists without `strict`, so an edit that changed the line *count* would truncate
+  to the shorter side and could still satisfy "exactly one line differs". Both found by ruff on
+  adoption.
 
 - **Packaging tests assert parsed constraints instead of the characters of a requirement string.**
   The upper-bound check looked for a literal `<` anywhere in the requirement, which an environment

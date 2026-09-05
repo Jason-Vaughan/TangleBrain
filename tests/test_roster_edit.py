@@ -174,7 +174,11 @@ class ApplyEditTest(RosterEditTestBase):
         self.assertIn("# a dense comment inside invoke that must not move or change", after)
         self.assertIn("# Header comment — must survive.", after)
         # Only one line changed (true -> false on claude's can_orchestrate).
-        diff = [(b, a) for b, a in zip(before.splitlines(), after.splitlines()) if b != a]
+        diff = [
+            (b, a)
+            for b, a in zip(before.splitlines(), after.splitlines(), strict=True)
+            if b != a
+        ]
         self.assertEqual(len(diff), 1)
 
 

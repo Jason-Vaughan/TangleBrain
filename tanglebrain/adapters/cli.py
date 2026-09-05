@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
 from tanglebrain.adapters.base import AdapterError
 from tanglebrain.roster import RosterEntry
@@ -297,7 +297,11 @@ class CliAdapter:
             AdapterError: On a missing binary, non-zero exit, timeout, or unparseable output.
         """
         opts = opts or {}
-        timeout = float(opts.get("timeout", self.timeout))
+        raw_timeout: Any = opts.get("timeout", self.timeout)
+        try:
+            timeout = float(raw_timeout)
+        except (TypeError, ValueError):
+            raise AdapterError(f"timeout must be a number, got {raw_timeout!r}") from None
         argv = build_argv(self._effective_cmd(), prompt)
         env = scrubbed_env(self.scrub_env)
 
