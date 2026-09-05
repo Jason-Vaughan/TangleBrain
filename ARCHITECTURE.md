@@ -166,7 +166,8 @@ just core-complete.
 ### Measurement — per-task records (`measurement.py`)
 
 Each routed task is appended as one JSON line to `usage.jsonl` under the state root
-(`TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain`): the path taken, the tier and model that served it, estimated token counts,
+(`TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain`): the path
+taken, the tier and model that served it, estimated token counts,
 and a **cloud-equivalent cost figure** — what the same work would have cost on a paid frontier API,
 using the reference price in `config/pricing.yaml`. `tanglebrain --stats` rolls those records up.
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response (the

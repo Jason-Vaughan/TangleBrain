@@ -32,7 +32,8 @@ jobs, and the second one is served worse.
 ## The signal
 
 One JSON line per task or delegation, appended to `usage.jsonl` under the state root
-(`TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain`). Fields are specified in [`data-model.md`](data-model.md).
+(`TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain`).
+Fields are specified in [`data-model.md`](data-model.md).
 
 **Record kinds, and why the distinction matters for the rollup:**
 

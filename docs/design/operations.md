@@ -43,7 +43,7 @@ Nothing contacts a paid or remote service until the operator configures it to.
 | Roster | `$TANGLEBRAIN_ROSTER` → `$XDG_CONFIG_HOME/tanglebrain/roster.yaml` → packaged example | First hit wins. A bad `$TANGLEBRAIN_ROSTER` errors clearly rather than silently falling back. |
 | Settings | `config/settings.yaml` | Both gates default off. |
 | Pricing reference | `config/pricing.yaml` | Feeds the cloud-equivalent figure. |
-| State root | `TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain` | Rotation cursor, usage log, config backups. Data tier, not cache — see `data-model.md`. A pre-0.21 `~/.cache/tanglebrain/` is copied forward on first run, originals left in place. |
+| State root | `TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain` | Rotation cursor, usage log, config backups. Data tier, not cache — see `data-model.md`. A legacy cache-tier root at `~/.cache/tanglebrain/` is copied forward on first run, originals left in place. |
 
 **The operator's real roster lives outside the repo on purpose** — `git pull` and `pip install -U`
 cannot clobber it. This is a supported guarantee, not a convention.
