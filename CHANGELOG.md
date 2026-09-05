@@ -147,6 +147,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The deprecation policy's own precedent is now a test.** `deprecation-policy.md` commits that a
+  removed CLI flag becomes an accepted no-op rather than an error, and cites `--route` as the
+  standing example — but `--route` was declared in the parser and read nowhere, with no test
+  behind it. Deleting it would have passed the whole suite while breaking exactly the forgotten
+  scripts the commitment exists to protect. `tests/test_cli.py` now pins both halves: the flag
+  still parses, and it reaches `run_once` as no argument at all, so it is inert rather than merely
+  tolerated. Verified by deleting the flag, which now fails.
+
 - **The deprecation policy now says what "announced as breaking" means before 1.0.** The policy
   requires a dependency-floor bump to be announced as breaking; TangleBrain's release tooling maps
   the major-bump marker (the word, followed by a colon) to a *major* bump, which from `0.20.x` is
