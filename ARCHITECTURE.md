@@ -102,9 +102,9 @@ whatever the roster declares.
 - **Task-fit selection.** When a `task` hint is given, the router prefers orchestrators whose
   `good_at` matches it, falling back to the full set otherwise.
 - **Rotation.** It rotates the orchestrator role across the eligible set for resilience and even
-  load. The rotation cursor is persisted across processes at
-  `~/.cache/tanglebrain/router-state.json` (override with `TANGLEBRAIN_STATE_DIR`) and only advances
-  on success.
+  load. The rotation cursor is persisted across processes at `router-state.json` under the state
+  root (`TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain`) and
+  only advances on success.
 - **Failover.** On an `AdapterError` it fails over to the next orchestrator; if all fail it raises
   `RouterError` listing each failure (rate-limit errors are annotated).
 - **Paid last resort.** If every orchestrator fails *and* the paid gate is on, the router falls
@@ -165,8 +165,9 @@ just core-complete.
 
 ### Measurement — per-task records (`measurement.py`)
 
-Each routed task is appended as one JSON line to `~/.cache/tanglebrain/usage.jsonl` (honoring
-`TANGLEBRAIN_STATE_DIR`): the path taken, the tier and model that served it, estimated token counts,
+Each routed task is appended as one JSON line to `usage.jsonl` under the state root
+(`TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain`): the path
+taken, the tier and model that served it, estimated token counts,
 and a **cloud-equivalent cost figure** — what the same work would have cost on a paid frontier API,
 using the reference price in `config/pricing.yaml`. `tanglebrain --stats` rolls those records up.
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response (the

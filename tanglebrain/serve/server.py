@@ -19,6 +19,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Iterator
 
+from tanglebrain.router import migrate_state_root
 from tanglebrain.serve.views import (
     DEFAULT_PORT,
     PARENT_TASK_HEADER,
@@ -218,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code (``0``).
     """
+    # Move a pre-0.21 cache-tier state root forward before anything reads it. Idempotent,
+    # never raises; the notice goes to stderr so a piped answer stays clean.
+    migrate_state_root()
     parser = argparse.ArgumentParser(
         prog="tanglebrain-serve",
         description=(

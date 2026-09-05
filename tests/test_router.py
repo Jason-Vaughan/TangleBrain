@@ -1,27 +1,41 @@
 """Tests for the frontier-first router (tanglebrain/router.py).
 
 Adapters are faked and the rotation-state file is a temp path, so these are fully hermetic —
-no subprocesses, no network, no touching the real ~/.cache state.
+no subprocesses, no network, no touching the operator's real state root.
 """
 from __future__ import annotations
 
+import inspect
+import io
 import json
 import os
+import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 — covered by the 3.11/3.12 CI jobs.
+    tomllib = None  # type: ignore[assignment]
+
 from tanglebrain.adapters.base import AdapterError
 from tanglebrain.roster import Invoke, Roster, RosterEntry
 from tanglebrain.router import (
+    LEGACY_STATE_SUBDIR,
     STATE_DIR_ENV,
+    XDG_DATA_HOME_ENV,
     Router,
     RouterError,
     _looks_like_rate_limit,
     _read_cursor,
     _write_cursor,
     default_state_path,
+    legacy_state_root,
+    migrate_state_root,
+    state_root,
 )
 from tanglebrain.settings import Settings
 
@@ -113,11 +127,245 @@ class StateHelpersTest(unittest.TestCase):
         with patch.dict(os.environ, {STATE_DIR_ENV: "/tmp/tb-state"}, clear=False):
             self.assertEqual(default_state_path(), Path("/tmp/tb-state/router-state.json"))
 
-    def test_default_state_path_falls_back_to_home_cache(self):
-        env = {k: v for k, v in os.environ.items() if k != STATE_DIR_ENV}
+
+def _env_without(*names: str) -> dict:
+    """Return a copy of the environment with ``names`` removed, for `patch.dict(clear=True)`."""
+    return {k: v for k, v in os.environ.items() if k not in names}
+
+
+class StateRootTest(unittest.TestCase):
+    """Where persistent state resolves to, and the precedence between the three inputs.
+
+    The root moved off ``~/.cache`` because nothing under it is a cache — the usage log carries
+    the product's lifetime spend-avoided claim and is not reconstructible, and a config backup is
+    the only copy of something the operator hand-edited. ``~/.cache`` is *defined* as deletable at
+    will, so the old default made both one cleanup run from gone.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def test_explicit_override_wins_over_everything(self):
+        env = {STATE_DIR_ENV: "/tmp/tb-explicit", XDG_DATA_HOME_ENV: "/tmp/tb-xdg", "HOME": self.tmp}
+        with patch.dict(os.environ, env, clear=False):
+            self.assertEqual(state_root(), Path("/tmp/tb-explicit"))
+
+    def test_xdg_data_home_wins_over_the_default(self):
+        env = _env_without(STATE_DIR_ENV)
+        env.update({XDG_DATA_HOME_ENV: "/tmp/tb-xdg", "HOME": self.tmp})
         with patch.dict(os.environ, env, clear=True):
-            path = default_state_path()
-        self.assertEqual(path, Path.home() / ".cache" / "tanglebrain" / "router-state.json")
+            self.assertEqual(state_root(), Path("/tmp/tb-xdg/tanglebrain"))
+
+    def test_default_is_the_xdg_data_tier_not_the_cache_tier(self):
+        # Updated deliberately when the root moved (was `~/.cache/tanglebrain`). The assertion is
+        # the decision: a data-tier default is what makes the usage log safe to keep forever.
+        env = _env_without(STATE_DIR_ENV, XDG_DATA_HOME_ENV)
+        env["HOME"] = self.tmp
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(state_root(), Path(self.tmp) / ".local" / "share" / "tanglebrain")
+            self.assertEqual(
+                default_state_path(),
+                Path(self.tmp) / ".local" / "share" / "tanglebrain" / "router-state.json",
+            )
+
+    def test_legacy_root_is_the_cache_tier(self):
+        env = _env_without(STATE_DIR_ENV, XDG_DATA_HOME_ENV)
+        env["HOME"] = self.tmp
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(legacy_state_root(), Path(self.tmp) / ".cache" / "tanglebrain")
+
+    def test_an_explicit_override_collapses_both_roots(self):
+        # The override was always the state root, wherever the operator put it — so there is
+        # nothing to migrate, and `migrate_state_root` must recognise that rather than copy a
+        # directory onto itself.
+        with patch.dict(os.environ, {STATE_DIR_ENV: "/tmp/tb-same"}, clear=False):
+            self.assertEqual(state_root(), legacy_state_root())
+
+
+class MigrateStateRootTest(unittest.TestCase):
+    """Moving a pre-0.21 cache-tier root forward, without ever losing a fact."""
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.legacy = self.home / LEGACY_STATE_SUBDIR
+        self.new = self.home / ".local" / "share" / "tanglebrain"
+        env = _env_without(STATE_DIR_ENV, XDG_DATA_HOME_ENV)
+        env["HOME"] = str(self.home)
+        self._env = patch.dict(os.environ, env, clear=True)
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def _seed_legacy(self):
+        """Write one of each thing the real legacy root holds: two files and a backups dir."""
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        (self.legacy / "usage.jsonl").write_text('{"kind": "task"}\n', encoding="utf-8")
+        (self.legacy / "router-state.json").write_text('{"cursor": 3}', encoding="utf-8")
+        (self.legacy / "backups").mkdir()
+        (self.legacy / "backups" / "pricing-x.yaml").write_text("placeholder: false\n", encoding="utf-8")
+
+    def test_every_entry_migrates_not_just_the_usage_log(self):
+        self._seed_legacy()
+        migrated = migrate_state_root(stream=io.StringIO())
+        self.assertEqual(sorted(migrated), ["backups", "router-state.json", "usage.jsonl"])
+        self.assertEqual((self.new / "usage.jsonl").read_text(encoding="utf-8"), '{"kind": "task"}\n')
+        self.assertEqual((self.new / "router-state.json").read_text(encoding="utf-8"), '{"cursor": 3}')
+        self.assertTrue((self.new / "backups" / "pricing-x.yaml").is_file())
+
+    def test_originals_are_left_in_place_so_a_downgrade_keeps_working(self):
+        self._seed_legacy()
+        migrate_state_root(stream=io.StringIO())
+        self.assertTrue((self.legacy / "usage.jsonl").is_file())
+        self.assertTrue((self.legacy / "router-state.json").is_file())
+        self.assertTrue((self.legacy / "backups" / "pricing-x.yaml").is_file())
+
+    def test_one_notice_for_the_move_not_one_per_file(self):
+        self._seed_legacy()
+        out = io.StringIO()
+        migrate_state_root(stream=out)
+        lines = [ln for ln in out.getvalue().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 1, f"expected a single notice, got {lines!r}")
+        self.assertIn(str(self.legacy), lines[0])
+        self.assertIn(str(self.new), lines[0])
+
+    def test_second_run_copies_nothing_and_says_nothing(self):
+        self._seed_legacy()
+        migrate_state_root(stream=io.StringIO())
+        out = io.StringIO()
+        self.assertEqual(migrate_state_root(stream=out), [])
+        self.assertEqual(out.getvalue(), "")
+
+    def test_a_partially_migrated_root_completes_rather_than_skipping(self):
+        self._seed_legacy()
+        self.new.mkdir(parents=True)
+        (self.new / "usage.jsonl").write_text("already here\n", encoding="utf-8")
+        migrated = migrate_state_root(stream=io.StringIO())
+        # The one already present is not re-copied (and not clobbered); the rest complete.
+        self.assertEqual(sorted(migrated), ["backups", "router-state.json"])
+        self.assertEqual((self.new / "usage.jsonl").read_text(encoding="utf-8"), "already here\n")
+        self.assertTrue((self.new / "router-state.json").is_file())
+
+    def test_a_fresh_install_migrates_nothing_and_prints_nothing(self):
+        out = io.StringIO()
+        self.assertEqual(migrate_state_root(stream=out), [])
+        self.assertEqual(out.getvalue(), "")
+        self.assertFalse(self.new.exists(), "a fresh install must not create the root just to look")
+
+    def test_an_explicit_override_is_a_no_op(self):
+        self._seed_legacy()
+        with patch.dict(os.environ, {STATE_DIR_ENV: str(self.legacy)}, clear=False):
+            out = io.StringIO()
+            self.assertEqual(migrate_state_root(stream=out), [])
+            self.assertEqual(out.getvalue(), "")
+
+    def test_a_failed_migration_warns_and_never_raises(self):
+        self._seed_legacy()
+        out = io.StringIO()
+        with patch("tanglebrain.router.shutil.copy2", side_effect=OSError("disk full")):
+            # Whatever got across before the failure is reported, so the next run finishes the
+            # rest rather than starting over or declaring itself done.
+            self.assertEqual(migrate_state_root(stream=out), ["backups"])
+        text = out.getvalue()
+        self.assertIn("disk full", text)
+        self.assertIn(str(self.legacy), text)
+        # The operator has to be able to tell a failed copy from a genuinely small figure.
+        self.assertIn("--stats", text)
+
+    def test_a_copy_killed_part_way_leaves_no_partial_file_at_the_real_path(self):
+        """The re-run guard is "does the destination exist", so a truncated file is permanent.
+
+        `copy2` streams into its destination and does not clean up on failure. Writing straight to
+        the final name would leave a short `usage.jsonl` that every later run skips, understating
+        the lifetime figure forever while the failure notice promises a retry that can never fix
+        it. Staging under a temporary name and `os.replace`-ing into place is what makes the guard
+        mean what it says.
+        """
+        self._seed_legacy()
+
+        def truncated_write(src, dst, *args, **kwargs):
+            Path(dst).write_text("half a fi", encoding="utf-8")  # bytes land, then it dies
+            raise OSError("disk full")
+
+        with patch("tanglebrain.router.shutil.copy2", side_effect=truncated_write):
+            migrate_state_root(stream=io.StringIO())
+
+        # Assert over whatever landed rather than a named file: `copy2` dies on the first entry it
+        # is handed, and which one that is depends on iteration order. Naming a file here is how
+        # this test passes without ever exercising the defect.
+        landed = [f for f in self.new.rglob("*") if f.is_file()] if self.new.exists() else []
+        self.assertTrue(landed, "the fixture never reached a copy — this test would prove nothing")
+        for f in landed:
+            original = self.legacy / f.relative_to(self.new)
+            self.assertEqual(
+                f.read_bytes(), original.read_bytes(),
+                f"{f.name} is at its real path but truncated; every later run will skip it",
+            )
+        self.assertFalse(
+            list(self.new.glob(".*.incoming")), "staging entries must not survive a failure"
+        )
+        # And the retry the notice promises actually works.
+        migrate_state_root(stream=io.StringIO())
+        self.assertEqual(
+            (self.new / "usage.jsonl").read_text(encoding="utf-8"), '{"kind": "task"}\n'
+        )
+        self.assertEqual(
+            (self.new / "router-state.json").read_text(encoding="utf-8"), '{"cursor": 3}'
+        )
+
+    def test_a_concurrent_start_that_loses_the_race_is_not_reported_as_a_failure(self):
+        """Two console scripts can start at once; the loser must stay quiet, not warn.
+
+        `os.replace` onto an existing directory raises, and the entries are identical bytes from
+        one source — so losing is a no-op, not an error worth alarming the operator about.
+        """
+        self._seed_legacy()
+        real_replace = os.replace
+
+        def replace_after_rival_wins(src, dst, *args, **kwargs):
+            if Path(dst).name == "backups":
+                # Simulate the rival landing its copy in the window before ours.
+                shutil.copytree(self.legacy / "backups", dst)
+                raise OSError("Directory not empty")
+            return real_replace(src, dst, *args, **kwargs)
+
+        out = io.StringIO()
+        with patch("tanglebrain.router.os.replace", side_effect=replace_after_rival_wins):
+            migrated = migrate_state_root(stream=out)
+        self.assertNotIn("could not move state", out.getvalue())
+        self.assertEqual(sorted(migrated), ["router-state.json", "usage.jsonl"])
+        self.assertTrue((self.new / "backups" / "pricing-x.yaml").is_file())
+
+    def test_the_notice_never_goes_to_stdout(self):
+        # stdout carries the routed answer and gets piped; a notice there corrupts it.
+        self._seed_legacy()
+        with patch.object(sys, "stdout", io.StringIO()) as fake_out, \
+             patch.object(sys, "stderr", io.StringIO()) as fake_err:
+            migrate_state_root()
+            self.assertEqual(fake_out.getvalue(), "")
+            self.assertIn("state moved", fake_err.getvalue())
+
+
+@unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+; covered by the 3.11/3.12 CI jobs")
+class EntryPointMigrationCoverageTest(unittest.TestCase):
+    """Every console script must migrate before it reads state — enforced, not asserted in prose.
+
+    The list is derived from `[project.scripts]` rather than written here, so adding a fifth
+    entry point without wiring the migration fails this test. A hand-maintained list would have
+    gone stale at exactly the moment it mattered.
+    """
+
+    def test_every_console_script_calls_migrate_state_root(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        scripts = tomllib.loads((repo_root / "pyproject.toml").read_text())["project"]["scripts"]
+        self.assertGreaterEqual(len(scripts), 4, "entry points vanished — check pyproject.toml")
+        for name, target in sorted(scripts.items()):
+            with self.subTest(script=name):
+                module_name, _, func_name = target.partition(":")
+                module = __import__(module_name, fromlist=[func_name])
+                source = inspect.getsource(getattr(module, func_name))
+                self.assertIn(
+                    "migrate_state_root()", source,
+                    f"{name} ({target}) reads state without migrating a legacy root first",
+                )
 
 
 class SelectionTest(RouterTestBase):

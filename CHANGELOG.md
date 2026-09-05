@@ -81,6 +81,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **State moved out of the cache tier** — the rotation cursor, the usage log and config backups now
+  live under `~/.local/share/tanglebrain/` (honoring `XDG_DATA_HOME`; `TANGLEBRAIN_STATE_DIR` still
+  overrides everything). `~/.cache` is *defined* as a directory any cleanup tool may delete at will,
+  and nothing TangleBrain kept there was a cache: the usage log is the only record of accumulated
+  spend-avoided and is never reconstructible, because prompt and response text is never persisted
+  by design; a config backup is the only copy of something the operator hand-edited. Both were one
+  `brew cleanup` from gone.
+
+  **Existing installs migrate on first run, and lose nothing.** Every entry in
+  `~/.cache/tanglebrain/` is copied forward before anything reads state, **the originals are left
+  in place** so a downgrade still finds its history, and a single stderr notice names both
+  directories. The copy is per-entry and skips what is already present, so an interrupted migration
+  completes on the next run instead of skipping wholesale, and a completed one is a no-op. A
+  migration that fails says so on stderr rather than raising — an incomplete log understates
+  savings, and an operator has to be able to tell that from a genuinely small number.
+
+  Two details are enforced rather than asserted. The migration copies *every* entry it finds rather
+  than a named list of expected files, because a hard-coded list is a claim about a directory's
+  contents that decays silently the moment anything new is written there. And the "every console
+  script migrates before it reads state" claim is a test that derives its list from
+  `pyproject.toml`'s `[project.scripts]`, so adding a fifth entry point without wiring the
+  migration fails the build.
+
+  This closes the placement half of
+  [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101); the log is still unbounded and
+  that half stays open.
+
 - **The delegate extra now requires `mcp >= 2, < 3`.** `tanglebrain/mcp_server.py` is migrated to
   the 2.x API: `mcp.server.fastmcp.FastMCP` became `mcp.server.mcpserver.MCPServer`. The tool
   surface is unchanged — `delegate`, `delegate_local`, `delegate_targets` and `delegate_many` keep

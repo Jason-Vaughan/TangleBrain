@@ -1,11 +1,13 @@
 """Tests for the measurement / spend-avoided layer (tanglebrain/measurement.py).
 
 Fully hermetic: the usage log is a temp path and pricing is injected, so nothing touches the real
-~/.cache or the packaged config. Covers the estimation/cost math, the fault-tolerant log I/O, and
+the operator's real state root or the packaged config. Covers the estimation/cost math, the
+fault-tolerant log I/O, and
 the rollup/format.
 """
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
@@ -356,6 +358,69 @@ class DefaultLogPathTest(unittest.TestCase):
 
         with patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": "/tmp/tb-test"}, clear=False):
             self.assertEqual(default_log_path(), Path("/tmp/tb-test/usage.jsonl"))
+
+    def test_log_and_backups_resolve_under_one_data_tier_root(self):
+        """The log and the backups share the state root, and the root is not the cache tier.
+
+        Resolution order is asserted in `test_router.StateRootTest`; what matters here is that
+        measurement reads the *same* root the router does, so the migration moves one directory
+        rather than chasing files across two.
+        """
+        import os
+        from unittest.mock import patch
+
+        from tanglebrain.measurement import _backup_dir
+        from tanglebrain.router import state_root
+
+        home = tempfile.mkdtemp()
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("TANGLEBRAIN_STATE_DIR", "XDG_DATA_HOME")}
+        env["HOME"] = home
+        with patch.dict(os.environ, env, clear=True):
+            root = state_root()
+            self.assertEqual(default_log_path().parent, root)
+            self.assertEqual(_backup_dir().parent, root)
+            self.assertNotIn(".cache", root.parts)
+
+
+class UsageLogSurvivesTheMoveTest(unittest.TestCase):
+    """The end-to-end fact chunk 01 exists for: an existing operator's figure does not change.
+
+    The unit tests cover the copy; this covers the thing the copy is *for* — a rollup taken
+    before and after the migration reads the same number. A migration that moved bytes but broke
+    the read path would pass every test above and still zero someone's history.
+    """
+
+    def test_rollup_is_identical_across_the_migration(self):
+        import os
+        from unittest.mock import patch
+
+        from tanglebrain.router import migrate_state_root
+
+        home = Path(tempfile.mkdtemp())
+        legacy = home / ".cache" / "tanglebrain"
+        legacy.mkdir(parents=True)
+        rows = [
+            {"kind": "task", "path": "local", "tier": "local", "model": "m",
+             "in_tokens_est": 100, "out_tokens_est": 200,
+             "cloud_equiv_usd": 0.5, "spend_avoided_usd": 0.5, "pricing_ref": "ref"},
+            {"kind": "task", "path": "router", "tier": "sub", "model": "m2",
+             "in_tokens_est": 10, "out_tokens_est": 20,
+             "cloud_equiv_usd": 0.25, "spend_avoided_usd": 0.25, "pricing_ref": "ref"},
+        ]
+        (legacy / "usage.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("TANGLEBRAIN_STATE_DIR", "XDG_DATA_HOME")}
+        env["HOME"] = str(home)
+        with patch.dict(os.environ, env, clear=True):
+            before = rollup(read_records(legacy / "usage.jsonl"))
+            migrate_state_root(stream=io.StringIO())
+            after = rollup(read_records())
+        self.assertEqual(before, after)
+        self.assertAlmostEqual(after["spend_avoided_usd"], 0.75)
+        self.assertEqual(after["tasks"], 2)
 
 
 class DelegateObservabilityTest(unittest.TestCase):

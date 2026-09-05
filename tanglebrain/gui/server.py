@@ -15,6 +15,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 
+from tanglebrain.router import migrate_state_root
 from tanglebrain.gui.views import (
     DEFAULT_PORT,
     run_prompt,
@@ -155,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code (``0``).
     """
+    # Move a pre-0.21 cache-tier state root forward before anything reads it. Idempotent,
+    # never raises; the notice goes to stderr so a piped answer stays clean.
+    migrate_state_root()
     parser = argparse.ArgumentParser(
         prog="tanglebrain-gui",
         description="Serve the TangleBrain knob panel (read-only) on localhost.",

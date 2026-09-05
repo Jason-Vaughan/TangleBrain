@@ -17,8 +17,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import sys
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Mapping, TextIO
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.adapters.base import Adapter
@@ -27,7 +29,18 @@ from tanglebrain.selector import build_adapter
 from tanglebrain.settings import Settings, load_settings
 
 STATE_DIR_ENV = "TANGLEBRAIN_STATE_DIR"
-DEFAULT_STATE_SUBDIR = ".cache/tanglebrain"
+XDG_DATA_HOME_ENV = "XDG_DATA_HOME"
+
+#: Default state root, relative to ``~``. This is the XDG *data* tier, deliberately: everything
+#: under the state root — the rotation cursor, the usage log, config backups — has to survive a
+#: disk cleaner. ``~/.cache`` is *defined* as a directory anything may delete at will, so a
+#: lifetime spend-avoided figure stored there is one `brew cleanup` from zero.
+DEFAULT_STATE_SUBDIR = ".local/share/tanglebrain"
+
+#: Where the state root lived before the move. Read once per process by
+#: :func:`migrate_state_root` and never written.
+LEGACY_STATE_SUBDIR = ".cache/tanglebrain"
+
 STATE_FILENAME = "router-state.json"
 
 # Substrings that mark an orchestrator failure as a rate-limit/capacity issue rather than a hard
@@ -55,17 +68,151 @@ def _looks_like_rate_limit(message: str) -> bool:
     return bool(_RATE_LIMIT_RE.search(message or ""))
 
 
+def state_root() -> Path:
+    """Return the directory holding every piece of TangleBrain's persistent state.
+
+    Resolution order, highest precedence first:
+
+    1. ``TANGLEBRAIN_STATE_DIR`` — the operator's explicit override (``~`` expanded). Unchanged
+       by the move to the data tier, and it still wins over everything.
+    2. ``XDG_DATA_HOME``/``tanglebrain`` — honored when the operator has relocated their data tier.
+    3. ``~/.local/share/tanglebrain`` — the default.
+
+    The rotation cursor, the usage log, and config backups all live here. None of them is a
+    cache: losing the cursor perturbs rotation, losing the usage log destroys the product's
+    lifetime spend-avoided claim outright, and losing a backup destroys the only copy of a
+    config the operator hand-edited.
+
+    Returns:
+        The absolute path to the state root. Not created — callers that write make it.
+    """
+    base = os.environ.get(STATE_DIR_ENV)
+    if base:
+        return Path(base).expanduser()
+    xdg = os.environ.get(XDG_DATA_HOME_ENV)
+    if xdg:
+        return Path(xdg).expanduser() / "tanglebrain"
+    return Path.home() / DEFAULT_STATE_SUBDIR
+
+
+def legacy_state_root() -> Path:
+    """Return the pre-move, cache-tier state root that :func:`migrate_state_root` reads from.
+
+    ``TANGLEBRAIN_STATE_DIR`` resolves this the same way it resolves :func:`state_root`, so an
+    operator who already set the override has both pointing at one directory and nothing to
+    migrate — the override was always the state root, wherever they put it.
+
+    Returns:
+        The absolute path to the legacy state root.
+    """
+    base = os.environ.get(STATE_DIR_ENV)
+    if base:
+        return Path(base).expanduser()
+    return Path.home() / LEGACY_STATE_SUBDIR
+
+
+def _discard(path: Path) -> None:
+    """Remove ``path`` — file or directory tree — tolerating its absence.
+
+    Used to clear a half-written staging entry. Absence is the expected case, not an error.
+
+    Args:
+        path: The path to remove.
+    """
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        try:
+            path.unlink()
+        except (FileNotFoundError, IsADirectoryError, PermissionError):
+            return
+
+
+def migrate_state_root(stream: TextIO | None = None) -> list[str]:
+    """Copy a pre-existing cache-tier state root forward to the data tier. Never raises.
+
+    Copies, rather than moves, and **leaves every original in place**: an operator who downgrades
+    to a version that still reads ``~/.cache`` must not find their history gone. The cost is one
+    duplicated directory, which is cheap next to silently zeroing someone's spend-avoided figure.
+
+    Every entry in the legacy root is migrated, rather than a named list of the files we expect.
+    A hard-coded list is a claim about the directory's contents that decays the moment anything
+    new is written there, and the failure mode is silent partial migration — the worst kind.
+
+    Copying is per-entry and skips anything already present at the destination, so an interrupted
+    run completes on the next invocation instead of skipping wholesale, and a completed run is a
+    no-op. Each entry is staged under a dotted temporary name in the destination directory and
+    moved into place with :func:`os.replace`, so a copy killed part-way leaves no partial file at
+    the real path — which matters precisely *because* the re-run guard is "does the destination
+    exist": a truncated ``usage.jsonl`` would be skipped forever and understate the lifetime
+    figure with nothing to signal it. One notice is printed for the move as a whole, not one per
+    file: the operator needs to know their state moved, not to read an inventory.
+
+    Failure is reported, never raised and never silent. A migration that fails leaves the new root
+    incomplete, and a rollup over an incomplete log understates savings — which reads as the
+    product lying rather than as a broken copy. Saying so on stderr is what distinguishes them;
+    the next invocation retries.
+
+    Args:
+        stream: Where the notice goes. Defaults to ``sys.stderr`` — never stdout, which carries
+            the routed answer and gets piped.
+
+    Returns:
+        The names of the entries copied, empty when there was nothing to do.
+    """
+    out = stream if stream is not None else sys.stderr
+    source = legacy_state_root()
+    target = state_root()
+    if source == target:
+        return []
+    migrated: list[str] = []
+    try:
+        if not source.is_dir():
+            return []
+        for item in sorted(source.iterdir()):
+            destination = target / item.name
+            if destination.exists():
+                continue
+            target.mkdir(parents=True, exist_ok=True)
+            staged = target / f".{item.name}.incoming"
+            _discard(staged)
+            try:
+                if item.is_dir():
+                    shutil.copytree(item, staged)
+                else:
+                    shutil.copy2(item, staged)
+                os.replace(staged, destination)
+            except OSError:
+                _discard(staged)
+                if destination.exists():
+                    # Another console script started at the same moment and won the race. Its
+                    # copy is the same bytes from the same source, so this is not a failure.
+                    continue
+                raise
+            migrated.append(item.name)
+    except OSError as exc:
+        print(
+            f"tanglebrain: could not move state from {source} to {target} ({exc}). "
+            "Your history is still at the old path; --stats may read low until this succeeds.",
+            file=out,
+        )
+        return migrated
+    if migrated:
+        print(
+            f"tanglebrain: state moved from {source} to {target} "
+            f"({len(migrated)} item(s) copied; originals left in place).",
+            file=out,
+        )
+    return migrated
+
+
 def default_state_path() -> Path:
     """Return the rotation-state file path.
 
-    Honors ``TANGLEBRAIN_STATE_DIR`` (``~`` expanded); otherwise ``~/.cache/tanglebrain/``.
-
     Returns:
-        The absolute path to the router state JSON file.
+        The absolute path to the router state JSON file, under :func:`state_root`.
     """
-    base = os.environ.get(STATE_DIR_ENV)
-    root = Path(base).expanduser() if base else Path.home() / DEFAULT_STATE_SUBDIR
-    return root / STATE_FILENAME
+    return state_root() / STATE_FILENAME
 
 
 def _read_cursor(path: Path) -> int:

@@ -110,23 +110,26 @@ does not.**
 | Roster | `$TANGLEBRAIN_ROSTER` → `~/.config/tanglebrain/roster.yaml` → packaged example | **Durable, operator-owned** | Falls back to the packaged example — one active local entry. Degrades to the safe default rather than failing. |
 | Settings | `config/settings.yaml` | Durable | Both gates read as off. Fails safe. |
 | Pricing reference | `config/pricing.yaml` | Durable, packaged | Cost figures unavailable; routing unaffected. |
-| Rotation cursor | `~/.cache/tanglebrain/router-state.json` | **Ephemeral, cache-tier** | Rotation restarts from the beginning. Harmless — it is a fairness hint, not correctness. |
-| Usage log | `~/.cache/tanglebrain/usage.jsonl` | **Ephemeral, cache-tier** | Every historical spend-avoided figure is gone permanently. See below. |
+| Rotation cursor | `<state root>/router-state.json` | **Durable, data-tier** | Rotation restarts from the beginning. Harmless — it is a fairness hint, not correctness. |
+| Usage log | `<state root>/usage.jsonl` | **Durable, data-tier** | Every historical spend-avoided figure is gone permanently. See below. |
+| Config backups | `<state root>/backups/` | **Durable, data-tier** | The only copy of a hand-edited roster or pricing file the GUI replaced. |
 | In-flight request | memory | None | No retry, no queue, no journal. A crash mid-route loses the request and the caller sees a failure. Deliberate — this is a router, not a job system. |
 
-Both mutable paths honor `TANGLEBRAIN_STATE_DIR`.
+**The state root** resolves `TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` →
+`~/.local/share/tanglebrain`. It is the XDG **data** tier, not the cache tier: nothing under it is
+a cache. The usage log is the only record of accumulated spend-avoided and is never
+reconstructible — prompt and response text is never persisted, by design — and a config backup is
+the only copy of something the operator hand-edited. `~/.cache` is *defined* as a directory any
+cleanup tool may clear at will, so both were one `brew cleanup` from gone.
 
-**Recorded risk, not a defect.** Both mutable state files live under `~/.cache/`, which by XDG
-convention is the tier a user or a cleanup tool may delete at any time. For `router-state.json` that
-is exactly right. For `usage.jsonl` it is a genuine mismatch: the log is the *only* record of
-accumulated spend-avoided, it is never reconstructible, and it accrues value over months — so
-anything that clears the cache silently destroys the one number the product exists to show you.
+An install that predates the move is migrated on first run: every entry in `~/.cache/tanglebrain/`
+is copied forward, **the originals are left in place** so a downgrade still finds its history, and
+one notice on stderr names both directories. The copy is per-entry and skips what is already
+there, so an interrupted migration completes on the next run.
 
-Moving it to `~/.local/share/` would match its real durability class, but that is a migration
-affecting existing installs, so it is recorded as an open decision rather than changed unilaterally.
-Tracked with the unbounded-growth question in
-[#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) — same owner, probably the same
-answer.
+**Still open:** the log is unbounded. Nothing prunes it and nothing folds old rows into a
+permanent total, so it grows without limit
+([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
 
 ## Concurrency
 

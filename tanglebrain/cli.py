@@ -30,7 +30,7 @@ from tanglebrain.measurement import (
     rollup,
 )
 from tanglebrain.roster import RosterEntry, RosterError, load_roster
-from tanglebrain.router import Router, RouterError
+from tanglebrain.router import Router, RouterError, migrate_state_root
 from tanglebrain.selector import SelectionError, build_adapter, select_by_id, select_local
 from tanglebrain.settings import load_settings
 
@@ -439,6 +439,9 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code: ``0`` on success, ``1`` on a known TangleBrain error.
     """
+    # Move a pre-0.21 cache-tier state root forward before anything reads it. Idempotent,
+    # never raises; the notice goes to stderr so a piped answer stays clean.
+    migrate_state_root()
     parser = build_parser()
     args = parser.parse_args(argv)
 
