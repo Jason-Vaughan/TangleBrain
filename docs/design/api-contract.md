@@ -142,11 +142,10 @@ a model reading a stale menu will confidently route to a target that no longer e
 as an accepted no-op rather than removed, so an existing script keeps working. Worth promoting from
 precedent to stated policy — it is currently a pattern one flag deep.
 
-Two known defects on this surface:
-
-- `--help` misstates the `--roster` default — [#102](https://github.com/Jason-Vaughan/TangleBrain/issues/102).
-- `--model` on an orchestrator-capable entry silently strips its delegate tool —
-  [#96](https://github.com/Jason-Vaughan/TangleBrain/issues/96).
+`--model` pins **which** backend serves a request; it does not decide **whether** that backend may
+delegate. An orchestrator-capable entry keeps its delegate tool on the pinned path exactly as it has
+it on the router path — the answer is derived from the entry's own `can_orchestrate` flag inside
+`build_adapter`, not restated by each caller.
 
 ## Surface 4 — GUI panel (`tanglebrain-gui`)
 

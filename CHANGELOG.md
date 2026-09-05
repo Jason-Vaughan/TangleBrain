@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`key_ref: file:PATH` now warns when the credential file is group- or world-readable.**
+  `ARCHITECTURE.md` describes the intended posture as a `0600` file and nothing verified it, so
+  a world-readable key was read in silence. Resolution now stats the file first and writes a
+  warning to stderr naming the path and its octal mode. It **warns rather than fails**,
+  deliberately: refusing to run would break a working setup over a condition the operator may
+  have accepted, while a warning still surfaces the misconfiguration at the moment it matters.
+  The notice fires once per file per process — the credential is resolved on every routed
+  request, and a per-call warning would train the operator to ignore it. POSIX only; Windows
+  mode-bit semantics differ, so the check is a clean no-op there rather than a guess. The
+  warning never echoes the credential.
+
 - **Failed tasks and lost failover attempts are recorded in the usage log** (#100). A task that
   fails at every backend now writes a `kind: "failure"` record carrying the per-backend attempt
   list, and a task served only after failover carries the attempts it lost in a new optional
@@ -33,7 +44,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orchestrator rather than round-robin (#95), `--model` silently stripping an orchestrator's
   delegate tool (#96), and capability routing being unable to route upward (#97).
 
+### Fixed
+
+- **An unreadable `key_ref` file now fails with a clean error instead of a traceback.** The
+  permission check stats the file, but the read that followed was unguarded: a file the process
+  could not open (wrong owner, restrictive mode, removed mid-run) raised a raw `PermissionError`,
+  which is outside `resolve_key_ref`'s documented `Raises` contract and outside the `AdapterError`
+  clause `cli.main` catches. The operator saw a stack trace where every other credential failure
+  prints one line. It now raises `AdapterError` naming the path and the OS reason.
+
+- **A paid last-resort backend reached by failover no longer receives the delegate tool.** The
+  fix for #96 asserted the pin/delegate rule at the call sites that had the symptom; the router's
+  failover loop still passed a blanket `inject_delegate=True`, so a `tier: api` CLI entry that is
+  not `can_orchestrate` was built as an orchestrator whenever the rotation exhausted. The decision
+  now lives in one place — `build_adapter` derives it from the entry's own `can_orchestrate` when
+  the caller has no opinion — so every current and future call site is correct by default rather
+  than by restating the rule. The delegate server still passes `False` explicitly, which is the
+  no-recursion rule and not an absence of opinion.
+
+- **`--model` on a `can_orchestrate` entry no longer strips its delegate tool.** Pinning a
+  backend built its adapter without `inject_delegate`, so an orchestrator pinned with `--model`
+  ran the whole task alone — no delegate tool registered, no warning, no error. The only visible
+  symptom was a lower spend-avoided figure in `--stats`, which reads as a routing mystery rather
+  than a bug. Pinning *which* backend serves a request is a different decision from *whether*
+  that backend may delegate, and one must not silently imply the other. The same defect was
+  present on the streaming path (`run_once_stream`) and is fixed alongside it; delegation now
+  tracks the entry's own `can_orchestrate` flag on both.
+
+- **`--roster` help text now states the real default.** It claimed the default was the packaged
+  `tanglebrain/config/roster.yaml`; the actual resolution is `$TANGLEBRAIN_ROSTER`, then
+  `~/.config/tanglebrain/roster.yaml` if it exists, then the packaged example. This matters more
+  than a typo: the operational runbook's first diagnostic step for a mis-route is "check which
+  roster is actually in play," and `--help` answered it incorrectly — sending an operator to read
+  and edit the packaged example while their own config was live. The symptom of editing the wrong
+  roster is that nothing changes, which reads as a routing bug rather than a documentation one.
+
 ### Internal
+
+- **The design-doc gap table lists every gap the documents disclose.** `docs/design/README.md`
+  claims "every gap these documents disclose has an issue" and then omitted #97 — capability
+  routing ranking by cost only, named in `api-contract.md`. A completeness claim with a missing
+  row is worse than no claim, because it stops the reader checking.
+
+- **The loopback bind is now a tested contract, for both HTTP surfaces.** `tanglebrain-gui` and
+  `tanglebrain-serve` are unauthenticated by design and spend real backend quota, so the
+  `127.0.0.1` bind is not a default — it is the whole authorization model, and widening it does
+  not weaken the posture but voids it. Nothing tested it: a one-character edit to `0.0.0.0`
+  passed green. `tests/test_bind_address.py` asserts the address handed to the server rather
+  than that a server starts, since a test connecting over localhost passes just as happily
+  against `0.0.0.0`. It covers the three ways the invariant can be voided — widening the
+  literal, binding every interface with an empty host, and adding a `--host` flag that leaves
+  the literal untouched — the last of which the address assertions alone do not catch. No
+  production code changed and no socket is opened.
 
 - **`README.md` leads with the install command.** A visitor arriving from the PyPI listing had to
   scroll past the pitch to find out how to install; the `pip install tanglebrain` line now sits

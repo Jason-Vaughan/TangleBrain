@@ -83,7 +83,7 @@ def classify(
 
     Args:
         prompt: The user request to classify.
-        roster: The loaded roster (defaults to the packaged roster).
+        roster: The loaded roster (defaults to the roster at ``default_roster_path()``).
         adapter_factory: Builds the local adapter from the selected entry (injectable for tests).
         max_tokens: Budget for the classify call (gpt-oss needs reasoning headroom; see the constant).
 

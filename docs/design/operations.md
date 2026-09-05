@@ -34,8 +34,10 @@ Nothing contacts a paid or remote service until the operator configures it to.
 cannot clobber it. This is a supported guarantee, not a convention.
 
 **Credentials** are referenced, never embedded: `key_ref` is `env:NAME` or `file:PATH`, resolved
-lazily at call time. The intended posture for a key file is mode `0600` — **note that nothing
-enforces or checks this** ([#99](https://github.com/Jason-Vaughan/TangleBrain/issues/99)).
+lazily at call time. The intended posture for a key file is mode `0600`. Resolution stats the file
+and **warns** on stderr when it is group- or world-readable — it does not refuse, because failing
+would break a working setup over a condition the operator may have accepted. The warning fires once
+per file per process. POSIX only; Windows mode-bit semantics differ and the check is a no-op there.
 
 ## Enabling a paid backend
 
@@ -69,9 +71,8 @@ last resort (all orchestrators failed) or when named explicitly.
 
 **"It routed to the wrong backend."**
 Check which roster is actually in play first — `default_roster_path()` resolution means it may not
-be the file you are editing. Note that the `--roster` help text currently misstates this default
-([#102](https://github.com/Jason-Vaughan/TangleBrain/issues/102)), so trust the resolution order
-above rather than `--help`. Then check `enabled`, `can_orchestrate`, and `good_at` on the entries,
+be the file you are editing. `--help` states this resolution order. Then check `enabled`,
+`can_orchestrate`, and `good_at` on the entries,
 and whether the classifier gate diverted the request.
 
 **"Everything failed."**
@@ -88,11 +89,6 @@ confidently and wrongly rather than erroring. Use `--no-gate` to bypass for a ru
 The `TANGLEBRAIN_TASK_ID` environment hop was not forwarded by the orchestrator. Records show
 `unlinked`. This degrades silently by design and is not recoverable after the fact — see
 [`architecture.md`](architecture.md).
-
-**"My pinned backend stopped delegating."**
-Known defect: `--model` on an orchestrator-capable entry strips its delegate tool
-([#96](https://github.com/Jason-Vaughan/TangleBrain/issues/96)). Use the router path until that
-lands.
 
 **"The delegate server offers a target that does not exist."**
 The tool description enumerating the target menu is built **once at server startup**. A roster edit

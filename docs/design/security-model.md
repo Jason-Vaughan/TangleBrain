@@ -8,7 +8,7 @@ Every gap below has a tracking issue.
 
 ## Invariants
 
-The two highest-consequence rules in the project. These bind.
+The three highest-consequence rules in the project. These bind.
 
 - **Nothing binds off-loopback.** Both `tanglebrain-gui` and `tanglebrain-serve` bind `127.0.0.1`
   and only `127.0.0.1`. Not a default — a prohibition.
@@ -19,8 +19,18 @@ The two highest-consequence rules in the project. These bind.
   the intent. Binding elsewhere does not weaken the posture, it **voids** it — the result is an
   unauthenticated endpoint spending money for whoever reaches it.
 
-  > **Enforcement gap.** No test asserts the bind, so a one-character edit passes CI green today.
-  > Tracked in [#98](https://github.com/Jason-Vaughan/TangleBrain/issues/98).
+  > **Enforced.** `tests/test_bind_address.py` asserts the address handed to the server on both
+  > surfaces, and that no flag can configure it — widening the literal, binding every interface, or
+  > adding a `--host` flag each fail the suite.
+
+- **A loose credential file warns; it never refuses.** `key_ref: file:PATH` resolution stats the
+  file and warns on stderr when it is group- or world-readable. Warning rather than failing is the
+  rule: refusing would break a working setup over a condition the operator may have accepted, and a
+  credential check that stops the tool gets removed rather than heeded. The notice fires once per
+  file per process — a per-call warning on a value resolved every request trains the operator to
+  ignore it. POSIX only; Windows mode-bit semantics do not map onto these bits, so the check is an
+  explicit no-op there rather than a guess. *Retroactive: yes — applies wherever a credential file
+  is read.* Flipping this to a hard failure is a breaking change and needs its own ruling.
 
 - **A paid backend is never reachable without two independent gates, and is never preferred.**
   `settings.api_billing_enabled` **and** the entry's own `enabled`, both defaulting false, both
@@ -155,9 +165,9 @@ Recorded, not fixed. Each is a decision someone should make deliberately.
    not record gate state at time of call, which credential path was used, or that a paid backend was
    engaged. After an unexpected bill there is no way to reconstruct *why* a paid entry was
    reachable. Related: [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100).
-2. **`key_ref: file:PATH` permissions are unverified.** `ARCHITECTURE.md` describes the intent as a
-   `0600` file, but nothing checks the mode before reading. A world-readable key file is used
-   silently. [#99](https://github.com/Jason-Vaughan/TangleBrain/issues/99).
+2. **No enforcement of key-file permissions — only a warning.** The mode is now checked (see
+   Direction), but a loose key file still runs. Refusing is a deliberate non-goal; if that ever
+   changes it is a breaking change for existing setups, not a tightening.
 3. **No integrity check on the roster.** A modified roster silently changes where prompts go,
    including to a paid or attacker-controlled backend. Consistent with the local-trust model — noted
    because "a config edit changes where your data goes" deserves to be stated out loud rather than

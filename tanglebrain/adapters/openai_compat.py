@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import sys
 from pathlib import Path
 from typing import Iterator, Mapping
 
@@ -30,6 +32,50 @@ __all__ = ["AdapterError", "OpenAICompatAdapter", "resolve_key_ref"]
 
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAX_TOKENS = 2048
+
+# Key files already warned about, so the notice fires once per file per process. The credential
+# is resolved on every routed request, and a warning repeated per call trains the operator to
+# ignore it — which would cost more than it buys.
+_PERMISSION_WARNED: set[str] = set()
+
+
+def _warn_if_readable_beyond_owner(path: Path) -> None:
+    """Warn on stderr when a key file is group- or world-readable.
+
+    Warns rather than fails, deliberately: refusing to run would break a working setup over a
+    condition the operator may have accepted, while a warning still surfaces the
+    misconfiguration at the moment it matters. The intended posture is a ``0600`` file.
+
+    POSIX only. Windows permission semantics do not map onto these mode bits, so the check is
+    skipped there rather than guessed at.
+
+    Args:
+        path: The resolved path to the credential file.
+    """
+    if os.name != "posix":
+        return
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        # The read below turns any real access failure into an AdapterError, so a stat that
+        # cannot run is not this check's to report.
+        return
+    if not mode & (stat.S_IRGRP | stat.S_IROTH):
+        return
+    # Key on the resolved path: the same file reached by two spellings (relative, symlink, a
+    # differing ~ expansion) is one file and should warn once.
+    try:
+        key = str(path.resolve())
+    except OSError:
+        key = str(path)
+    if key in _PERMISSION_WARNED:
+        return
+    _PERMISSION_WARNED.add(key)
+    print(
+        f"tanglebrain: warning: key_ref file {path} is readable beyond its owner "
+        f"(mode {mode:04o}); expected 0600",
+        file=sys.stderr,
+    )
 
 
 def resolve_key_ref(key_ref: str | None) -> str | None:
@@ -60,7 +106,14 @@ def resolve_key_ref(key_ref: str | None) -> str | None:
         path = Path(raw_path).expanduser()
         if not path.exists():
             raise AdapterError(f"key_ref file not found: {path}")
-        key = path.read_text().strip()
+        _warn_if_readable_beyond_owner(path)
+        try:
+            key = path.read_text().strip()
+        except OSError as exc:
+            # Unreadable (wrong owner, bad mode, vanished mid-run) must surface as the documented
+            # error type: cli.main catches AdapterError and prints one clean line, where a raw
+            # PermissionError escapes it as a traceback.
+            raise AdapterError(f"key_ref file unreadable: {path} ({exc.strerror or exc})")
         if not key:
             raise AdapterError(f"key_ref file is empty: {path}")
         return key
