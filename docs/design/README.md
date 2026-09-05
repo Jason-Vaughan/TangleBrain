@@ -49,7 +49,6 @@ Every gap these documents disclose has an issue:
 
 | Gap | Issue |
 |---|---|
-| Failures and lost failover attempts are unrecorded | [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100) |
 | `usage.jsonl` growth + cache-tier placement | [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) |
 | Unbounded core dependencies, no scheduled CI | [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92) |
 | Capability routing ranks by cost only — it routes down, never up | [#97](https://github.com/Jason-Vaughan/TangleBrain/issues/97) |

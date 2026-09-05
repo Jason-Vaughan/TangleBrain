@@ -17,6 +17,7 @@ from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import main, run_once, run_once_stream
 from tanglebrain.measurement import read_records
 from tanglebrain.roster import packaged_roster_path
+from tanglebrain.router import RouterError
 from tanglebrain.selector import SelectionError
 
 
@@ -325,6 +326,52 @@ class RunOnceTest(unittest.TestCase):
         self.assertEqual(records[0]["path"], "router")
         self.assertEqual(records[0]["tier"], "sub")
         self.assertEqual(records[0]["model"], "claude")
+
+    def test_router_total_failure_records_failure_record(self):
+        # #100: a task that fails at every backend still leaves a usage record — kind="failure"
+        # with the per-backend failure list — instead of nothing beyond stderr.
+        fake_router = MagicMock()
+        fake_router.route.side_effect = RouterError("all 2 candidate(s) failed")
+        fake_router.last_failures = [("claude", "boom"), ("gemini", "rate limited")]
+        with patch("tanglebrain.cli.load_roster"), patch(
+            "tanglebrain.cli.Router", return_value=fake_router
+        ):
+            with self.assertRaises(RouterError):
+                run_once("hello")
+        records = self._records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["kind"], "failure")
+        self.assertEqual(records[0]["path"], "router")
+        self.assertEqual(
+            records[0]["failures"],
+            [
+                {"entry": "claude", "error": "boom"},
+                {"entry": "gemini", "error": "rate limited"},
+            ],
+        )
+        # Nothing was served, so nothing was avoided.
+        self.assertEqual(records[0]["spend_avoided_usd"], 0.0)
+
+    def test_router_failover_records_lost_attempts(self):
+        # #100: a success after failover carries the lost attempts on its task record; a
+        # first-try success (empty last_failures) keeps its pre-#100 shape.
+        served = MagicMock()
+        served.tier = "sub"
+        served.id = "gemini"
+        fake_router = MagicMock()
+        fake_router.route.return_value = "second try"
+        fake_router.last_served = served
+        fake_router.last_failures = [("claude", "boom")]
+        with patch("tanglebrain.cli.load_roster"), patch(
+            "tanglebrain.cli.Router", return_value=fake_router
+        ):
+            run_once("hello")
+            fake_router.last_failures = []
+            run_once("hello again")
+        failover, first_try = self._records()
+        self.assertEqual(failover["kind"], "task")
+        self.assertEqual(failover["failures"], [{"entry": "claude", "error": "boom"}])
+        self.assertNotIn("failures", first_try)
 
 
 class RunOnceStreamTest(unittest.TestCase):

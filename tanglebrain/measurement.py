@@ -304,6 +304,7 @@ def record_task(
     task_id: str | None = None,
     parent_task_id: str | None = None,
     origin: str | None = None,
+    failures: list[tuple[str, str]] | None = None,
     log_path: str | os.PathLike[str] | None = None,
     pricing: Pricing | None = None,
 ) -> None:
@@ -320,8 +321,9 @@ def record_task(
         prompt: The prompt (for input-token estimation).
         response: The returned response text (for output-token estimation).
         kind: ``"task"`` for a top-level routed task (the default; what the spend-avoided headline
-            counts) or ``"delegate"`` for a delegated sub-call. Delegate records are rolled up
-            **separately** so a sub-call's saving is never double-counted against its parent task.
+            counts), ``"delegate"`` for a delegated sub-call, or ``"failure"`` for a task no
+            backend served (#100). Delegate and failure records are rolled up **separately** so a
+            sub-call's saving is never double-counted and a failed task never inflates the headline.
         task_id: For a top-level task, the id minted for this routed task (so its delegated sub-calls
             can be linked back to it). Omitted from the record when ``None``.
         parent_task_id: For a delegated sub-call, the id of the top-level task that spawned it (read
@@ -333,6 +335,9 @@ def record_task(
         origin: Which surface the work entered through — ``"cli"`` | ``"gui"`` | ``"serve"``
             (#74). Omitted from the record when ``None``; records without it roll up as
             ``untagged`` (pre-#74 history is never guessed at).
+        failures: The ``(entry_id, error)`` attempts that failed before this outcome (#100): the
+            lost failover attempts on a served task, or every attempt on a ``"failure"`` record.
+            Omitted from the record when empty/``None``, so first-try history keeps its shape.
         log_path: Override the usage-log path (tests inject a temp path). Defaults to
             :func:`default_log_path`.
         pricing: Override the pricing. Defaults to :func:`load_pricing`.
@@ -346,8 +351,9 @@ def record_task(
         out_tok = estimate_tokens(response)
         equiv = cloud_equiv_usd(in_tok, out_tok, pricing)
         # A paid `api` task incurs real spend, so it avoids nothing (avoided = 0); every other tier
-        # routes work off a paid frontier API, so it avoids the full cloud-equivalent.
-        avoided = 0.0 if tier == "api" else equiv
+        # routes work off a paid frontier API, so it avoids the full cloud-equivalent. A failed
+        # task produced no answer anywhere, so it likewise avoids nothing.
+        avoided = 0.0 if tier == "api" or kind == "failure" else equiv
         record = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "kind": str(kind),
@@ -368,6 +374,10 @@ def record_task(
             record["parent_task_id"] = str(parent_task_id)
         if origin is not None:
             record["origin"] = str(origin)
+        # Written only when attempts were actually lost (never as an empty list), and only from a
+        # real sequence — a reader predating the field stays correct (#100).
+        if isinstance(failures, (list, tuple)) and failures:
+            record["failures"] = [{"entry": str(eid), "error": str(err)} for eid, err in failures]
         target = Path(log_path) if log_path is not None else default_log_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         with _LOG_LOCK:
@@ -441,9 +451,16 @@ def rollup(records: list[dict]) -> dict:
         ``parent_task_id`` are grouped under the sentinel ``"unlinked"``. Delegate records are kept
         out of the headline so a sub-call's saving is never double-counted against its parent task;
         their cloud-equiv is informational. A record without a ``kind`` field counts as a task.
+
+        Also ``failures`` (count of ``kind: "failure"`` records — tasks no backend served) and
+        ``lost_attempts`` (total failed attempts across all records: every attempt on a failure
+        record plus the lost failovers behind eventual successes). Failure records are held out
+        of the headline like delegates — a failed task avoided no spend (#100).
     """
     summary: dict = {
         "tasks": 0,
+        "failures": 0,
+        "lost_attempts": 0,
         "by_tier": {},
         "by_origin": {},
         "in_tokens_est": 0,
@@ -462,6 +479,12 @@ def rollup(records: list[dict]) -> dict:
     for r in records:
         in_tok = _as_int(r.get("in_tokens_est"))
         out_tok = _as_int(r.get("out_tokens_est"))
+        lost = r.get("failures")
+        summary["lost_attempts"] += len(lost) if isinstance(lost, list) else 0
+        if str(r.get("kind", "task")) == "failure":
+            # Held out of the headline like delegates: a failed task avoided no spend (#100).
+            summary["failures"] += 1
+            continue
         if str(r.get("kind", "task")) == "delegate":
             delegates["count"] += 1
             model = str(r.get("model", "unknown"))
@@ -513,6 +536,11 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
         "TangleBrain — spend avoided (cloud-equivalent)",
         f"  Tasks routed:   {summary.get('tasks', 0)}",
     ]
+    failed = summary.get("failures", 0)
+    lost = summary.get("lost_attempts", 0)
+    # Show the failure line only once there is something to say — an all-green log stays as-is.
+    if failed or lost:
+        lines.append(f"  Tasks failed:   {failed} (lost failover attempts: {lost})")
     by_tier = summary.get("by_tier") or {}
     if by_tier:
         tiers = ", ".join(f"{k} {v}" for k, v in sorted(by_tier.items()))

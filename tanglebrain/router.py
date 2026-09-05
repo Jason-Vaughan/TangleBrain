@@ -141,6 +141,10 @@ class Router:
         # Surfaced so the CLI's measurement seam can record which tier/model handled a task
         # without changing route()'s str return type.
         self.last_served: RosterEntry | None = None
+        # The (entry_id, error) attempts the most recent route() lost before serving (empty on a
+        # first-try success). Surfaced like last_served so the measurement seam can record lost
+        # failover attempts and fully-failed tasks (#100).
+        self.last_failures: list[tuple[str, str]] = []
 
     def route(
         self,
@@ -191,7 +195,10 @@ class Router:
         else:
             candidates = rotated
 
+        # Aliased onto the instance up front so it reflects the attempts however route() exits —
+        # success after failover, total failure, or the paid fallback (#100).
         failures: list[tuple[str, str]] = []
+        self.last_failures = failures
         for entry in candidates:
             # None lets build_adapter derive from the entry: a paid last-resort entry that is
             # not an orchestrator must not receive the delegate tool merely by reaching this loop.

@@ -25,9 +25,8 @@ These bind. Departing from one is a decision to record and justify.
   failover ladder, the classifier's fail-to-frontier direction, and per-item batch status all
   implement.
 
-  > The system degrades correctly but records nothing when it does, so failover is currently
-  > invisible. That is a missing signal, not a violation —
-  > [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100).
+  Degradation is also recorded (#100): lost failover attempts land on the served task's usage
+  record, and a task that fails at every backend writes a `kind: "failure"` record.
 
 - **A side-effect never breaks the main path.** Measurement, logging, and state persistence are all
   subordinate to returning the answer.

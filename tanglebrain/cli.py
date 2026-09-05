@@ -199,7 +199,9 @@ def run_once(
     Raises:
         RosterError: If the roster cannot be loaded.
         SelectionError: If ``model``/``local`` is used and no suitable entry is available.
-        RouterError: If the router runs and no orchestrator can serve the request.
+        RouterError: If the router runs and no orchestrator can serve the request. The failed
+            task is still metered — a ``kind="failure"`` usage record carrying the lost
+            attempts (#100).
         AdapterError: If the adapter cannot produce text.
     """
     roster = load_roster(roster_path)
@@ -212,6 +214,7 @@ def run_once(
     opts: dict = {"task_id": task_id}
     if max_tokens is not None:
         opts["max_tokens"] = max_tokens
+    failures = None  # lost failover attempts; only the router path produces any (#100)
 
     if model is not None:
         path, entry = "model", select_by_id(roster, model)
@@ -231,12 +234,23 @@ def run_once(
         else:
             path = "router"
             router = Router(roster)
-            text = router.route(prompt, task=task, opts=opts)
+            try:
+                text = router.route(prompt, task=task, opts=opts)
+            except RouterError:
+                # #100: a task that failed at every backend still leaves a record — a
+                # kind="failure" line carrying the lost attempts — instead of only stderr.
+                record_task(
+                    path=path, entry=None, prompt=prompt, response="", kind="failure",
+                    task_id=task_id, origin=origin, parent_task_id=parent_task_id,
+                    failures=router.last_failures,
+                )
+                raise
             entry = router.last_served
+            failures = router.last_failures
 
     record_task(
         path=path, entry=entry, prompt=prompt, response=text, task_id=task_id,
-        origin=origin, parent_task_id=parent_task_id,
+        origin=origin, parent_task_id=parent_task_id, failures=failures,
     )
     return (text, _served(path, entry, task_id)) if return_served else text
 
@@ -353,7 +367,8 @@ def run_once_stream(
     Raises:
         RosterError: If the roster cannot be loaded.
         SelectionError: If ``model``/``local`` is used and no suitable entry is available.
-        RouterError: If the router runs and no orchestrator can serve the request.
+        RouterError: If the router runs and no orchestrator can serve the request. The failed
+            task is still metered as a ``kind="failure"`` usage record (#100).
         AdapterError: Raised from ``deltas`` — on the first pull for connect-time failures,
             mid-iteration for a stream that dies part-way. Emulated (blocking) paths raise it
             from this call directly, before any stream exists.
@@ -375,11 +390,20 @@ def run_once_stream(
         else:
             # Router path: blocking route + single-item stream (v2 emulation; Router untouched).
             router = Router(roster)
-            text = router.route(prompt, task=task, opts=opts)
+            try:
+                text = router.route(prompt, task=task, opts=opts)
+            except RouterError:
+                # #100: same failure metering as run_once — a fully-failed task is recorded.
+                record_task(
+                    path="router", entry=None, prompt=prompt, response="", kind="failure",
+                    task_id=task_id, origin=origin, parent_task_id=parent_task_id,
+                    failures=router.last_failures,
+                )
+                raise
             entry = router.last_served
             record_task(
                 path="router", entry=entry, prompt=prompt, response=text, task_id=task_id,
-                origin=origin, parent_task_id=parent_task_id,
+                origin=origin, parent_task_id=parent_task_id, failures=router.last_failures,
             )
             return iter([text]), _served("router", entry, task_id)
 
