@@ -20,6 +20,7 @@ gap links to a tracking issue rather than sitting as an unactionable admission.
 | What is measured, and what is invisible | [`observability.md`](observability.md) |
 | Performance, reliability, cost, and compatibility targets | [`nonfunctional-requirements.md`](nonfunctional-requirements.md) |
 | How it is installed, configured, and recovered | [`operations.md`](operations.md) |
+| What is promised to stay stable, and how a break is announced | [`deprecation-policy.md`](deprecation-policy.md) |
 
 ## How these documents relate to the code
 
@@ -52,7 +53,6 @@ Every gap these documents disclose has an issue:
 | `usage.jsonl` growth + cache-tier placement | [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) |
 | A lost delegate hop is indistinguishable from a parentless record | [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123) |
 | Capability routing ranks by cost only — it routes down, never up | [#97](https://github.com/Jason-Vaughan/TangleBrain/issues/97) |
-| No written deprecation policy | [#114](https://github.com/Jason-Vaughan/TangleBrain/issues/114) |
 
 ## Keeping these current
 
