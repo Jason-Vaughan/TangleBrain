@@ -177,5 +177,40 @@ Baseline, proportionate to a localhost knob panel: the primary surface is a CLI 
 accessibility inherited), and the GUI uses semantic HTML with real labelled form controls — achieved
 largely by not reaching for custom widgets.
 
-**No WCAG conformance is claimed**, and claiming one without an audit would be dishonest. **Gap:**
-contrast ratios in the panel CSS have never been measured. Cheap to check; not yet checked.
+**The panel's colour layer meets WCAG 2.1 AA**, and that claim is asserted rather than audited once:
+`tests/test_gui_contrast.py` parses the palette out of `index.html` and checks every foreground /
+background pair a reader sees against the ratio its content type requires — 4.5:1 for normal text
+(SC 1.4.3), 3:1 for large text and for the visual information that identifies a control
+(SC 1.4.11). Changing a colour reds the suite and names the pair that broke.
+
+Two structural assertions keep that table from falling behind the stylesheet, which is how a
+hand-written list of pairs normally rots: every token declared in `:root` must be measured or
+explicitly exempt, and no colour literal may appear outside `:root`.
+
+**What the measurement found**, since "we checked" is not a result. Nine of twenty-seven pairs
+failed, and they were the ones [#115](https://github.com/Jason-Vaughan/TangleBrain/issues/115)
+predicted — muted text and control outlines:
+
+- `--text-muted` cleared 4.5:1 on the page background but not on the two panel surfaces it is
+  actually used on (4.34:1 on `--card-bg`, 3.89:1 on `--elevated-bg`). Measuring against the page
+  alone would have declared it conformant. Raised `#777` → `#888`.
+- Form controls were outlined in `--border` at **1.09:1** against their own fill, so the field
+  boundary carried essentially no contrast. Split out as `--field-border` at `#666` (3.03:1), left
+  separate from the decorative `--border` on purpose.
+- That fix then broke a different criterion, which is the part worth carrying: against the brighter
+  rest state the focus outline fell to **1.40:1**, satisfying 1.4.11 while quietly failing
+  **2.4.7 Focus Visible**. The focus colour moved to `--primary-bright` (3.07:1 against rest, 9.31:1
+  against the fill). A pass on one SC is not a pass.
+
+**Recorded exemptions**, stated rather than left as silent gaps:
+
+- **Decorative borders** — card edges, table rules, pill outlines — are not held to 3:1. SC 1.4.11
+  governs what is required to *identify a component or its state*; these identify nothing, and the
+  content they enclose carries its own contrast.
+- **Disabled controls** are exempt by the explicit carve-out in both SC 1.4.3 and 1.4.11. Noted
+  because #115 called disabled states "the usual excuse": ours passes anyway — the disabled label
+  uses `--text-muted`, which clears 4.5:1 on every surface it appears on.
+
+**Still not claimed:** full WCAG conformance. This is the colour layer, measured. Keyboard traversal,
+screen-reader semantics beyond native controls, motion, and zoom/reflow are unaudited, and a
+conformance claim covering them would be the dishonest kind.

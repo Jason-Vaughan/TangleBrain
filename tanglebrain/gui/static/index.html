@@ -9,8 +9,12 @@
   :root {
     --primary: #8BC34A; --primary-bright: #9CCC65; --primary-dark: #558B2F;
     --bg: #000; --card-bg: #0D0D0D; --elevated-bg: #1A1A1A;
-    --text: #E8E8E8; --text-muted: #777; --danger: #EF5350; --amber: #FFA726;
-    --border: #222;
+    --text: #E8E8E8; --text-muted: #888; --danger: #EF5350; --amber: #FFA726;
+    /* --border is decorative only (cards, table rules, pills): WCAG 1.4.11 governs what is
+       needed to *identify a component*, and none of those are. --field-border is the one that
+       outlines a real control, so it carries the 3:1 the SC requires. Ratios are asserted in
+       tests/test_gui_contrast.py — change a value here and it will tell you what it broke. */
+    --border: #222; --field-border: #666;
   }
   * { box-sizing: border-box; }
   body {
@@ -42,10 +46,10 @@
   .stat .value.big { color: var(--primary); }
   .caveat { color: var(--amber); font-size: .78rem; margin-top: 10px; }
   textarea, input[type=text] {
-    width: 100%; background: var(--elevated-bg); border: 1px solid var(--border); color: var(--text);
+    width: 100%; background: var(--elevated-bg); border: 1px solid var(--field-border); color: var(--text);
     border-radius: 8px; padding: 10px; font-family: inherit; font-size: .9rem; resize: vertical;
   }
-  textarea:focus, input:focus { outline: none; border-color: var(--primary-dark); }
+  textarea:focus, input:focus { outline: none; border-color: var(--primary-bright); }
   .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   label.chk { color: var(--text-muted); font-size: .82rem; display: flex; align-items: center; gap: 6px; }
   button {

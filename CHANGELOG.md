@@ -112,6 +112,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The GUI panel's colour layer now meets WCAG 2.1 AA, and is asserted rather than audited once
+  (#115).** Nine of twenty-seven pairs failed, all of them muted text or control outlines. Two
+  findings are worth repeating. `--text-muted` cleared 4.5:1 against the *page* background but not
+  against the two surfaces it is actually used on (4.34:1 on cards, 3.89:1 on the elevated tiles) —
+  measuring against the page alone would have declared it conformant. And form fields were outlined
+  at 1.09:1 against their own fill, so the boundary of a text input carried essentially no contrast;
+  that outline is now its own token, kept separate from the decorative border so the fix does not
+  restyle cards and tables that never needed it. Raising the rest-state outline then dropped the
+  *focus* outline to 1.40:1 against it — passing SC 1.4.11 while quietly failing SC 2.4.7 Focus
+  Visible — so the focus colour moved too. `tests/test_gui_contrast.py` parses the palette out of
+  the stylesheet and checks every pair, plus two structural assertions that stop the pair table
+  falling behind the stylesheet: every `:root` token must be measured or explicitly exempt, and no
+  colour literal may live outside `:root`. Decorative borders and disabled controls are exempt by
+  the explicit carve-outs in SC 1.4.11 and 1.4.3; both exemptions are recorded in
+  `docs/design/nonfunctional-requirements.md` rather than left silent.
+
 - **Two adapters coerced caller-supplied options past their own error contract.** `opts` is a
   `Mapping[str, object]`, and both the openai-compat and CLI adapters ran a bare `int()` / `float()`
   over it — so a non-numeric `max_tokens` or `timeout` escaped as a raw `TypeError`, past the
