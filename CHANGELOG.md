@@ -73,6 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The design-doc gap table lists every gap the documents disclose.** `docs/design/README.md`
+  claims "every gap these documents disclose has an issue" and then omitted #97 — capability
+  routing ranking by cost only, named in `api-contract.md`. A completeness claim with a missing
+  row is worse than no claim, because it stops the reader checking.
+
 - **The loopback bind is now a tested contract, for both HTTP surfaces.** `tanglebrain-gui` and
   `tanglebrain-serve` are unauthenticated by design and spend real backend quota, so the
   `127.0.0.1` bind is not a default — it is the whole authorization model, and widening it does
