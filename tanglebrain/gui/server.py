@@ -86,7 +86,8 @@ def dispatch(
         if view is not None:
             try:
                 return _json(200, view())
-            except Exception as exc:  # a read view failed (e.g. malformed roster) — clean JSON, not a 500 traceback
+            except Exception as exc:  # noqa: BLE001 — a read view failed (e.g. a malformed
+                # roster). The panel must get clean JSON back, never a 500 traceback.
                 return _json(500, {"error": str(exc)})
         return _json(404, {"error": "not found"})
 
@@ -117,11 +118,11 @@ def dispatch(
 class Handler(BaseHTTPRequestHandler):
     """Thin HTTP handler delegating all routing to :func:`dispatch`."""
 
-    def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
+    def do_GET(self) -> None:  # name fixed by BaseHTTPRequestHandler, not our choice
         """Handle a GET by dispatching and writing the response."""
         self._respond(*dispatch("GET", self.path))
 
-    def do_POST(self) -> None:  # noqa: N802 (stdlib naming)
+    def do_POST(self) -> None:  # name fixed by BaseHTTPRequestHandler, not our choice
         """Handle a POST by reading the body, dispatching, and writing the response."""
         try:
             # Clamp negatives (rfile.read(-1) would block on the socket) and map a non-numeric

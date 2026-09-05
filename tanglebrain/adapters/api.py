@@ -51,15 +51,25 @@ class ApiAdapter(OpenAICompatAdapter):
             A configured :class:`ApiAdapter`.
 
         Raises:
-            AdapterError: If the entry's invoke kind is not ``api``.
+            AdapterError: If the entry's invoke kind is not ``api``, or its
+                ``base_url``/``model`` are unset.
         """
         if entry.invoke.kind != "api":
             raise AdapterError(
                 f"entry {entry.id!r} has invoke.kind {entry.invoke.kind!r}, not 'api'"
             )
+        base_url, model = entry.invoke.base_url, entry.invoke.model
+        if base_url is None or model is None:
+            # `load_roster` rejects an `api` entry missing either field, so this holds for any entry
+            # that came through it. `Invoke` is a public dataclass and can be built directly, though,
+            # and without this the None would surface as a TypeError from inside an HTTP call rather
+            # than as the error type this method documents.
+            raise AdapterError(
+                f"entry {entry.id!r} is missing invoke.base_url or invoke.model"
+            )
         return cls(
-            base_url=entry.invoke.base_url,  # validated non-None by the roster loader
-            model=entry.invoke.model,
+            base_url=base_url,
+            model=model,
             key_ref=entry.invoke.key_ref,
             **overrides,  # type: ignore[arg-type]
         )

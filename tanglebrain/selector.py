@@ -62,7 +62,9 @@ def select_by_id(roster: Roster, entry_id: str) -> RosterEntry:
         return roster.by_id(entry_id)
     except KeyError:
         known = ", ".join(e.id for e in roster) or "(empty roster)"
-        raise SelectionError(f"no roster entry with id {entry_id!r}; known ids: {known}")
+        raise SelectionError(
+            f"no roster entry with id {entry_id!r}; known ids: {known}"
+        ) from None
 
 
 def build_adapter(

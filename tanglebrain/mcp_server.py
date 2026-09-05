@@ -75,7 +75,8 @@ def _delegate_tool_description() -> str:
     )
     try:
         menu = _render_target_menu(_list_delegate_targets())
-    except Exception as exc:  # roster unreadable at startup — keep the server usable
+    except Exception as exc:  # noqa: BLE001 — the roster is unreadable at startup; the server
+        # stays usable so `delegate_targets` can report the real error on demand.
         menu = f"  (could not load the target menu: {exc}; call delegate_targets to retry)"
     return header + menu
 

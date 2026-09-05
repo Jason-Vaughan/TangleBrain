@@ -43,6 +43,22 @@ class FromEntryTest(unittest.TestCase):
         with self.assertRaises(AdapterError):
             ApiAdapter.from_entry(entry)
 
+    def test_rejects_entry_missing_base_url_or_model(self):
+        # A half-configured *paid* entry is the one worth guarding hardest: the loader refuses
+        # it, so reaching here means the Invoke was built directly, and a None base_url would
+        # otherwise surface as a TypeError from inside the billed request.
+        for missing in ("base_url", "model"):
+            with self.subTest(missing=missing):
+                fields = {"base_url": URL, "model": "gpt-5", missing: None}
+                entry = RosterEntry(
+                    id="half-configured",
+                    tier="api",
+                    invoke=Invoke(kind="api", key_ref="file:/no/such.key", **fields),
+                )
+                with self.assertRaises(AdapterError) as ctx:
+                    ApiAdapter.from_entry(entry)
+                self.assertIn("base_url", str(ctx.exception))
+
     def test_key_ref_not_read_at_construction(self):
         # Constructing an adapter for an entry whose (virtual) key file is absent must NOT fail —
         # the credential resolves lazily on run(). Points key_ref at a missing path and builds fine.

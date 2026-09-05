@@ -383,7 +383,7 @@ def record_task(
         with _LOG_LOCK:
             with target.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Measurement is a side-effect: a failure here must never affect the returned answer.
         return
 
@@ -391,7 +391,7 @@ def record_task(
 def _as_int(value: object) -> int:
     """Coerce a stored numeric field to int, defaulting to 0 on any bad value."""
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)  # type: ignore[call-overload]  # guarded by the except below
     except (ValueError, TypeError):
         return 0
 

@@ -79,7 +79,8 @@ def dispatch(
         if path == "/v1/models":
             try:
                 return _json_response(200, list_models())
-            except Exception as exc:  # a broken roster must yield clean JSON, not a traceback
+            except Exception as exc:  # noqa: BLE001 — a broken roster must yield clean JSON
+                # in the documented error envelope, never a traceback.
                 return _json_response(500, error_envelope(str(exc), "server_error"))
         return _json_response(404, error_envelope(f"unknown path: {path}", "invalid_request_error"))
 
@@ -106,7 +107,7 @@ def dispatch(
             try:
                 if wants_stream(payload):
                     status, result = handle_chat_completion_stream(payload, caller_task)
-                    if status == 200:
+                    if status == 200 and not isinstance(result, dict):
                         return 200, _SSE, result  # Iterator[bytes] — pump already primed
                     return _json_response(status, result)
                 status, obj = handle_chat_completion(payload, caller_task)
@@ -132,11 +133,11 @@ class Handler(BaseHTTPRequestHandler):
     is recorded onto the usage record and never routed on.
     """
 
-    def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
+    def do_GET(self) -> None:  # name fixed by BaseHTTPRequestHandler, not our choice
         """Handle a GET by dispatching and writing the response."""
         self._respond(*dispatch("GET", self.path))
 
-    def do_POST(self) -> None:  # noqa: N802 (stdlib naming)
+    def do_POST(self) -> None:  # name fixed by BaseHTTPRequestHandler, not our choice
         """Handle a POST by reading the body, dispatching, and writing the response."""
         try:
             length = max(0, int(self.headers.get("Content-Length", 0) or 0))
