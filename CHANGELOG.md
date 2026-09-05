@@ -187,6 +187,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Resolved the Critic findings for Chunk C.** The substantive ones were a stale-claim class and a
+  real threshold bug. `ApiAdapter.from_entry` was a near-verbatim copy of its base differing only in
+  one string, and this chunk had deepened it by copying a new guard into both; the kind is now a
+  class attribute and the subclass has no override. `ignore_missing_imports` was global, which would
+  have silenced a renamed or misspelled *first-party* import — exactly the defect the gate was
+  adopted to catch — and is now scoped to `mcp.*`. The mypy pin was bounded at the next major by
+  reflex, but mypy adds checks at a *minor*, which reds untouched PRs in a lockfile-free CI; both
+  dev tools are now bounded at their real breaking-change unit. The contrast suite classified a
+  20.8px normal-weight value as WCAG large text, asserting 3:1 where 1.4.3 requires 4.5:1, and
+  missed two pairings that exist in the shipped stylesheet (`--danger` on the output pane, the
+  button outline on hover). Its literal guard now checks colour-bearing *properties* rather than
+  hunting hex, so `rgba()`, `hsl()` and bare CSS names cannot slip past — and the docstring now
+  states plainly what the guards do **not** cover (a new pairing of two existing tokens) instead of
+  implying the AA claim is fully mechanical.
+
+- **De-anchored every line-numbered citation into `.py` files, and retired a claim that outlived its
+  correction.** "The codebase's one deliberately broad exception handler (`measurement.py:376-378`)"
+  appeared in six renderings; the previous commit fixed the one it happened to be editing and left
+  the rest — including a normative Direction statement, which would have made the eight waivers this
+  chunk legitimised read as departures. Every site now cites by symbol and points at the grep. The
+  cited line ranges had already drifted: `376-378` is the linkage block today.
+
 - **Adopted ruff and mypy as defect gates; declined the formatter and `--strict`, with reasons
   (#113).** `make lint` now runs both, `make test` depends on it, and CI runs `make test`, so a gate
   cannot be green locally and absent in CI. Both tools sit in a new `dev` extra — nothing there is

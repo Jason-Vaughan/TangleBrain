@@ -159,6 +159,14 @@ answered differently. **What would change them:** a second regular contributor, 
 maintained style starts costing review time that a formatter buys back; or a defect that default-mode
 mypy structurally cannot see, which is the case `--strict` has to make for itself.
 
+**The cost, stated rather than implied.** `make lint` now blocks `make test`, so a dev-tool release
+can turn an unrelated contributor's PR red with no commit to blame — the same failure this project
+already paid for once with an unbounded `mcp`. The dev pins are therefore bounded at each tool's real
+breaking-change unit rather than at the next major by reflex: ruff is pre-1.0 and breaks at a minor,
+and mypy adds *checks* at a minor, which reds untouched code just as hard as an API break. The
+canary argument that justifies a wide range for a runtime dependency does not transfer, because no
+user resolves a dev tool. When a tool release does red the gate, the gate is fixed, not un-gated.
+
 **What the rule selection says about the whole gate.** Style families — import order, quote shape,
 modernization rewrites — are absent on purpose. They are the formatter question under another name,
 and answering it differently in the linter would have been a decision made by accident.

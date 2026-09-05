@@ -56,7 +56,7 @@ Three things, in order of what a compromise would cost:
    first two, easier to trigger than either.
 
 Prompt and response content is explicitly **not** in this list. It is never persisted
-(`measurement.py:351-370` builds the record field by field and carries no prompt or response body),
+(`record_task` builds the record field by field and carries no prompt or response body),
 so there is no at-rest exposure to defend.
 
 ## Trust boundaries

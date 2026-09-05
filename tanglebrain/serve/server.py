@@ -107,7 +107,15 @@ def dispatch(
             try:
                 if wants_stream(payload):
                     status, result = handle_chat_completion_stream(payload, caller_task)
-                    if status == 200 and not isinstance(result, dict):
+                    if status == 200:
+                        # Type guard, not a routing rule: the view's docstring makes 200 and the
+                        # iterator a total pairing, so this cannot fire. Asserting it keeps that
+                        # invariant stated in one place — the alternative narrowing silently hands
+                        # an SSE client a JSON body if the pairing is ever broken.
+                        assert not isinstance(result, dict), (
+                            "handle_chat_completion_stream returned 200 with a JSON body; "
+                            "200 means the SSE iterator"
+                        )
                         return 200, _SSE, result  # Iterator[bytes] — pump already primed
                     return _json_response(status, result)
                 status, obj = handle_chat_completion(payload, caller_task)

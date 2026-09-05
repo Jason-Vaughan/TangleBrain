@@ -48,9 +48,12 @@ delegate = ["mcp >= 2, < 3"]
 
 # The lint and type-check toolchain (#113). Dev-only: nothing here is imported at runtime, so the
 # minimal-dependency stance — which is about what a *user* installs — is untouched. Bounded at the
-# next major like every other declared dependency; ruff is pre-1.0, so its ceiling sits at the next
-# minor, which is where it makes breaking changes.
-dev = ["ruff >= 0.16, < 0.17", "mypy >= 2, < 3", "types-PyYAML >= 6, < 7"]
+# breaking-change unit of each tool rather than at the next major by reflex: ruff is pre-1.0 and
+# breaks at a minor, and mypy adds *checks* at a minor, which reds an untouched PR just as hard as
+# an API break. The canary argument that justifies a wide range for a runtime dependency does not
+# transfer here — no user resolves a dev tool, so an unannounced upgrade is pure noise. Bump these
+# deliberately; a tool release that reds the gate is fixed, not un-gated.
+dev = ["ruff >= 0.16, < 0.17", "mypy >= 2.3, < 2.4", "types-PyYAML >= 6, < 7"]
 
 [project.urls]
 Homepage = "https://github.com/Jason-Vaughan/TangleBrain"
@@ -126,4 +129,12 @@ files = ["tanglebrain"]
 # Default strictness, deliberately. `--strict` was measured at 62 errors, 39 of them `type-arg`
 # ceremony over bare `dict`/`list`; default mode found 11, and every one was a real Optional-handling
 # gap. The reasoning, and what would justify revisiting, is in the design doc named above.
+
+# Scoped rather than global on purpose: a repo-wide `ignore_missing_imports` also silences a
+# *first-party* import that was renamed or misspelled — it resolves to `Any` instead of erroring,
+# which is the class of defect this gate exists to catch, and ruff's `F` rules cannot see it
+# because the name is bound. httpx ships types and types-PyYAML is in the dev extra, so `mcp` is
+# the only genuinely stubless import.
+[[tool.mypy.overrides]]
+module = ["mcp.*"]
 ignore_missing_imports = true

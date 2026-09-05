@@ -25,14 +25,12 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from tanglebrain.measurement import PARENT_TASK_ID_ENV, record_task
-from tanglebrain.roster import (  # noqa: F401 — ROSTER_ENV_VAR is re-exported, not dead:
-    # removing a name other modules import is a breaking change under
-    # docs/design/deprecation-policy.md, whatever a use-site scan of this file concludes.
-    ROSTER_ENV_VAR,
-    Roster,
-    RosterEntry,
-    load_roster,
-)
+from tanglebrain.roster import Roster, RosterEntry, load_roster
+# Re-export, not a dead import: other modules import ROSTER_ENV_VAR from here, and removing a name
+# that anything imports is a breaking change under docs/design/deprecation-policy.md — whatever a
+# use-site scan of this file alone concludes. The redundant alias is the form ruff recognises as a
+# deliberate re-export, so it needs no suppression to survive.
+from tanglebrain.roster import ROSTER_ENV_VAR as ROSTER_ENV_VAR
 from tanglebrain.selector import SelectionError, build_adapter, select_local
 from tanglebrain.settings import Settings, load_settings
 
@@ -303,8 +301,9 @@ def run_delegate(
         # would destroy something valuable to record something incidental. `record_task` documents
         # "Never raises" and implements it, which makes this the caller's independent guarantee
         # rather than the same one twice — `test_metering_failure_never_breaks_delegation` injects
-        # a raising stub precisely to hold this handler to it. Silent by the same rule: a warning
-        # here prints on the delegate's stdout, which is an orchestrator's parsed tool output.
+        # a raising stub precisely to hold this handler to it. It is silent rather than warning,
+        # which means a metering outage on the delegate path is currently undetectable — that is a
+        # channel-design question the observability work owns, not something settled here.
         pass
     return text
 

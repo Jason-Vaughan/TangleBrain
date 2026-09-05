@@ -405,10 +405,13 @@ order and never paid-routes a roster that has no orchestrators to exhaust first.
 
 ```sh
 make help          # list targets
-make lint          # smoke-check every Python file parses
-make test          # lint + run the unit test suite (hermetic; HTTP is mocked)
+make lint          # ruff (lint) + mypy (type-check)
+make test          # lint + type-check + the unit test suite (hermetic; HTTP is mocked)
 make test-live     # opt-in: hit the real local endpoint your roster points at, end-to-end
 ```
+
+There is deliberately no formatter — see [CONTRIBUTING.md](CONTRIBUTING.md) for what that means
+when you send a patch, and `docs/design/nonfunctional-requirements.md` for why.
 
 ## Design documents
 

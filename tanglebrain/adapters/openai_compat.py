@@ -165,35 +165,37 @@ class OpenAICompatAdapter:
         self.timeout = timeout
         self.default_max_tokens = default_max_tokens
 
+    #: The ``invoke.kind`` this adapter serves. A subclass that differs only in policy — same
+    #: transport, different tier — sets this and inherits :meth:`from_entry` unchanged.
+    _EXPECTED_INVOKE_KIND = "openai-compat"
+
     @classmethod
     def from_entry(cls, entry: RosterEntry, **overrides: object) -> "OpenAICompatAdapter":
-        """Build an adapter from an ``openai-compat`` roster entry.
+        """Build an adapter from a roster entry whose kind matches ``_EXPECTED_INVOKE_KIND``.
 
         Args:
-            entry: A roster entry whose ``invoke.kind`` is ``openai-compat``.
+            entry: A roster entry whose ``invoke.kind`` is this adapter's expected kind.
             **overrides: Optional constructor overrides (``timeout``, ``default_max_tokens``).
 
         Returns:
-            A configured :class:`OpenAICompatAdapter`.
+            A configured adapter of the calling class.
 
         Raises:
-            AdapterError: If the entry's invoke kind is not ``openai-compat``, or its
+            AdapterError: If the entry's invoke kind is not the expected one, or its
                 ``base_url``/``model`` are unset.
         """
-        if entry.invoke.kind != "openai-compat":
+        expected = cls._EXPECTED_INVOKE_KIND
+        if entry.invoke.kind != expected:
             raise AdapterError(
-                f"entry {entry.id!r} has invoke.kind {entry.invoke.kind!r}, "
-                "not 'openai-compat'"
+                f"entry {entry.id!r} has invoke.kind {entry.invoke.kind!r}, not {expected!r}"
             )
         base_url, model = entry.invoke.base_url, entry.invoke.model
         if base_url is None or model is None:
-            # `load_roster` rejects an `openai-compat` entry missing either field, so this holds for any entry
-            # that came through it. `Invoke` is a public dataclass and can be built directly, though,
-            # and without this the None would surface as a TypeError from inside an HTTP call rather
-            # than as the error type this method documents.
-            raise AdapterError(
-                f"entry {entry.id!r} is missing invoke.base_url or invoke.model"
-            )
+            # `load_roster` rejects an entry of this kind missing either field, so this holds for
+            # anything that came through it. `Invoke` is a public dataclass and can be built
+            # directly, though, and without this the None would surface as a TypeError from inside
+            # an HTTP call rather than as the error type this method documents.
+            raise AdapterError(f"entry {entry.id!r} is missing invoke.base_url or invoke.model")
         return cls(
             base_url=base_url,
             model=model,
