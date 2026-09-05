@@ -35,7 +35,10 @@ from __future__ import annotations
 import json
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
+from tanglebrain.adapters.base import AdapterError
+from tanglebrain.router import RouterError
 from tanglebrain.delegate import (
     DEFAULT_DELEGATE_MAX_TOKENS,
     NoDelegateFit,
@@ -77,6 +80,25 @@ def _delegate_tool_description() -> str:
     return header + menu
 
 
+def _as_tool_error(exc: Exception) -> ToolError:
+    """Wrap a delegation failure so its reason survives the trip to the orchestrator.
+
+    The SDK converts an exception raised inside a tool into an error result, but only a
+    ``ToolError`` keeps its message: anything else is reported as a bare
+    ``"Error executing tool <name>"``, which tells the orchestrator that something failed and
+    nothing about what. The reason is the whole diagnostic value here — "endpoint down" and
+    "key_ref file not found" call for completely different responses, and the operator reading
+    the transcript is the one who has to tell them apart.
+
+    Args:
+        exc: The delegation failure to surface.
+
+    Returns:
+        A :class:`ToolError` carrying the original message, for the caller to raise.
+    """
+    return ToolError(str(exc))
+
+
 @mcp.tool()
 def delegate_local(prompt: str, max_tokens: int = DEFAULT_DELEGATE_MAX_TOKENS) -> str:
     """Delegate a self-contained sub-task to TangleBrain's free local model (gpt-oss-120b).
@@ -90,8 +112,9 @@ def delegate_local(prompt: str, max_tokens: int = DEFAULT_DELEGATE_MAX_TOKENS) -
     Hand the result back for review rather than trusting it blind — you decide whether to accept,
     re-delegate with a tighter prompt, or do it yourself.
 
-    On failure (endpoint down, bad config, timeout) this raises and you see the error — there is
-    no transparent retry or model swap here; you decide what to do next.
+    On failure (endpoint down, bad config, timeout) the call comes back as an error result whose
+    text names the reason, rather than silently returning something plausible. There is no
+    transparent retry or model swap here; you decide what to do next.
 
     Args:
         prompt: The self-contained sub-task to delegate. Give it everything it needs — the local
@@ -102,7 +125,10 @@ def delegate_local(prompt: str, max_tokens: int = DEFAULT_DELEGATE_MAX_TOKENS) -
     Returns:
         The local model's final response text.
     """
-    return run_local_delegate(prompt, max_tokens=max_tokens)
+    try:
+        return run_local_delegate(prompt, max_tokens=max_tokens)
+    except (AdapterError, RouterError) as exc:
+        raise _as_tool_error(exc) from exc
 
 
 # NB: the description is evaluated at import time (decorator argument), so importing this module
@@ -143,10 +169,14 @@ def delegate(
     try:
         return run_delegate(prompt, target=target, task=task, max_tokens=max_tokens)
     except NoDelegateFit as exc:
+        # A no-fit is a *signal*, not a failure: the orchestrator is told to do it itself, which
+        # is a normal outcome and must not read as an error.
         return (
             f"[tanglebrain] {exc}. Handle this sub-task yourself — you are the most capable "
             "backend available here."
         )
+    except (AdapterError, RouterError) as exc:
+        raise _as_tool_error(exc) from exc
 
 
 @mcp.tool()

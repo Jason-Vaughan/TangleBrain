@@ -25,6 +25,13 @@ checkout drift four releases behind in silence. `tests/test_plugin_manifest.py` 
 of it from the thing it describes, since a confidently wrong install reference is worse than none:
 a reader who trusts it stops looking for a better source.
 
+Those tests prove the reference is self-consistent, not that the loader accepts it — a distinction
+this project has been bitten by before, when a green suite said nothing about what a real install
+resolved to. Checked against the consumer with `claude plugin validate .claude-plugin/marketplace.json`:
+validation passes, warning `Unknown field 'installReference'. Claude Code ignores it at load time.`
+Ignored is the intended outcome — the key is for monitors and fresh machines, not for the loader —
+and re-running that command is how to confirm it stays true.
+
 **A fresh install is inert and free.** The packaged roster has exactly one active entry — the free
 local tier — with the subscription-CLI and paid-API tiers present as commented opt-in examples.
 Nothing contacts a paid or remote service until the operator configures it to.

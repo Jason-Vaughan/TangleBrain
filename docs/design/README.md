@@ -46,7 +46,10 @@ with the highest consequence:
 
 ## Known gaps
 
-Every gap these documents disclose has an issue:
+Every gap these documents disclose that is **open work** has an issue. Weaknesses that are
+ratified non-goals — no roster integrity check, permissions warned rather than enforced — are
+stated in the documents that own them and are deliberately not tracked here; they are decisions,
+not backlog.
 
 | Gap | Issue |
 |---|---|
