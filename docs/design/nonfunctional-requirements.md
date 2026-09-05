@@ -33,8 +33,12 @@ These bind. Departing from one is a decision to record and justify.
 
   *Why:* the answer has already been paid for — in local compute, in subscription quota, or in real
   money. Losing it to a logging bug destroys something valuable to record something incidental. This
-  is the rationale that licenses the codebase's one deliberately broad exception handler
-  (`measurement.py:376-378`); the waiver is scoped to this rule and does not generalize.
+  is the rationale that licenses the broad exception handlers on the measurement path — the one
+  inside `record_task` and the one in `delegate.py` that holds the caller to the same guarantee
+  independently. The waiver is scoped to this rule and does not generalize: every broad catch in the
+  codebase carries a `# noqa: BLE001` naming the boundary it exists for, ruff fails the build on one
+  that does not, and `RUF100` fails it on one that is no longer needed. `grep -rn "noqa: BLE001"`
+  enumerates them, which is why no count is written here.
 
 ## Performance
 
@@ -75,7 +79,7 @@ ladder:
 | A backend fails | Fail over to the next orchestrator | `tests/test_router.py` |
 | All orchestrators fail, paid gate **off** | `RouterError` listing every failure, rate-limits annotated | `tests/test_router.py` |
 | All orchestrators fail, paid gate **on** | Fall through to enabled `api` entries in roster order; a paid success does **not** advance the rotation cursor | `tests/test_router.py` |
-| Measurement raises | Swallowed; answer still returns | `measurement.py:376-378`, `tests/test_measurement.py` |
+| Measurement raises | Swallowed; answer still returns | `tests/test_measurement.py`, `tests/test_delegate.py` |
 | A usage record is corrupt | Skipped; rollup still produced | `tests/test_measurement.py` |
 | Roster missing | Falls back to the packaged local-only example | `tests/test_roster.py` |
 | A `delegate_many` item fails | Per-item `status`; batch completes | `tests/test_delegate.py` |
@@ -132,6 +136,40 @@ Fully specified in [`security-model.md`](security-model.md). The NFR-level state
 - Adding a backend type is contained to one adapter file.
 - Adding a backend is a config edit, not a code change — the product's central claim, and the thing
   to protect in review.
+
+### Code quality gates
+
+`make lint` runs **ruff** and **mypy**; `make test` depends on it and CI runs `make test`, so a gate
+cannot be green locally and absent in CI. Both tools live in the `dev` extra: nothing there is
+imported at runtime, so the minimal-dependency posture — which is about what a *user* installs — is
+untouched, and `tests/test_packaging.py` holds the extra to the same upper-bound rule as every other.
+
+What is gated, and what is deliberately not, is a decision rather than a default. Each half was
+measured against this codebase before it was made:
+
+| Tool | Ruling | Why |
+|---|---|---|
+| `ruff check` | **Adopted** | Selects for defects — unused names, late-binding closures, unchained re-raises, blind excepts, unused `noqa`. On adoption it found a latent closure bug in the suite, a `zip` that could truncate past its own assertion, and two adapters coercing caller-supplied values past their documented error contract. |
+| `ruff format` | **Declined** | Would rewrite 41 of 45 files (~1,400 lines at the ~100-column width this code is actually written to) and catch nothing. The codebase is already internally consistent, so a formatter would impose a *different* consistent style rather than fix an inconsistency. |
+| `mypy` (default) | **Adopted** over `tanglebrain/` | 11 errors, every one a real Optional-handling gap — `str \| None` reaching a `str` parameter, `RosterEntry \| None` assigned to `RosterEntry`. This is what makes the annotations load-bearing rather than decorative. |
+| `mypy --strict` | **Declined** | 62 errors against default mode's 11, and 39 of the 62 were `type-arg` ceremony over bare `dict`/`list` — a large annotation campaign for little beyond what default mode already surfaces. |
+
+The two declines are recorded so the question stops being reopened, not because it can never be
+answered differently. **What would change them:** a second regular contributor, at which point hand-
+maintained style starts costing review time that a formatter buys back; or a defect that default-mode
+mypy structurally cannot see, which is the case `--strict` has to make for itself.
+
+**What the rule selection says about the whole gate.** Style families — import order, quote shape,
+modernization rewrites — are absent on purpose. They are the formatter question under another name,
+and answering it differently in the linter would have been a decision made by accident.
+
+The adoption surfaced a pattern worth naming, because it is the same defect one level up from the one
+[#113](https://github.com/Jason-Vaughan/TangleBrain/issues/113) was filed about. This code already
+carried twelve `# noqa` directives and a `# type: ignore`, written as though these tools were
+running — and every one was inert, suppressing a rule nothing had selected or naming the wrong error
+code. A suppression that documents a decision without enforcing it is exactly an annotation that
+documents a type without verifying it. `RUF100` is in the rule set to keep that from recurring: a
+waiver that stops being needed now fails the build.
 
 ## Accessibility
 

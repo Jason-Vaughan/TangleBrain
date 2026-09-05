@@ -112,6 +112,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two adapters coerced caller-supplied options past their own error contract.** `opts` is a
+  `Mapping[str, object]`, and both the openai-compat and CLI adapters ran a bare `int()` / `float()`
+  over it — so a non-numeric `max_tokens` or `timeout` escaped as a raw `TypeError`, past the
+  `AdapterError` each method documents and past `cli.main`'s handler that turns that contract into
+  one clean line instead of a traceback. Both now raise the documented type. A numeric string still
+  coerces: guarding the failure path is not licence to tighten the success path, and a test pins
+  that half too. Surfaced by adopting mypy (#113).
+
+- **`from_entry` checks the invariant it claimed in a comment.** Both adapters passed
+  `entry.invoke.base_url` and `.model` through with the note "validated non-None by the roster
+  loader". True of any entry that came through `load_roster` — but `Invoke` is a public dataclass
+  that can be built directly, and a `None` reaching that path surfaced as a `TypeError` from inside
+  the HTTP request rather than as the documented `AdapterError`. It is now a check, with a test.
+
 - **A delegate failure again tells the orchestrator what went wrong.** The mcp 2.x migration
   silently dropped the reason: 1.x surfaced `Error executing tool X: endpoint down`, while 2.x
   reports a bare `Error executing tool X` for any exception that is not a `ToolError`. The tools
@@ -156,6 +170,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
+
+- **Adopted ruff and mypy as defect gates; declined the formatter and `--strict`, with reasons
+  (#113).** `make lint` now runs both, `make test` depends on it, and CI runs `make test`, so a gate
+  cannot be green locally and absent in CI. Both tools sit in a new `dev` extra — nothing there is
+  imported at runtime, so the minimal-dependency posture, which is about what a *user* installs, is
+  untouched. Each half of the ruling was measured against this codebase first: `ruff format` would
+  have rewritten 41 of 45 files while catching no defects, and `mypy --strict` reported 62 errors
+  against default mode's 11, 39 of them `type-arg` ceremony. The rule set selects for defects and
+  deliberately omits the style families, which are the formatter question under another name. The
+  full ruling, and what would justify revisiting either decline, is in
+  `docs/design/nonfunctional-requirements.md`, "Code quality gates".
+
+- **Twelve inert suppressions removed or made real.** The codebase was already written as though
+  these tools were running: it carried `# noqa: BLE001`, `N802`, `F401` and `E731` directives, plus
+  a `# type: ignore[arg-type]` in `measurement.py` that named the wrong error code. Every one
+  suppressed a rule nothing had selected, so none of them did anything. That is the same defect
+  #113 describes for annotations, one level up — a decision documented but not enforced. `RUF100` is
+  now in the rule set so a waiver that stops being needed fails the build.
+
+- **A latent closure bug and a truncating comparison in the suite.** A `lambda` in
+  `test_openai_compat.py` closed over a loop variable rather than capturing it — harmless only
+  because each iteration consumes its lambda before the next rebinds it — and `test_roster_edit.py`
+  zipped two line lists without `strict`, so an edit that changed the line *count* would truncate
+  to the shorter side and could still satisfy "exactly one line differs". Both found by ruff on
+  adoption.
 
 - **Packaging tests assert parsed constraints instead of the characters of a requirement string.**
   The upper-bound check looked for a literal `<` anywhere in the requirement, which an environment

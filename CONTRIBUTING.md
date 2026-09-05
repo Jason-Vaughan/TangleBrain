@@ -16,8 +16,8 @@ Requires **Python ≥ 3.10**.
 ```sh
 make venv          # create .venv and install -e . (with dev + optional extras)
 make help          # list all targets
-make lint          # smoke-check every Python file parses
-make test          # lint + run the unit test suite (hermetic; HTTP is mocked)
+make lint          # ruff (lint) + mypy (type-check)
+make test          # lint + type-check + the unit test suite (hermetic; HTTP is mocked)
 ```
 
 `make test` is the suite to run before every PR — it is fully **hermetic** (all network calls are
@@ -77,11 +77,23 @@ code change to `adapters/` + `roster.py` — open an issue first so we can agree
 
 ## Code style & tests
 
-- Follow the existing style and conventions of the surrounding code.
+- Follow the existing style and conventions of the surrounding code. **There is no formatter, on
+  purpose** — `ruff format` was measured and declined (it would rewrite most of the tree while
+  catching nothing), so please match the surrounding code by hand rather than running a formatter
+  over your diff. The reasoning is in
+  [`docs/design/nonfunctional-requirements.md`](docs/design/nonfunctional-requirements.md),
+  "Code quality gates".
+- **`make lint` must be clean.** Ruff is configured to catch defects, not style, so a finding
+  usually means a real problem rather than a preference. If a rule is genuinely wrong about your
+  code, waive it at the site with a reason — `# noqa: RULE — why` — rather than loosening the
+  config; `RUF100` will tell you if the waiver later stops being needed.
+- **mypy runs over `tanglebrain/`** at default strictness. Annotations there are checked, so a new
+  public function should carry them.
 - **All functions get a docstring**; keep functions short and single-purpose.
 - **Write tests alongside the implementation.** New behavior needs hermetic coverage in `tests/`;
   bug fixes should add a regression test.
-- Run `make test` and make sure it's green before opening the PR.
+- Run `make test` and make sure it's green before opening the PR — it runs the gates above first,
+  so a green `make test` is the whole bar.
 
 ## Filing issues
 
