@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A written deprecation policy** — [`docs/design/deprecation-policy.md`](docs/design/deprecation-policy.md).
+  The policy existed in practice (usage-log fields additive-by-default, `--route` retained as an
+  accepted no-op) but had never been stated, so it could not be relied on from outside the repo or
+  applied consistently inside it. It covers the four consumer-facing surfaces — CLI flags, the MCP
+  tool surface, the usage-log record shape, and the two HTTP surfaces — and states the announcement
+  path and horizon (deprecated in *N*, not removed before *N+2*, never in a patch).
+
+  Two things it settles that were genuinely open. **Pre-1.0 honesty:** semver says `0.y.z` owes
+  users nothing, so the document separates what semver permits (everything) from what TangleBrain
+  commits to anyway, and says plainly that those commitments are policy rather than semver until
+  1.0. **Dependency floors:** raising a major floor is a breaking change even when no TangleBrain
+  code changes, because the user's install resolves differently. Users on the older major are not
+  stranded but *pinned* — every previous release stays on PyPI, and the CHANGELOG entry names the
+  last release that allowed the old major rather than leaving it in an issue thread.
+
+  It also draws a line it does not cross: whether a new major is *worth adopting* given its
+  transitive dependency surface is weighed on the issue that makes the call, not pre-authorized by
+  the policy. The policy governs how a floor is announced, not whether to raise it.
+
 - **`key_ref: file:PATH` now warns when the credential file is group- or world-readable.**
   `ARCHITECTURE.md` describes the intended posture as a `0600` file and nothing verified it, so
   a world-readable key was read in silence. Resolution now stats the file first and writes a

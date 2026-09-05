@@ -183,7 +183,11 @@ Versioned by package semver plus [`CHANGELOG.md`](../../CHANGELOG.md); breaking 
 or CLI surfaces are major bumps. The HTTP `/v1` path is OpenAI's, not TangleBrain's — its
 compatibility is defined upstream.
 
-**No formal deprecation window exists.** Practice is additive-by-default plus `--route`-style no-op
-retention. The gap becomes live at [#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90)
-(mcp 2.x migration), where an `mcp >= 2` floor would strand 1.x users — the first real test of a
-policy that has not been written down.
+**The deprecation policy is written down** — [`deprecation-policy.md`](deprecation-policy.md). It
+states what each surface promises, how a break is announced, and the rule for dependency floors,
+which is where it first bites: an `mcp >= 2` floor is a breaking change for installs even though no
+TangleBrain code changes ([#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90)).
+
+Two rules from it are worth repeating here, because this document is where a caller looks first: a
+removed CLI flag becomes an accepted no-op rather than an error, and a usage-log field is never
+removed, renamed, or given a new meaning.
