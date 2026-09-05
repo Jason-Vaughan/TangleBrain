@@ -153,9 +153,12 @@ threat model here is "a web page the operator visited", and only that.
   keeping the dependency surface deliberately small (stdlib GUI, no agent framework) — every
   dependency avoided is one that cannot be compromised. Also mitigated by bounding every
   declared dependency at the next major, so a major cannot land in a fresh resolve unannounced, and
-  by a weekly scheduled CI run that notices an upstream break without waiting for a push. The
-  `mcp < 2` cap exists because this exact shape already broke the published package once
-  (v0.20.1).
+  by a weekly scheduled CI run that notices an upstream break without waiting for a push. The `mcp`
+  requirement pins a major at both ends for the same reason — this exact shape already broke the
+  published package once (v0.20.1). Note the delegate extra now installs `httpx2` alongside
+  TangleBrain's own `httpx`: mcp 2.x moved HTTP stacks, so an install that opts into `[delegate]`
+  carries two. Wasteful rather than dangerous, and the alternative is holding the SDK at a
+  superseded major indefinitely.
 
 ## Known gaps
 

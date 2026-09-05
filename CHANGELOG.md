@@ -81,6 +81,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The delegate extra now requires `mcp >= 2, < 3`.** `tanglebrain/mcp_server.py` is migrated to
+  the 2.x API: `mcp.server.fastmcp.FastMCP` became `mcp.server.mcpserver.MCPServer`. The tool
+  surface is unchanged — `delegate`, `delegate_local`, `delegate_targets` and `delegate_many` keep
+  their names, parameters and behavior, and the decorators and `run()` are identical, so an
+  orchestrator sees no difference.
+
+  **This is a breaking change for installs**, announced as one per
+  [`docs/design/deprecation-policy.md`](docs/design/deprecation-policy.md): the floor is
+  load-bearing, since `mcp.server.mcpserver` exists in no earlier major. **Users who need mcp 1.x
+  should install TangleBrain 0.20.1**, the last release that allowed it — it remains on PyPI and
+  keeps working. Only users of the optional `[delegate]` extra are affected; the core install is
+  untouched.
+
+  Two things worth knowing before upgrading. The extra now installs `httpx2` alongside
+  TangleBrain's own `httpx` (and `httpcore2` alongside `httpcore`), because mcp 2.x moved HTTP
+  stacks — wasteful rather than dangerous, and the alternative was holding the SDK at a superseded
+  major indefinitely. Total installed distributions are effectively unchanged (30 → 29 in a
+  measured comparison), because 2.x declares directly much of what 1.x pulled transitively;
+  `opentelemetry-api` and `truststore` are genuinely new.
+
 - **Every declared dependency now carries an upper bound.** `httpx >= 0.27, < 1` and
   `PyYAML >= 6.0, < 7` replace open-ended constraints. This changes what a fresh
   `pip install tanglebrain` resolves to: a future `httpx` 1.0 or `PyYAML` 7.0 will no longer be
@@ -126,6 +146,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
+
+- **The deprecation policy now says what "announced as breaking" means before 1.0.** The policy
+  requires a dependency-floor bump to be announced as breaking; TangleBrain's release tooling maps
+  the major-bump marker (the word, followed by a colon) to a *major* bump, which from `0.20.x` is
+  `1.0.0` — a claim about the project's maturity that no single change earns. The policy now states
+  that pre-1.0 a breaking change ships as a minor bump announced in prose, and reserves the marker
+  for after 1.0. Announcement is a duty to the reader; the marker is a lever on the version number,
+  and conflating them either understates the break or overstates the release.
+
+  Note the marker is deliberately *not written literally* in this entry: the bump step matches it
+  anywhere in the body, so it cannot distinguish a marker from a mention of one. Writing this entry
+  the obvious way would have forced the 1.0.0 it exists to warn against.
 
 - **The design-doc gap table pointed at the wrong issue for the deprecation policy.** The row
   reading "No written deprecation policy" linked #90 (the mcp 2.x migration) rather than #114,
