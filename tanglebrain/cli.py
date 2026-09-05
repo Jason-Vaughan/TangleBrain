@@ -208,7 +208,10 @@ def run_once(
 
     if model is not None:
         path, entry = "model", select_by_id(roster, model)
-        text = build_adapter(entry).run(prompt, opts)
+        # Pinning WHICH backend serves a request is a different decision from WHETHER that
+        # backend may delegate. An orchestrator-capable entry keeps its delegate tool here
+        # exactly as it has it on the router path.
+        text = build_adapter(entry, inject_delegate=entry.can_orchestrate).run(prompt, opts)
     elif local:
         path, entry = "local", select_local(roster)
         text = build_adapter(entry).run(prompt, opts)
@@ -372,7 +375,9 @@ def run_once_stream(
             )
             return iter([text]), _served("router", entry, task_id)
 
-    adapter = build_adapter(entry)
+    # Same rule as the non-streaming path: a pinned orchestrator keeps its delegate tool.
+    # ``select_local`` yields a local openai-compat entry, for which this is ignored.
+    adapter = build_adapter(entry, inject_delegate=entry.can_orchestrate)
     run_stream = getattr(adapter, "run_stream", None)
     if run_stream is None:
         # Per-backend emulation: no streaming capability — run blocking, frame as one delta.

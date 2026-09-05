@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orchestrator rather than round-robin (#95), `--model` silently stripping an orchestrator's
   delegate tool (#96), and capability routing being unable to route upward (#97).
 
+### Fixed
+
+- **`--model` on a `can_orchestrate` entry no longer strips its delegate tool.** Pinning a
+  backend built its adapter without `inject_delegate`, so an orchestrator pinned with `--model`
+  ran the whole task alone — no delegate tool registered, no warning, no error. The only visible
+  symptom was a lower spend-avoided figure in `--stats`, which reads as a routing mystery rather
+  than a bug. Pinning *which* backend serves a request is a different decision from *whether*
+  that backend may delegate, and one must not silently imply the other. The same defect was
+  present on the streaming path (`run_once_stream`) and is fixed alongside it; delegation now
+  tracks the entry's own `can_orchestrate` flag on both.
+
 ### Internal
 
 - **The loopback bind is now a tested contract, for both HTTP surfaces.** `tanglebrain-gui` and
