@@ -136,9 +136,6 @@ class ModelPinDelegationTest(unittest.TestCase):
         self.assertNotIn("--mcp-config", without)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class DelegationIsDerivedFromTheEntryTest(unittest.TestCase):
     """Delegation is a property of the entry, resolved once inside ``build_adapter``.
@@ -191,3 +188,6 @@ class DelegationIsDerivedFromTheEntryTest(unittest.TestCase):
             can_orchestrate=True,
         )
         self.assertFalse(build_adapter(entry, inject_delegate=False).inject_delegate)
+
+if __name__ == "__main__":
+    unittest.main()

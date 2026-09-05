@@ -109,9 +109,6 @@ class KeyFilePermissionWarningTest(unittest.TestCase):
         self.assertIn("not found", str(raised.exception))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 @unittest.skipUnless(os.name == "posix", "POSIX mode bits only")
 class UnreadableKeyFileTest(unittest.TestCase):
@@ -136,3 +133,6 @@ class UnreadableKeyFileTest(unittest.TestCase):
                 with self.assertRaises(AdapterError) as raised:
                     resolve_key_ref(f"file:{path}")
             self.assertIn("unreadable", str(raised.exception))
+
+if __name__ == "__main__":
+    unittest.main()
