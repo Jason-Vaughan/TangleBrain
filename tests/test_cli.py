@@ -613,3 +613,36 @@ class MainTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RosterHelpTextTest(unittest.TestCase):
+    """``--help`` must describe the roster default that actually applies.
+
+    An operator debugging a mis-route is told by ``--help`` which roster is in play; the runbook's
+    first diagnostic step depends on that answer. Naming only the packaged example sends them to
+    edit the wrong file, and the symptom of editing the wrong roster is that nothing changes —
+    which looks like a routing bug rather than a documentation one.
+    """
+
+    def _roster_help(self) -> str:
+        """Return the ``--roster`` help text as rendered by argparse.
+
+        Returns:
+            The help line's text, lowercased for stable matching.
+        """
+        from tanglebrain.cli import build_parser
+
+        for action in build_parser()._actions:
+            if "--roster" in action.option_strings:
+                return (action.help or "").lower()
+        self.fail("no --roster argument found")
+
+    def test_help_names_the_real_resolution_order(self):
+        help_text = self._roster_help()
+        self.assertIn("tanglebrain_roster", help_text)
+        self.assertIn(".config/tanglebrain/roster.yaml", help_text)
+
+    def test_help_does_not_claim_the_packaged_file_is_the_default(self):
+        # The specific wrong claim this replaces: that the packaged copy is what you get.
+        help_text = self._roster_help()
+        self.assertNotIn("defaults to the packaged tanglebrain/config/roster.yaml", help_text)
