@@ -73,5 +73,63 @@ class InstallDocsParityTest(unittest.TestCase):
             self.assertIn(install_cmd, doc.read_text(), f"stale install command in {doc.name}")
 
 
+class InstallReferenceTest(unittest.TestCase):
+    """``installReference`` is the machine-readable install contract, and it must stay true.
+
+    Its whole value is that a monitor or a fresh machine can read the correct marketplace entry
+    instead of parsing prose in ``README.md``. That value is negative if it drifts: a confidently
+    wrong entry is worse than none, because a reader stops looking for a better source. These
+    tests derive every field from the thing it describes rather than restating it.
+    """
+
+    def setUp(self):
+        """Parse the marketplace manifest once per test."""
+        self.marketplace = json.loads(MARKETPLACE_PATH.read_text())
+        self.reference = self.marketplace["installReference"]
+
+    def test_marketplace_key_matches_this_marketplace(self):
+        # The key is the name a user types after `@`. If it drifts from the manifest's own name,
+        # the reference tells a fresh machine to register a marketplace that does not exist.
+        known = self.reference["extraKnownMarketplaces"]
+        self.assertEqual(list(known), [self.marketplace["name"]])
+
+    def test_source_names_a_branch_and_opts_into_updates(self):
+        # Both fields were ABSENT in the entry `/plugin marketplace add` wrote, and their absence
+        # is the defect this reference exists to fix: no `ref` resolves to nothing wherever the
+        # plugin is not already cached, and no `autoUpdate` let a local checkout drift four
+        # releases behind while still reading as governed.
+        source = self.reference["extraKnownMarketplaces"][self.marketplace["name"]]
+        self.assertTrue(source["source"]["ref"], "ref must name a branch, not be absent")
+        self.assertIs(source["autoUpdate"], True)
+
+    def test_repo_matches_the_plugin_homepage(self):
+        # Two statements of where this lives; a fork or a rename must not leave them disagreeing.
+        repo = self.reference["extraKnownMarketplaces"][self.marketplace["name"]]["source"]["repo"]
+        homepage = self.marketplace["plugins"][0]["homepage"]
+        self.assertTrue(
+            homepage.endswith(repo),
+            f"installReference repo {repo!r} does not match plugin homepage {homepage!r}",
+        )
+
+    def test_enabled_plugin_key_is_derived_from_both_manifests(self):
+        # `<plugin>@<marketplace>` is the same string the docs-parity test pins, built from the
+        # same two sources — so a rename cannot satisfy one and leave the other stale.
+        plugin = json.loads(PLUGIN_MANIFEST_PATH.read_text())
+        expected = f"{plugin['name']}@{self.marketplace['name']}"
+        self.assertEqual(list(self.reference["enabledPlugins"]), [expected])
+        self.assertIs(self.reference["enabledPlugins"][expected], True)
+
+    def test_required_command_is_the_pyproject_console_script(self):
+        # The plugin wires a pip-installed entry point, so "is it installed?" is answerable only
+        # if the command named here is the one pyproject actually declares.
+        commands = self.reference["requiresCommands"]
+        self.assertEqual(commands, ["tanglebrain-delegate"])
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        for command in commands:
+            self.assertIn(
+                f'{command} = "', pyproject, f"{command!r} is not a declared console script"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
