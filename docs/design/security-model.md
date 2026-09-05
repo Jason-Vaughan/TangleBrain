@@ -151,11 +151,11 @@ threat model here is "a web page the operator visited", and only that.
   directory.
 - **Supply chain.** Inherited from PyPI and from each configured backend. Partially mitigated by
   keeping the dependency surface deliberately small (stdlib GUI, no agent framework) — every
-  dependency avoided is one that cannot be compromised. **Not** currently mitigated by pinning:
-  `httpx >= 0.27` and `PyYAML >= 6.0` remain unbounded, and there is no scheduled CI that would
-  notice an upstream break without a push
-  ([#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92)). The `mcp < 2` cap exists because
-  this exact shape already broke the published package once (v0.20.1).
+  dependency avoided is one that cannot be compromised. Also mitigated by bounding every
+  declared dependency at the next major, so a major cannot land in a fresh resolve unannounced, and
+  by a weekly scheduled CI run that notices an upstream break without waiting for a push. The
+  `mcp < 2` cap exists because this exact shape already broke the published package once
+  (v0.20.1).
 
 ## Known gaps
 
@@ -172,8 +172,6 @@ Recorded, not fixed. Each is a decision someone should make deliberately.
    including to a paid or attacker-controlled backend. Consistent with the local-trust model — noted
    because "a config edit changes where your data goes" deserves to be stated out loud rather than
    assumed.
-4. **Unbounded core dependency constraints.**
-   [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92), above.
 
 ## Reporting a vulnerability
 

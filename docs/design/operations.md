@@ -121,11 +121,12 @@ a directory conventionally treated as disposable.
   breakage of the *published* package: mcp 2.0.0 removed `mcp.server.fastmcp`, and an open-ended
   `mcp >= 1.0` meant `pip install "tanglebrain[delegate]"` installed a server that could not import.
   It was caught by a user-facing break, not by CI.
-- **CI runs on `push` to `main` and on `pull_request` only — there is no `schedule:` trigger.** An
-  upstream release that breaks the published package is therefore invisible until someone pushes a
-  commit or a user reports it. This is the concrete gap behind
-  [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92), and scheduled CI is the
-  higher-value half of that issue — a version cap only helps if something notices.
+- **CI runs weekly on a `schedule:` trigger as well as on push and pull request.** The scheduled
+  run resolves dependencies fresh — no lockfile, no cache — so an upstream release that breaks the
+  published package surfaces on its own rather than waiting for someone to push. This is the half
+  of the problem a version cap cannot solve: a cap prevents a known breakage, but only something
+  that *runs* catches a compatible-range release that changes behavior. `workflow_dispatch` is
+  enabled alongside it, so the canary can be exercised without waiting a week.
 
 ## Release
 
