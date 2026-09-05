@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the literal untouched — the last of which the address assertions alone do not catch. No
   production code changed and no socket is opened.
 
+- **`README.md` leads with the install command.** A visitor arriving from the PyPI listing had to
+  scroll past the pitch to find out how to install; the `pip install tanglebrain` line now sits
+  directly under the badges, alongside a MIT license badge that makes the licensing explicit
+  without a click.
+
 - **Reconciled `FEATURES.md` and `PROJECT-MAP.md` with the current generator.** Both landed in the
   repo carrying a superseded TangleClaw scaffold: `FEATURES.md` documented the abandoned
   `file.js:line` pointer format (the generator now mandates stable `file.js#symbolName` anchors,
