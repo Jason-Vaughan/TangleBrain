@@ -18,8 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
 
+from tanglebrain import measurement
 from tanglebrain.measurement import (
+    KEEP_RECENT_BYTES,
     LOG_FILENAME,
+    MAX_LOG_BYTES,
     CompactionRefusedError,
     PLACEHOLDER_PRICING,
     PRICING_HEADER,
@@ -1135,8 +1138,6 @@ class CompactionTest(unittest.TestCase):
             inside.set()
             release.wait(5)
 
-        appended = {"kind": "task", "tier": "local", "spend_avoided_usd": 9.0,
-                    "pricing_ref": "arrived-mid-compaction"}
         with patch("tanglebrain.measurement.write_totals", side_effect=block_mid_compaction):
             compactor = threading.Thread(target=self._compact, args=(), kwargs={"keep_recent": 2})
             compactor.start()
@@ -1144,6 +1145,7 @@ class CompactionTest(unittest.TestCase):
             appender = threading.Thread(
                 target=record_task,
                 kwargs={"path": "router", "entry": None, "prompt": "x", "response": "y",
+                        "origin": "arrived-mid-compaction",
                         "log_path": self.log, "pricing": FIXED},
             )
             appender.start()
@@ -1153,11 +1155,258 @@ class CompactionTest(unittest.TestCase):
             compactor.join(5)
         rows = read_records(self.log)
         self.assertEqual(len(rows), 3, "the appended row was written into the replaced file")
-        self.assertEqual(str(appended["kind"]), rows[-1]["kind"])
+        self.assertEqual(rows[-1].get("origin"), "arrived-mid-compaction")
 
     def test_a_negative_keep_is_rejected(self):
         with self.assertRaises(ValueError):
             self._compact(keep_recent=-1)
+
+
+class AutomaticCompactionTest(unittest.TestCase):
+    """The size cap and its trigger: recording a task is what keeps the log bounded.
+
+    The cap is patched down to a few kilobytes throughout. That is the point of reading it from a
+    named constant — a test that changes the constant changes the behaviour, so these exercise the
+    real trigger rather than a test-only path beside it.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.log = self.tmp / LOG_FILENAME
+        self.totals = self.tmp / TOTALS_FILENAME
+
+    def _flood(self, count, log=None):
+        """Record ``count`` tasks through the real entry point, mixing the fields the rollup reads.
+
+        Deterministic in everything the figure depends on (the ``ts`` differs run to run and is
+        never summed), so the same flood run under two different caps must produce the same
+        number.
+        """
+        for i in range(count):
+            kind = ["task", "task", "task", "delegate", "failure"][i % 5]
+            record_task(
+                path="router",
+                entry=FakeEntry(f"m{i % 3}", ["local", "cli", "api"][i % 3]),
+                prompt="p" * (20 + i % 7),
+                response="r" * (40 + i % 11),
+                kind=kind,
+                origin=["cli", "gui", "serve"][i % 3] if kind == "task" else None,
+                parent_task_id=f"t{i % 4}" if kind == "delegate" else None,
+                log_path=self.log if log is None else log,
+                pricing=FIXED,
+            )
+
+    def _figure(self, tmp=None):
+        tmp = self.tmp if tmp is None else tmp
+        return rollup(read_records(tmp / LOG_FILENAME), read_totals(tmp / TOTALS_FILENAME))
+
+    def _fold_sizes(self, count, cap, budget):
+        """Run a flood, returning the log's size immediately after each fold that dropped rows.
+
+        What the retention budget bounds is the file a fold *leaves*, and the flood keeps appending
+        afterwards — so the end state says nothing about it. These are the only moments the budget
+        makes a claim about.
+        """
+        sizes = []
+        real_compact = measurement.compact_log
+
+        def spy(**kwargs):
+            dropped = real_compact(**kwargs)
+            if dropped:
+                sizes.append(self.log.stat().st_size)
+            return dropped
+
+        with patch.object(measurement, "MAX_LOG_BYTES", cap), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", budget), \
+                patch.object(measurement, "compact_log", side_effect=spy):
+            self._flood(count)
+        return sizes
+
+    def test_the_window_stays_under_the_cap_across_a_write_flood(self):
+        """The cap holds *throughout*, not merely at the end — checked after every single append.
+
+        A trigger that fired only occasionally, or that folded to a window still over the cap,
+        would pass an end-state assertion and fail this one.
+        """
+        cap = 4000
+        with patch.object(measurement, "MAX_LOG_BYTES", cap), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 1000):
+            for _ in range(200):
+                self._flood(1)
+                size = self.log.stat().st_size
+                # One record may land on top of a full log before the check that folds it, so the
+                # bound is the cap plus a single row — never a second, and never unbounded.
+                self.assertLessEqual(size, cap + 512, "the row window outgrew its cap")
+
+    def test_the_figure_is_unchanged_by_the_folds_the_cap_triggers(self):
+        """The same flood under a cap it never reaches, and one it crosses repeatedly, agree exactly.
+
+        Exact equality: the fold runs the read path's own summation over the same rows in the same
+        order, so the floats are bit-identical rather than close. A tolerance here would absorb the
+        drift the test exists to catch.
+        """
+        uncapped = self.tmp / "uncapped"
+        uncapped.mkdir()
+        with patch.object(measurement, "MAX_LOG_BYTES", 100 * 1024 * 1024):
+            self._flood(120, log=uncapped / LOG_FILENAME)
+        self.assertFalse((uncapped / TOTALS_FILENAME).exists(), "nothing should have folded")
+
+        folds = []
+        real_compact = measurement.compact_log
+
+        def spy(**kwargs):
+            dropped = real_compact(**kwargs)
+            folds.append(dropped)
+            return dropped
+
+        with patch.object(measurement, "MAX_LOG_BYTES", 4000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 1000), \
+                patch.object(measurement, "compact_log", side_effect=spy):
+            self._flood(120)
+
+        # N > 1: one fold is a different test from many — a stored total folded *into* is where an
+        # off-by-one or a re-rounding shows up, and a single fold never reaches that state.
+        self.assertGreater(sum(1 for dropped in folds if dropped), 1, "expected repeated folds")
+        self.assertLess(len(read_records(self.log)), 120, "rows should have left the window")
+        self.assertEqual(_without_window_scope(self._figure()),
+                         _without_window_scope(self._figure(uncapped)))
+
+    def test_the_cap_is_read_from_the_constant(self):
+        """Same input, two caps, two behaviours — the number is not baked into the trigger."""
+        with patch.object(measurement, "MAX_LOG_BYTES", 100 * 1024 * 1024):
+            self._flood(60)
+        self.assertEqual(len(read_records(self.log)), 60)
+        self.assertFalse(self.totals.exists())
+
+        with patch.object(measurement, "MAX_LOG_BYTES", 2000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500):
+            self._flood(1)
+        self.assertLess(len(read_records(self.log)), 61)
+        self.assertTrue(self.totals.exists())
+
+    def test_the_retention_budget_bounds_what_a_fold_leaves(self):
+        sizes = self._fold_sizes(120, cap=4000, budget=900)
+        self.assertGreater(len(sizes), 1, "expected repeated folds to measure")
+        # Whole rows only, so a fold lands at or under the budget and never over it.
+        self.assertLessEqual(max(sizes), 900)
+        # And it fills the budget rather than merely respecting it: keeping one row would satisfy
+        # the bound above while throwing away the window the budget exists to preserve.
+        self.assertGreater(min(sizes), 450, "the fold kept far less than the budget allows")
+
+    def test_a_row_wider_than_the_budget_folds_the_log_empty(self):
+        """A budget no single row fits in keeps nothing rather than keeping one row over it."""
+        sizes = self._fold_sizes(30, cap=2000, budget=10)
+        self.assertTrue(sizes and set(sizes) == {0}, f"expected empty logs, got {sizes}")
+        self.assertGreater(read_totals(self.totals)["tasks"], 0, "the rows went into the totals")
+
+    def test_the_budget_counts_the_newline_each_kept_row_is_written_back_with(self):
+        """Off by one per row and a fold leaves a file over the budget it was asked to hit."""
+        self.log.write_text("aaaa\nbbbb\ncccc\n", encoding="utf-8")   # 5 bytes per row
+        self.assertEqual(measurement._keep_recent_for_budget(self.log, 15), 3)
+        self.assertEqual(measurement._keep_recent_for_budget(self.log, 14), 2)
+        self.assertEqual(measurement._keep_recent_for_budget(self.log, 4), 0)
+
+    def test_the_totals_land_beside_the_log_the_rows_came_from(self):
+        """One path override moves the pair — the trigger never reaches the real state root."""
+        with patch.object(measurement, "MAX_LOG_BYTES", 2000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500):
+            self._flood(40)
+        self.assertTrue(self.totals.exists())
+        self.assertEqual(sorted(q.name for q in self.tmp.iterdir()),
+                         sorted([LOG_FILENAME, TOTALS_FILENAME]))
+
+    def test_a_refused_fold_leaves_every_row_and_never_raises(self):
+        """A damaged `totals.json` stops the pruning, not the recording — and loses nothing.
+
+        Compaction refuses rather than folding onto bytes it cannot read. Automatic, that is a
+        silent no-op: the log keeps growing until the file is repaired, which is why the condition
+        has to be visible where the operator reads the figure.
+        """
+        self.totals.write_text("{ not json", encoding="utf-8")
+        with patch.object(measurement, "MAX_LOG_BYTES", 2000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500):
+            self._flood(60)
+        self.assertEqual(len(read_records(self.log)), 60, "a refused fold drops nothing")
+        self.assertEqual(self.totals.read_text(encoding="utf-8"), "{ not json")
+
+    def test_the_trigger_swallows_a_refusal_and_a_write_failure_itself(self):
+        """Caught here, not by the caller's blanket `except`, which keeps meaning "the append failed".
+
+        Reached directly rather than through `record_task`, because that blanket catch would hide a
+        regression: an escaping `CompactionRefusedError` looks exactly like a handled one from the
+        outside.
+        """
+        with patch.object(measurement, "MAX_LOG_BYTES", 100 * 1024 * 1024):
+            self._flood(30)
+        with patch.object(measurement, "MAX_LOG_BYTES", 1000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500):
+            self.totals.write_text("{ not json", encoding="utf-8")
+            measurement._compact_if_oversized(self.log)          # refusal: must not raise
+            self.assertEqual(len(read_records(self.log)), 30)
+            self.totals.unlink()
+            with patch.object(measurement, "_rewrite_log", side_effect=OSError("disk full")):
+                measurement._compact_if_oversized(self.log)      # OSError: must not raise either
+            self.assertEqual(len(read_records(self.log)), 30)
+
+    def test_a_failing_fold_never_breaks_the_append(self):
+        """The write that matters already happened; compaction's `OSError` is swallowed at source."""
+        with patch.object(measurement, "MAX_LOG_BYTES", 2000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500), \
+                patch.object(measurement, "_rewrite_log", side_effect=OSError("disk full")):
+            self._flood(40)
+        self.assertEqual(len(read_records(self.log)), 40, "every appended row is on disk")
+
+    def test_the_trigger_runs_outside_the_append_lock(self):
+        """`_LOG_LOCK` is not reentrant, so a trigger inside it would hang rather than raise.
+
+        The log is primed under a cap it cannot reach, and only the *crossing* append runs — in a
+        thread joined with a timeout, so a deadlock fails the test instead of stalling the suite
+        forever. Priming inside the same window would deadlock on the main thread first, where
+        nothing can report it.
+        """
+        with patch.object(measurement, "MAX_LOG_BYTES", 100 * 1024 * 1024):
+            self._flood(40)
+        self.assertFalse(self.totals.exists(), "nothing should have folded while priming")
+        with patch.object(measurement, "MAX_LOG_BYTES", 2000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500):
+            worker = threading.Thread(target=self._flood, args=(1,), daemon=True)
+            worker.start()
+            worker.join(10)
+            self.assertFalse(worker.is_alive(), "recording deadlocked against the compaction lock")
+        self.assertTrue(self.totals.exists(), "the crossing append really did fold")
+
+    def test_a_fold_already_running_is_not_joined_by_a_second_thread(self):
+        """The fan-out guard: `delegate_many` crossing the cap on N threads folds once, not N times."""
+        with patch.object(measurement, "MAX_LOG_BYTES", 100 * 1024 * 1024):
+            self._flood(60)
+        size_before = self.log.stat().st_size
+        with patch.object(measurement, "MAX_LOG_BYTES", 1000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500):
+            self.assertGreater(size_before, 1000, "the log must already be over the cap")
+            with measurement._COMPACT_LOCK:
+                # In a thread with a bounded join: a guard that *waited* would otherwise stall the
+                # suite forever instead of failing, which is the one outcome a test cannot report.
+                second = threading.Thread(
+                    target=measurement._compact_if_oversized, args=(self.log,), daemon=True)
+                second.start()
+                second.join(10)
+                self.assertFalse(second.is_alive(), "it queued behind the fold instead of skipping")
+            self.assertEqual(self.log.stat().st_size, size_before, "it should have stood aside")
+            measurement._compact_if_oversized(self.log)   # and folds once the lock is free
+        self.assertLess(self.log.stat().st_size, size_before)
+
+    def test_a_log_that_vanished_between_the_append_and_the_check_is_not_an_error(self):
+        measurement._compact_if_oversized(self.tmp / "gone.jsonl")   # no raise, no file created
+        self.assertFalse((self.tmp / TOTALS_FILENAME).exists())
+
+    def test_the_checked_in_cap_leaves_room_for_a_useful_window(self):
+        """The shipped defaults, not a patched pair: retention is strictly under the cap.
+
+        Without that gap a fold would leave the log still over the cap and every following append
+        would rewrite the whole file.
+        """
+        self.assertLess(KEEP_RECENT_BYTES, MAX_LOG_BYTES)
 
 
 class FoldRecordsIntoTotalsTest(unittest.TestCase):

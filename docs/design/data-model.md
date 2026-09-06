@@ -149,8 +149,13 @@ The directory sync is POSIX-only and skipped elsewhere; the file sync is not pla
 ### Compaction — how a row becomes a total
 
 Compaction reads the oldest rows, adds them into `totals.json`, and only then removes them from the
-log. Nothing triggers it automatically yet; it is an explicit call until the size cap lands
-([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+log. It runs on a **size cap**: every recorded task checks the log, and crossing `MAX_LOG_BYTES`
+(5 MiB, roughly 15,000 records) folds the oldest rows away until what remains fits inside
+`KEEP_RECENT_BYTES` (~1 MiB, roughly 3,000). The retention budget is strictly under the cap, so a
+fold cannot leave the file still over it and the next fold is a whole window away.
+
+**Size, not age.** An age cap is regressive — a light user loses a whole history to the calendar
+while a heavy user loses nothing — and disk footprint is the cost a cap exists to bound.
 
 **The order of those two writes is the whole guarantee.** Interrupted between them, the rows are
 counted in both halves and the figure reads **too large**. The opposite order drops rows before
@@ -161,9 +166,16 @@ itself, so the writes are ordered rather than merely both performed.
 **What the ordering does not buy.** A folded row is byte-identical to an unfolded one, and nothing
 is persisted to distinguish them — no watermark, no fold count, no timestamp. So an inflated figure
 is *not* attributable to particular rows and does not correct itself on a later read; the guarantee
-is only that no row is destroyed before something records it. Whoever wires the automatic trigger
-([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)) has to decide whether a persisted
-watermark is owed first — it is additive under this format's own contract.
+is only that no row is destroyed before something records it.
+
+**That residue is an accepted limit, taken deliberately once the fold became automatic.** A
+persisted watermark was considered and rejected. Every form of one has to answer *"are the rows in
+front of me already counted"*, and each way of answering fails toward **under**-counting: `ts` is
+second-resolution and shared by rows on both sides of a cut, `task_id` is optional and absent from
+most rows, and a digest of the folded prefix races the appends it would be compared against. That
+trades a vanishing event — a power loss inside the microseconds between two fsynced writes — for a
+permanent hazard on every read, in the one direction the lifetime figure cannot survive. The
+over-count is bounded by a single fold batch, and the limit is written down rather than implied.
 
 The fold runs the **same summation** the read path runs, over the same rows in the same order, so a
 figure cannot change merely because rows moved across the seam. Rows that stay are **copied through
@@ -180,9 +192,9 @@ both halves on disk. The log grows meanwhile, which is the smaller problem.
 so no thread of the compacting process can append into the gap. It cannot cover a *second*
 TangleBrain process, in two ways: a row appended during those milliseconds is written to the file
 being replaced and is lost, and two compactions that overlap read the same stored totals, so the
-later write discards the earlier fold entirely. Accepted for a single-operator local tool, and written down rather than
-implied — an advisory file lock would hold on POSIX only, and a guarantee that silently does not
-hold on one supported platform is worse than a stated limitation.
+later write discards the earlier fold entirely. Accepted for a single-operator local tool, and
+written down rather than implied — an advisory file lock would hold on POSIX only, and a guarantee
+that silently does not hold on one supported platform is worse than a stated limitation.
 
 ## Persistence boundaries
 
@@ -195,7 +207,7 @@ does not.**
 | Settings | `config/settings.yaml` | Durable | Both gates read as off. Fails safe. |
 | Pricing reference | `config/pricing.yaml` | Durable, packaged | Cost figures unavailable; routing unaffected. |
 | Rotation cursor | `<state root>/router-state.json` | **Durable, data-tier** | Rotation restarts from the beginning. Harmless — it is a fairness hint, not correctness. |
-| Usage log (row window) | `<state root>/usage.jsonl` | **Durable, data-tier** | Every row not yet folded into `totals.json`, permanently. Because nothing triggers compaction automatically yet ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)), that is still the entire lifetime figure on an install where it has never been invoked. Once the trigger lands this becomes recent per-task detail only. See below. |
+| Usage log (row window) | `<state root>/usage.jsonl` | **Durable, data-tier** | Every row not yet folded into `totals.json`, permanently. Because compaction runs on the size cap, that is recent per-task detail — the lifetime figure itself has already moved into `totals.json`. On an install too young to have crossed the cap, it is still the whole figure. See below. |
 | Lifetime totals | `<state root>/totals.json` | **Durable, data-tier** | The lifetime figure falls back to whatever the surviving rows sum to — a smaller number, never an error. |
 | Config backups | `<state root>/backups/` | **Durable, data-tier** | The only copy of a hand-edited roster or pricing file the GUI replaced. |
 | In-flight request | memory | None | No retry, no queue, no journal. A crash mid-route loses the request and the caller sees a failure. Deliberate — this is a router, not a job system. |
@@ -212,10 +224,10 @@ is copied forward, **the originals are left in place** so a downgrade still find
 one notice on stderr names both directories. The copy is per-entry and skips what is already
 there, so an interrupted migration completes on the next run.
 
-**Still open:** the log is unbounded. The permanent total exists, `--stats` reads it, and the fold
-that moves rows into it exists — but nothing *triggers* the fold, so no install prunes its log on
-its own and the file still grows without limit
-([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+**Bounded.** The log is a window, not a ledger: the size cap folds its oldest rows into
+`totals.json` and drops them, so the file stops growing while the figure it feeds does not move.
+Both halves are bounded — `totals.json` is one object with no per-task keys, which is why the
+delegates' per-parent tree is never folded into it.
 
 ## Concurrency
 

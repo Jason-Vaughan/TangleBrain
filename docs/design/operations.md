@@ -121,9 +121,10 @@ A compaction interrupted between its two writes leaves its rows counted in both 
 the log, so the figure reads high until the log is next compacted past them. Nothing records which
 rows were folded, so the inflation cannot be attributed or undone automatically — if the number
 matters more than the history, delete `totals.json` and accept a figure of just the surviving rows.
-A compaction that *refuses* to run is reporting a `totals.json` that exists but does not parse; the
-rows are all still there and nothing was lost. Move the damaged file aside and the next compaction
-folds from zero, or repair it by hand if you can read it.
+A compaction that *refuses* to run is reporting a `totals.json` that exists but cannot be read back
+as an object — unparseable, or unreadable at all. The rows are all still there and nothing was lost,
+but the log stops pruning until the file is dealt with. Move the damaged file aside and the next
+compaction folds from zero, or repair it by hand if you can read it.
 
 **Only if that notice appeared and the new log is absent or empty:** the pre-move
 `~/.cache/tanglebrain/usage.jsonl` is still there and can be copied across by hand. **Never copy it
@@ -137,7 +138,7 @@ two do not overlap.
 |---|---|---|
 | Roster | **Operator's responsibility — nothing does this automatically.** The GUI writes a timestamped backup on *its* edits only; a hand-edit is unprotected. | Rewrite by hand, or fall back to the packaged example. |
 | Settings | Same | Recreate; defaults are safe (both gates off). |
-| Usage log | **None** | **Partial, and only as far as the log has been compacted.** Whatever has been folded into `totals.json` survives; every row not yet folded is permanently lost. Nothing triggers compaction automatically yet ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)), so on an install where it has never been invoked, losing this file still loses the whole lifetime figure. |
+| Usage log | **None** | **Partial, and only as far as the log has been compacted.** Whatever has been folded into `totals.json` survives; every row still in the window is permanently lost. Compaction runs on the size cap, so on a mature install that is recent per-task detail — but on one too young to have crossed the cap, losing this file still loses the whole lifetime figure. |
 | Rotation cursor | None needed | Regenerates; rotation restarts. |
 
 **Stated plainly:** the two assets that matter — the operator's hand-authored roster and the
@@ -146,13 +147,12 @@ a directory conventionally treated as disposable.
 
 ## Maintenance
 
-- **The usage log grows without bound.** No rotation, no cap, no automatic pruning. Compaction —
-  folding the oldest rows into `totals.json` and then dropping them — exists, but nothing invokes
-  it yet, so pruning is still manual. **Truncating the log by hand discards every row that has not
-  been folded**, which on an install where compaction has never run is the entire lifetime
-  spend-avoided figure. Tracked in
-  [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101), whose cache-tier half is already
-  closed.
+- **The usage log prunes itself, by size.** Recording a task checks the log; crossing the cap folds
+  the oldest rows into `totals.json` and drops them, so the file stays a bounded window and needs
+  no operator maintenance. **Truncating the log by hand still discards every row not yet folded** —
+  on a mature install that is the current window rather than the lifetime figure, but on one too
+  young to have crossed the cap it is everything. A compaction that *refuses* stops the pruning
+  until its damaged `totals.json` is repaired or moved aside.
 - **Dependency drift is the demonstrated operational risk.** v0.20.1 was a hotfix for a live
   breakage of the *published* package: mcp 2.0.0 removed `mcp.server.fastmcp`, and an open-ended
   `mcp >= 1.0` meant `pip install "tanglebrain[delegate]"` installed a server that could not import.

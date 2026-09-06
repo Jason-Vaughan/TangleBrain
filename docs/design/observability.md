@@ -124,13 +124,10 @@ Recorded, not fixed.
 1. **No `unlinked` visibility.** A lost `TANGLEBRAIN_TASK_ID` hop and a genuinely parentless
    sub-call land in the same bucket, so the count answers no question. Per the correlation
    section above. [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123).
-2. **Unbounded log growth**, with no rotation or pruning — the operational cost of append-only. See
-   [`operations.md`](operations.md).
-3. **Cache-tier placement.** The log is the only record of accumulated spend-avoided and it lives
-   where cleanup tools delete things. See [`data-model.md`](data-model.md).
-
-Two former gaps here — no failure record at all, and failover being unobservable — were closed by
-[#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100): a task that fails at every backend
-is recorded as `kind: "failure"`, a failover success carries the attempts it lost, and `--stats`
-surfaces both. Gaps 2–3 are tracked in
-[#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101).
+Four former gaps here are closed. *No failure record at all* and *failover being unobservable* went
+with [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100): a task that fails at every
+backend is recorded as `kind: "failure"`, a failover success carries the attempts it lost, and
+`--stats` surfaces both. *Unbounded log growth* and *cache-tier placement* went with
+[#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101): the state root is the XDG data
+tier, and the row window is capped by size, folding its oldest rows into `totals.json` — see
+[`data-model.md`](data-model.md) and [`operations.md`](operations.md).
