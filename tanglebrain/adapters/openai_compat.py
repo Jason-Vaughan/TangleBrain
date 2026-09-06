@@ -359,6 +359,10 @@ class OpenAICompatAdapter:
                 with client.stream("POST", url, headers=headers, json=payload) as response:
                     if response.status_code >= 400:
                         # Read the body before .text — on a stream it is not buffered yet.
+                        # Kept verbatim for the same reason as the non-streaming error body: it is
+                        # what distinguishes a bad key from a missing model. Same accepted limit —
+                        # a 400 can echo the request — so this is one of the points where the
+                        # never-on-disk guarantee is a judgement rather than structural.
                         body = response.read().decode("utf-8", errors="replace")
                         raise AdapterError(
                             f"LiteLLM returned {response.status_code} for model "
@@ -384,7 +388,7 @@ class OpenAICompatAdapter:
                             )
                         if "error" in event:
                             # The provider's own error envelope, kept verbatim for the same reason
-                            # as an HTTP error body above: it is the diagnostic, and an upstream
+                            # as the HTTP error bodies: it is the diagnostic, and an upstream
                             # may echo the request into it. One of the accepted limits on the
                             # never-on-disk guarantee, named in CHANGELOG.md.
                             raise AdapterError(

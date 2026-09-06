@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Fixed where the message is built, not where it is written.** Filtering at the persistence
   boundary would be exactly the "redaction filter … bypassed by the next code path that forgets it"
-  that the guarantee's own rationale rejects. Every response-bearing raise site in the CLI and
+  that the guarantee's own rationale rejects. Every completion-bearing raise site in the CLI and
   OpenAI-compatible adapters now describes the *shape* of what arrived instead of reproducing it;
   the census test below is what knows how many there are.
 
@@ -46,8 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   third-party text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, that
   endpoint's in-stream `error` envelope, and a failed CLI's stderr. All three are provider
   diagnostics rather than completions — but a 400 can echo the offending input, and a CLI's argv
-  carries the prompt, so any of them could in principle carry input text into the log. They are kept verbatim deliberately: replacing `invalid api key` or
-  `claude: command not found` with a shape would make the commonest setup failures undiagnosable.
+  carries the prompt, so any of them could in principle carry input text into the log. A fourth,
+  claude's own `subtype` enum, is bounded and carries no echo risk; it is listed alongside them for
+  completeness rather than as a risk.
+
+  They are kept verbatim deliberately: replacing `invalid api key` or `claude: command not found`
+  with a shape would make the commonest setup failures undiagnosable.
   Closing that properly means an error carrying a separately constructed summary for persistence,
   distinct from the message shown on stderr — recorded on
   [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153) rather than done here. The
@@ -55,10 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field name from content is not decidable, so that one is a judgement call by construction rather
   than something a later fix closes.
 
-  **What this replaces, honestly:** the guarantee is now structural everywhere a *completion* could
-  reach the log, and heuristic at the four points above where third-party diagnostic text can. That
-  is a narrower claim than the one this project made before, which was structural everywhere and
-  wrong.
+  **What this replaces, honestly:** the guarantee is structural at every site that reproduces a
+  completion, and a judgement at the points listed above. That is a narrower claim than the one
+  this project made before, which was structural everywhere and wrong. The design documents under
+  `docs/design/` still state it without that qualification; reconciling them is the follow-up
+  chunk's work, named in the build plan so it is a deferral rather than a drop.
 
 - **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
   has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its

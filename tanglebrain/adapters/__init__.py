@@ -8,19 +8,13 @@ backend.
 from __future__ import annotations
 
 from tanglebrain.adapters.api import ApiAdapter
-from tanglebrain.adapters.base import (
-    Adapter,
-    AdapterError,
-    StreamingAdapter,
-    describe_shape,
-)
+from tanglebrain.adapters.base import Adapter, AdapterError, StreamingAdapter
 from tanglebrain.adapters.cli import CliAdapter
 from tanglebrain.adapters.openai_compat import OpenAICompatAdapter
 
 __all__ = [
     "Adapter",
     "AdapterError",
-    "describe_shape",
     "ApiAdapter",
     "CliAdapter",
     "OpenAICompatAdapter",
