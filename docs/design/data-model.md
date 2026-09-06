@@ -100,6 +100,37 @@ There is no redaction step because there is nothing to redact.
 `spend_avoided_usd` is `0.0` for `tier: api` (real spend avoids nothing) and for `kind: "failure"`
 records (a task no backend served avoided nothing), and equal to `cloud_equiv_usd` otherwise.
 
+### Lifetime totals — `totals.json`, one object beside the log
+
+The measurement store has two halves. This file holds the **lifetime** aggregates permanently; the
+log holds a **window** of per-task rows. Only the window can be bounded, so the lifetime claim needs
+somewhere the rows can be folded *into* — otherwise capping the log means the spend-avoided headline
+shrinks, which is the one thing it must never do.
+
+Fields, each answering a question `--stats` asks:
+
+`tasks` · `failures` · `lost_attempts` · `by_tier` · `by_origin` · `in_tokens_est` ·
+`out_tokens_est` · `cloud_equiv_usd` · `spend_avoided_usd` · `pricing_refs` ·
+`delegates` (`count`, `by_backend`, `in_tokens_est`, `out_tokens_est`, `cloud_equiv_usd`)
+
+`pricing_refs` is the set of reference-pricing revisions the stored figure was computed under. It is
+stored rather than derived because folding rows destroys the per-row `pricing_ref` evidence, and a
+caveat that has to outlive its rows must be captured before they go.
+
+**The delegates' `by_parent` tree is deliberately absent.** It carries one key per parent task id,
+so its cardinality grows without bound and it cannot live in a file that must stay small. It is
+inherently window-scoped, and `--stats` and the GUI panel both label it as such rather than letting
+a window count sit unmarked beneath a lifetime headline.
+
+**There is deliberately no schema-version field.** The forward-compatibility contract is the same
+one the usage record honours — an unknown key is ignored, a missing key reads as zero — and that is
+what makes a version number unnecessary: a version advertises that a breaking revision is possible,
+and additive-only exists so that one never has to be.
+
+**Reading is total.** An absent, truncated, or corrupt file reads as all-zeros, so a log that has
+never been compacted rolls up exactly as it did before this file existed, and a damaged one yields a
+smaller number rather than an error.
+
 ## Persistence boundaries
 
 The question the architecture documents do not answer outright: **what survives a crash, and what
@@ -111,7 +142,8 @@ does not.**
 | Settings | `config/settings.yaml` | Durable | Both gates read as off. Fails safe. |
 | Pricing reference | `config/pricing.yaml` | Durable, packaged | Cost figures unavailable; routing unaffected. |
 | Rotation cursor | `<state root>/router-state.json` | **Durable, data-tier** | Rotation restarts from the beginning. Harmless — it is a fairness hint, not correctness. |
-| Usage log | `<state root>/usage.jsonl` | **Durable, data-tier** | Every historical spend-avoided figure is gone permanently. See below. |
+| Usage log (row window) | `<state root>/usage.jsonl` | **Durable, data-tier** | **Today: the entire lifetime spend-avoided figure, permanently.** Nothing folds rows into `totals.json` yet, so the rows still carry the whole figure. Once the fold lands ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)) this becomes recent per-task detail only. See below. |
+| Lifetime totals | `<state root>/totals.json` | **Durable, data-tier** | The lifetime figure falls back to whatever the surviving rows sum to — a smaller number, never an error. |
 | Config backups | `<state root>/backups/` | **Durable, data-tier** | The only copy of a hand-edited roster or pricing file the GUI replaced. |
 | In-flight request | memory | None | No retry, no queue, no journal. A crash mid-route loses the request and the caller sees a failure. Deliberate — this is a router, not a job system. |
 
@@ -127,9 +159,9 @@ is copied forward, **the originals are left in place** so a downgrade still find
 one notice on stderr names both directories. The copy is per-entry and skips what is already
 there, so an interrupted migration completes on the next run.
 
-**Still open:** the log is unbounded. Nothing prunes it and nothing folds old rows into a
-permanent total, so it grows without limit
-([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+**Still open:** the log is unbounded. The permanent total the rows can be folded into now exists
+and `--stats` already reads it, but nothing folds into it and nothing prunes the log, so it still
+grows without limit ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
 
 ## Concurrency
 

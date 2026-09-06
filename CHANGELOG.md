@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Lifetime totals are a file of their own** — `totals.json`, written beside the usage log in the
+  state root and read by `tanglebrain --stats` and the GUI panel. The spend-avoided headline is now
+  the sum of stored lifetime aggregates and the per-task rows still on disk, rather than a re-read
+  of every row ever written. This is the read half only: nothing writes the file yet, and an absent
+  one reads as zeros, so today's figure is byte-for-byte the figure of the previous release —
+  verified against the live 36-record log, where every shared figure is identical and only the two
+  labels below differ.
+
+  Splitting the two is what lets a later release bound the row window without the lifetime claim
+  shrinking underneath it — and it is what makes a wrong figure attributable, since a discrepancy is
+  then either in the stored totals or in the window, never diffused across both. The format carries
+  every question `--stats` asks of it, including the **set of pricing revisions the figure spans**:
+  that evidence lives per-row today and compaction destroys it, so it is captured at the format's
+  birth rather than retrofitted once the rows are gone. The live log already spans two revisions.
+
+  Forward compatibility is the same contract the usage record honours — an unknown key is ignored,
+  a missing key reads as zero — and for the same reason: several versions of TangleBrain write this
+  store over its life and an append-only store has no migration story. There is deliberately no
+  schema-version field; a version number advertises that a breaking revision is possible, and the
+  additive-only contract exists so that one never has to be. An absent, truncated, or corrupt file
+  degrades to a smaller number, never to an error.
+
 - **The install contract is published as data** — an `installReference` key in
   `.claude-plugin/marketplace.json` naming the marketplace entry (`ref: "main"`,
   `autoUpdate: true`), the plugin key to enable, and the console script that must be present.
@@ -80,6 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   delegate tool (#96), and capability routing being unable to route upward (#97).
 
 ### Changed
+
+- **The `--stats` block says which figures are lifetime and which are not.** The heading now reads
+  `spend avoided (cloud-equivalent, lifetime)`, and the delegate tree's `Linked to:` line is marked
+  `(within the current row window)`; the GUI panel carries both labels too. That one line is the
+  only figure in the block that cannot be folded into the permanent totals — it holds one key per
+  parent task id, so its size grows without bound — and an unlabelled window-scoped split sitting
+  under a lifetime headline reads as a lifetime count. No number changed.
 
 - **State moved out of the cache tier** — the rotation cursor, the usage log and config backups now
   live under `~/.local/share/tanglebrain/` (honoring `XDG_DATA_HOME`; `TANGLEBRAIN_STATE_DIR` still

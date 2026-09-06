@@ -6,7 +6,9 @@ without touching the network.
 from __future__ import annotations
 
 import io
+import json
 import os
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -561,6 +563,16 @@ class RunOnceStreamTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
+    def setUp(self):
+        # Isolate the state root: these tests read the measurement store, and a suite that reads
+        # (or migrates) the operator's real one is not hermetic and its results depend on the
+        # machine it ran on.
+        self.state = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.state, ignore_errors=True)
+        env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.state}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_success_prints_and_returns_zero(self):
         with patch("tanglebrain.cli.run_once", return_value="the answer"):
             out = io.StringIO()
@@ -652,6 +664,21 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Tasks routed:", out.getvalue())
         run.assert_not_called()  # --stats short-circuits before routing
+
+    def test_stats_reads_stored_lifetime_totals_not_just_rows(self):
+        # Pins `read_totals()` at the CLI call site. `rollup` is deliberately NOT patched here:
+        # patching it discards the argument under test, which is exactly how this wiring could be
+        # deleted with a green suite. Once rows are folded, a dropped argument here shows up as the
+        # headline shrinking — the one failure the two-part store exists to prevent.
+        (Path(self.state) / "totals.json").write_text(
+            json.dumps({"tasks": 11, "spend_avoided_usd": 4.25}), encoding="utf-8"
+        )
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["--stats"])
+        self.assertEqual(code, 0)
+        self.assertIn("Tasks routed:   11", out.getvalue())
+        self.assertIn("$4.25", out.getvalue())
 
     def test_missing_prompt_without_stats_errors(self):
         # argparse parser.error exits with code 2.

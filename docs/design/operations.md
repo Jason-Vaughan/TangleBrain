@@ -126,7 +126,7 @@ two do not overlap.
 |---|---|---|
 | Roster | **Operator's responsibility — nothing does this automatically.** The GUI writes a timestamped backup on *its* edits only; a hand-edit is unprotected. | Rewrite by hand, or fall back to the packaged example. |
 | Settings | Same | Recreate; defaults are safe (both gates off). |
-| Usage log | **None** | **None.** Historical spend-avoided is permanently lost. |
+| Usage log | **None** | **None.** Historical spend-avoided is permanently lost — the rows still carry the whole lifetime figure. `totals.json` exists and `--stats` reads it, but nothing folds rows into it yet ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)); until that lands, losing this file loses everything. |
 | Rotation cursor | None needed | Regenerates; rotation restarts. |
 
 **Stated plainly:** the two assets that matter — the operator's hand-authored roster and the
@@ -136,9 +136,10 @@ a directory conventionally treated as disposable.
 ## Maintenance
 
 - **The usage log grows without bound.** No rotation, no cap, no pruning. Currently manual: truncate
-  or archive it. Tracked with the cache-tier placement question in
-  [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) — same owner, probably the same
-  answer.
+  or archive it — but note that **today truncating it discards the lifetime spend-avoided figure**,
+  because nothing has folded those rows into `totals.json` yet. Tracked in
+  [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101), whose cache-tier half is already
+  closed.
 - **Dependency drift is the demonstrated operational risk.** v0.20.1 was a hotfix for a live
   breakage of the *published* package: mcp 2.0.0 removed `mcp.server.fastmcp`, and an open-ended
   `mcp >= 1.0` meant `pip install "tanglebrain[delegate]"` installed a server that could not import.

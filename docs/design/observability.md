@@ -58,6 +58,12 @@ orchestrator's environment → forwarded by the orchestrator to the MCP delegate
 `run_delegate` to stamp `parent_task_id`. The rollup groups delegates `by_parent` — a real "linked
 to" tree across a process boundary.
 
+`by_parent` is the **one window-scoped figure** in an otherwise lifetime rollup: it carries a key
+per parent task id, so it cannot be folded into `totals.json` the way every other aggregate is, and
+both `--stats` and the GUI panel label it as covering the current row window. An unlabelled window
+count sitting beneath a lifetime headline reads as a lifetime count, which is the specific way a
+two-part store goes wrong.
+
 `origin` (`cli` / `gui` / `serve`) tags which surface a record came from. On the serve endpoint, the
 optional `X-TangleBrain-Parent-Task` header is sanitized into `parent_task_id` — metadata only,
 never routed on.

@@ -9,11 +9,14 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import shutil
+import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import patch
 
 from tanglebrain.gui import server, views
@@ -100,6 +103,16 @@ class ViewPricingTest(unittest.TestCase):
 
 
 class ViewStatsTest(unittest.TestCase):
+    def setUp(self):
+        # Isolate the state root: these tests read the measurement store, and a suite that reads
+        # (or migrates) the operator's real one is not hermetic and its results depend on the
+        # machine it ran on.
+        self.state = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.state, ignore_errors=True)
+        env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.state}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_rolls_up_records(self):
         recs = [
             {"tier": "local", "in_tokens_est": 10, "out_tokens_est": 20,
@@ -141,6 +154,21 @@ class ViewStatsTest(unittest.TestCase):
         by_parent = out["summary"]["delegates"]["by_parent"]
         self.assertEqual({k for k in by_parent if k != "unlinked"}, {"p1", "p2"})
         self.assertEqual(by_parent["unlinked"]["count"], 1)
+
+
+    def test_stats_view_reads_stored_lifetime_totals_not_just_rows(self):
+        # The panel's half of the same pin. `/api/stats` returns `rollup`'s dict verbatim, so the
+        # panel is a second renderer of the figure; with only rows read it would silently show a
+        # shrinking headline the moment rows are folded away.
+        (Path(self.state) / "totals.json").write_text(
+            json.dumps({"tasks": 11, "spend_avoided_usd": 4.25}), encoding="utf-8"
+        )
+        rows = [{"tier": "local", "in_tokens_est": 10, "out_tokens_est": 20,
+                 "cloud_equiv_usd": 1.0, "spend_avoided_usd": 1.0}]
+        with patch("tanglebrain.gui.views.read_records", return_value=rows):
+            out = views.view_stats()
+        self.assertEqual(out["summary"]["tasks"], 12)             # 11 stored + 1 row
+        self.assertEqual(out["summary"]["spend_avoided_usd"], 5.25)
 
 
 class RunPromptTest(unittest.TestCase):
@@ -228,6 +256,16 @@ class SaveRosterViewTest(unittest.TestCase):
 
 
 class DispatchTest(unittest.TestCase):
+    def setUp(self):
+        # Isolate the state root: these tests read the measurement store, and a suite that reads
+        # (or migrates) the operator's real one is not hermetic and its results depend on the
+        # machine it ran on.
+        self.state = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.state, ignore_errors=True)
+        env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.state}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_get_index_is_html(self):
         status, ctype, body = server.dispatch("GET", "/")
         self.assertEqual(status, 200)

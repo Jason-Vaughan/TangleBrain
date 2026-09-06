@@ -71,6 +71,21 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 - **Crossing it means:** adding a required field, or changing the meaning of `spend_avoided_usd` or
   the `task` vs `delegate` kind split that keeps the headline from double-counting.
 
+### Lifetime totals file — `totals.json` *(internal, forward-compatible)*
+
+- **Producer:** `tanglebrain/totals.py` — the format and its reader; the writer lands with the fold.
+- **Consumer:** `rollup()` in `tanglebrain/measurement.py`, reached by both `--stats` and the GUI
+  panel, **and every version of TangleBrain that shares the file.**
+- **Contract:** an unknown key is ignored, a missing key reads as zero, and an absent or corrupt
+  file reads as all-zeros — never an error. There is deliberately no schema-version field, so
+  additive-only is the whole compatibility story and nothing else can arbitrate a conflict.
+- **Crossing it means:** removing or repurposing a field, or folding a value whose cardinality is
+  unbounded — the delegates' `by_parent` tree is excluded for exactly that reason, and a figure
+  moving between lifetime and window scope has to land in both renderers or the panel and the CLI
+  disagree. The rollup's field list is built from this format's own declarations rather than
+  restated, so the two cannot drift; a test pins the one thing that construction cannot, a key the
+  rollup introduces on its own.
+
 ### Cross-process correlation *(internal, unenforceable)*
 
 - **Producer:** `cli.py` (mints `task_id`, injects `TANGLEBRAIN_TASK_ID`)

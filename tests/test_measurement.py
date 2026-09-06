@@ -1,9 +1,9 @@
-"""Tests for the measurement / spend-avoided layer (tanglebrain/measurement.py).
+"""Tests for the measurement / spend-avoided layer (`tanglebrain/measurement.py`, `totals.py`).
 
-Fully hermetic: the usage log is a temp path and pricing is injected, so nothing touches the real
-the operator's real state root or the packaged config. Covers the estimation/cost math, the
-fault-tolerant log I/O, and
-the rollup/format.
+Fully hermetic: the usage log and the totals file are temp paths and pricing is injected, so
+nothing touches the operator's real state root or the packaged config. Covers the estimation and
+cost math, the fault-tolerant log I/O, the `totals.json` format, and the rollup/format path that
+sums stored lifetime totals with the current row window.
 """
 from __future__ import annotations
 
@@ -29,6 +29,13 @@ from tanglebrain.measurement import (
     rollup,
     save_pricing,
     validate_pricing,
+)
+from tanglebrain.totals import (
+    TOTALS_FILENAME,
+    default_totals_path,
+    empty_totals,
+    normalize_totals,
+    read_totals,
 )
 
 # A fixed, non-placeholder pricing so cost assertions are exact and the caveat is off.
@@ -589,6 +596,246 @@ class DelegateObservabilityTest(unittest.TestCase):
         recs = self._read()
         self.assertEqual(len(recs), 20)  # 20 well-formed lines — no interleaved/corrupted writes
         self.assertTrue(all(r.get("kind") == "delegate" for r in recs))
+
+
+# A fully-populated totals file: every field the format carries, with a distinct value per field so
+# a reader that crosses two of them shows up as a wrong number rather than a coincidence.
+FULL_TOTALS = {
+    "tasks": 11,
+    "failures": 2,
+    "lost_attempts": 3,
+    "by_tier": {"local": 7, "cli": 4},
+    "by_origin": {"cli": 6, "gui": 5},
+    "in_tokens_est": 1000,
+    "out_tokens_est": 2000,
+    "cloud_equiv_usd": 4.5,
+    "spend_avoided_usd": 4.25,
+    "pricing_refs": ["old-frontier", "test-frontier"],
+    "delegates": {
+        "count": 5,
+        "by_backend": {"m1": {"count": 5, "in_tokens_est": 50, "out_tokens_est": 60}},
+        "in_tokens_est": 50,
+        "out_tokens_est": 60,
+        "cloud_equiv_usd": 0.75,
+    },
+}
+
+
+class TotalsFormatTest(unittest.TestCase):
+    """The `totals.json` format itself: where it lives, what it holds, how it degrades."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.totals = Path(self.tmp) / TOTALS_FILENAME
+
+    def test_lives_beside_the_usage_log_in_the_data_tier(self):
+        with patch.dict("os.environ", {"TANGLEBRAIN_STATE_DIR": self.tmp}, clear=False):
+            self.assertEqual(default_totals_path().parent, default_log_path().parent)
+            self.assertEqual(default_totals_path().name, TOTALS_FILENAME)
+
+    def test_absent_file_reads_as_zeros(self):
+        self.assertEqual(read_totals(self.totals), empty_totals())
+
+    def test_corrupt_file_reads_as_zeros_and_does_not_raise(self):
+        self.totals.write_text("{not json at all", encoding="utf-8")
+        self.assertEqual(read_totals(self.totals), empty_totals())
+
+    def test_truncated_mid_write_file_reads_as_zeros(self):
+        # The realistic corruption: a fold interrupted partway through writing the object.
+        self.totals.write_text('{"tasks": 11, "spend_avoided_usd": 4.2', encoding="utf-8")
+        self.assertEqual(read_totals(self.totals), empty_totals())
+
+    def test_non_object_json_reads_as_zeros(self):
+        self.totals.write_text("[1, 2, 3]", encoding="utf-8")
+        self.assertEqual(read_totals(self.totals), empty_totals())
+
+    def test_every_field_round_trips(self):
+        self.totals.write_text(json.dumps(FULL_TOTALS), encoding="utf-8")
+        self.assertEqual(read_totals(self.totals), FULL_TOTALS)
+
+    def test_unknown_key_is_ignored(self):
+        self.totals.write_text(
+            json.dumps({**FULL_TOTALS, "invented_by_a_later_version": 99}), encoding="utf-8"
+        )
+        got = read_totals(self.totals)
+        self.assertNotIn("invented_by_a_later_version", got)
+        self.assertEqual(got, FULL_TOTALS)  # and every shared field still survives
+
+    def test_unknown_nested_key_is_ignored(self):
+        raw = json.loads(json.dumps(FULL_TOTALS))
+        raw["delegates"]["invented_later"] = 99
+        raw["delegates"]["by_backend"]["m1"]["invented_later"] = 99
+        self.totals.write_text(json.dumps(raw), encoding="utf-8")
+        got = read_totals(self.totals)
+        self.assertNotIn("invented_later", got["delegates"])
+        self.assertNotIn("invented_later", got["delegates"]["by_backend"]["m1"])
+
+    def test_missing_key_reads_as_zero(self):
+        self.totals.write_text(json.dumps({"tasks": 11}), encoding="utf-8")
+        got = read_totals(self.totals)
+        self.assertEqual(got["tasks"], 11)
+        self.assertEqual(got, {**empty_totals(), "tasks": 11})
+
+    def test_bad_field_types_coerce_rather_than_raise(self):
+        self.totals.write_text(
+            json.dumps({
+                "tasks": "eleven", "spend_avoided_usd": None, "by_tier": "not-a-map",
+                "pricing_refs": "not-a-list", "delegates": {"by_backend": {"m1": "not-a-dict"}},
+            }),
+            encoding="utf-8",
+        )
+        got = read_totals(self.totals)
+        self.assertEqual(got["tasks"], 0)
+        self.assertEqual(got["spend_avoided_usd"], 0.0)
+        self.assertEqual(got["by_tier"], {})
+        self.assertEqual(got["pricing_refs"], [])
+        # The model was recorded, so it stays — dropping it would understate the backend split.
+        self.assertEqual(
+            got["delegates"]["by_backend"]["m1"],
+            {"count": 0, "in_tokens_est": 0, "out_tokens_est": 0},
+        )
+
+    def test_pricing_refs_are_sorted_and_deduplicated(self):
+        self.totals.write_text(json.dumps({"pricing_refs": ["b", "a", "b"]}), encoding="utf-8")
+        self.assertEqual(read_totals(self.totals)["pricing_refs"], ["a", "b"])
+
+    def test_empty_totals_is_not_shared_between_callers(self):
+        first = empty_totals()
+        first["tasks"] = 99
+        first["by_tier"]["local"] = 99
+        self.assertEqual(empty_totals()["tasks"], 0)
+        self.assertEqual(empty_totals()["by_tier"], {})
+
+    def test_every_lifetime_rollup_field_has_a_home_in_totals(self):
+        """The anti-drift mechanism for two field lists that must agree.
+
+        `rollup` and `empty_totals` describe the same aggregate in two modules. A field added to
+        one and not the other is a figure that silently becomes window-scoped while sitting under
+        a lifetime headline — the contradiction the split exists to prevent. Asserting the
+        correspondence is what keeps it an invariant rather than a habit; `by_parent` is the one
+        recorded exception, and naming it here is what makes a *second* exception fail.
+        """
+        summary = rollup([])
+        self.assertEqual(set(summary) - set(empty_totals()), set())
+        self.assertEqual(
+            set(summary["delegates"]) - set(empty_totals()["delegates"]), {"by_parent"}
+        )
+
+
+class RollupReadsTotalsPlusRowsTest(unittest.TestCase):
+    """The read half: the headline is stored totals plus the rows still on disk."""
+
+    def _rows(self):
+        return [
+            {"kind": "task", "tier": "local", "origin": "cli", "in_tokens_est": 10,
+             "out_tokens_est": 20, "cloud_equiv_usd": 0.5, "spend_avoided_usd": 0.5,
+             "pricing_ref": "test-frontier"},
+            {"kind": "delegate", "model": "m1", "parent_task_id": "t1", "in_tokens_est": 5,
+             "out_tokens_est": 6, "cloud_equiv_usd": 0.25, "pricing_ref": "test-frontier"},
+        ]
+
+    def test_no_totals_rolls_up_to_the_window_figure(self):
+        # Asserted against an explicit expected dict rather than against `rollup(rows,
+        # empty_totals())` — that comparison is two spellings of the same zero argument through the
+        # same normalizer, so it would hold even if every summation below were wrong.
+        self.assertEqual(rollup(self._rows()), {
+            "tasks": 1,
+            "failures": 0,
+            "lost_attempts": 0,
+            "by_tier": {"local": 1},
+            "by_origin": {"cli": 1},
+            "in_tokens_est": 10,
+            "out_tokens_est": 20,
+            "cloud_equiv_usd": 0.5,
+            "spend_avoided_usd": 0.5,
+            "pricing_refs": ["test-frontier"],
+            "delegates": {
+                "count": 1,
+                "by_backend": {"m1": {"count": 1, "in_tokens_est": 5, "out_tokens_est": 6}},
+                "by_parent": {"t1": {"count": 1, "by_backend": {"m1": 1}}},
+                "in_tokens_est": 5,
+                "out_tokens_est": 6,
+                "cloud_equiv_usd": 0.25,
+            },
+        })
+
+    def test_scalars_and_maps_sum_across_totals_and_rows(self):
+        got = rollup(self._rows(), FULL_TOTALS)
+        self.assertEqual(got["tasks"], 12)                      # 11 stored + 1 row
+        self.assertEqual(got["in_tokens_est"], 1010)
+        self.assertEqual(got["out_tokens_est"], 2020)
+        self.assertEqual(got["spend_avoided_usd"], 4.75)
+        self.assertEqual(got["cloud_equiv_usd"], 5.0)
+        self.assertEqual(got["by_tier"], {"local": 8, "cli": 4})
+        self.assertEqual(got["by_origin"], {"cli": 7, "gui": 5})
+        self.assertEqual(got["delegates"]["count"], 6)
+        self.assertEqual(
+            got["delegates"]["by_backend"]["m1"],
+            {"count": 6, "in_tokens_est": 55, "out_tokens_est": 66},
+        )
+
+    def test_by_parent_covers_the_window_only(self):
+        # Never seeded from totals, because one key per parent task id cannot be folded.
+        got = rollup(self._rows(), FULL_TOTALS)
+        self.assertEqual(set(got["delegates"]["by_parent"]), {"t1"})
+
+    def test_pricing_refs_merge_totals_and_rows(self):
+        got = rollup(self._rows(), FULL_TOTALS)
+        self.assertEqual(got["pricing_refs"], ["old-frontier", "test-frontier"])
+
+    def test_pricing_refs_from_rows_alone(self):
+        rows = self._rows() + [{"kind": "task", "pricing_ref": "newer-frontier"}]
+        self.assertEqual(rollup(rows)["pricing_refs"], ["newer-frontier", "test-frontier"])
+
+    def test_failure_record_does_not_widen_the_pricing_span(self):
+        # A failure priced nothing, so it must not caveat a figure it never contributed to.
+        rows = [{"kind": "failure", "pricing_ref": "never-charged"}]
+        self.assertEqual(rollup(rows)["pricing_refs"], [])
+
+    def test_rollup_does_not_mutate_the_totals_it_was_given(self):
+        totals = json.loads(json.dumps(FULL_TOTALS))
+        rollup(self._rows(), totals)
+        self.assertEqual(totals, FULL_TOTALS)
+
+    def test_corrupt_totals_degrades_to_the_window_figure(self):
+        tmp = Path(tempfile.mkdtemp()) / TOTALS_FILENAME
+        tmp.write_text("{broken", encoding="utf-8")
+        rows = self._rows()
+        self.assertEqual(rollup(rows, read_totals(tmp)), rollup(rows))
+
+    def test_a_malformed_totals_argument_degrades_to_the_window_figure(self):
+        # `rollup` normalizes what it is handed rather than trusting it: it is the function whose
+        # failure blanks the headline, so no caller can crash it with a bad shape.
+        rows = self._rows()
+        self.assertEqual(
+            rollup(rows, {"tasks": "x", "by_tier": "nope", "delegates": 7}), rollup(rows)
+        )
+
+    def test_totals_from_a_newer_version_still_sum(self):
+        raw = {**FULL_TOTALS, "some_future_field": 5}
+        self.assertEqual(rollup(self._rows(), normalize_totals(raw))["tasks"], 12)
+
+
+class WindowVersusLifetimeLabellingTest(unittest.TestCase):
+    """Every figure in the block is lifetime except one, and the block says which."""
+
+    def _summary(self):
+        return rollup([{"kind": "delegate", "model": "m1", "parent_task_id": "t1"}], FULL_TOTALS)
+
+    def test_heading_claims_lifetime(self):
+        self.assertIn("lifetime", format_rollup(self._summary(), FIXED).splitlines()[0])
+
+    def test_parent_tree_is_labelled_window_scoped(self):
+        out = format_rollup(self._summary(), FIXED)
+        self.assertIn("Linked to:", out)
+        self.assertIn("(within the current row window)", out)
+
+    def test_panel_labels_the_parent_tree_window_scoped_too(self):
+        # The GUI renders the same dict, so it inherits the same contradiction if left unlabelled.
+        panel = (Path(__file__).resolve().parents[1]
+                 / "tanglebrain" / "gui" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("(current row window)", panel)
+        self.assertIn("(local rollup, lifetime)", panel)
 
 
 if __name__ == "__main__":
