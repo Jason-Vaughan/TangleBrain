@@ -187,8 +187,8 @@ The opposite order would drop rows before anything recorded them: a smaller numb
 nothing left to recompute from. Nothing yet records *which* rows were folded, so an inflated figure
 is not attributable and does not correct itself; what the ordering buys is that no row is destroyed
 before something records it. Rows that stay are copied through unparsed, so neither a field added by
-a newer version nor a line torn by an interrupted append is lost to the rewrite. Nothing triggers compaction automatically yet — it is an explicit call
-until the size cap lands ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+a newer version nor a line torn by an interrupted append is lost to the rewrite. Compaction runs on
+a **size cap** checked by every recorded task, so the log prunes itself without an operator.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response (the
 authenticated CLIs expose no usable counts), so one consistent approximate methodology applies to

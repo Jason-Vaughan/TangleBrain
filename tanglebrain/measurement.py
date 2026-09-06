@@ -23,10 +23,15 @@ Design notes:
   unbounded and so cannot be folded — and the renderers label it as such.
 - **Compaction moves rows across that seam** (:func:`compact_log`), and the *order* of its two
   writes is its whole guarantee: totals first, rows dropped only after. A torn compaction then
-  **over-counts rather than losing rows** — the figure reads too large. Nothing yet identifies
-  *which* rows were double-counted, so that state is not self-correcting; what the ordering buys is
-  that no row is ever destroyed before something records it, which is the one failure this
-  product's central claim cannot survive.
+  **over-counts rather than losing rows** — the figure reads too large. Nothing identifies *which*
+  rows were double-counted, so that state is not self-correcting; what the ordering buys is that no
+  row is ever destroyed before something records it, which is the one failure this product's
+  central claim cannot survive. That residue is an accepted limit, argued at
+  :func:`_compact_if_oversized`.
+- **The window is capped by size** (:data:`MAX_LOG_BYTES`). Every append checks the log's size and
+  folds the oldest rows away once it crosses the cap, so the file is bounded without the lifetime
+  figure moving. Size, not age: an age cap takes a light user's whole history and a heavy user's
+  nothing, and disk footprint is the cost worth bounding.
 - **All I/O is fault-tolerant.** A logging failure must never break the user's actual answer, and a
   corrupt log line must never break the rollup. Reads return sensible defaults; the writer swallows
   every exception. This mirrors the router's state-file idiom (:mod:`tanglebrain.router`).
@@ -46,6 +51,7 @@ from tanglebrain.atomic import atomic_copy, atomic_write
 from tanglebrain.router import state_root
 from tanglebrain.totals import (
     BACKEND_INT_FIELDS,
+    TOTALS_FILENAME,
     as_float,
     as_int,
     default_totals_path,
@@ -70,15 +76,45 @@ PARENT_TASK_ID_ENV = "TANGLEBRAIN_TASK_ID"
 # appends rely on the OS's O_APPEND atomicity for short lines, as before.
 _LOG_LOCK = threading.Lock()
 
+# Held non-blocking around an automatic compaction, so a thread fan-out that all crosses the cap at
+# once folds the log once rather than N times. Not a correctness lock — `compact_log` takes
+# `_LOG_LOCK` for its whole body — and never waited on: a thread that finds a fold already running
+# has nothing to add by queueing behind it.
+_COMPACT_LOCK = threading.Lock()
+
+#: Byte ceiling on the row window. Once an append pushes the log past this, the oldest rows fold
+#: into the lifetime totals and leave the file (:func:`_compact_if_oversized`), so the log is
+#: bounded while the spend-avoided figure stays exactly where it was.
+#:
+#: **Size, not age.** An age cap is regressive — a light user loses a whole history to the calendar
+#: while a heavy user loses nothing — and disk footprint is the cost a cap exists to bound.
+#:
+#: 5 MiB is roughly 15,000 records: rows measure 240-330 bytes on a real log, and the widest shape
+#: the current record can take (``task_id`` and ``origin`` present, a long ``pricing_ref``) sits at
+#: the top of that range. Large enough that a heavy user keeps months of per-task detail, small
+#: enough that the file is never a surprise in a home directory. A stated default rather than a
+#: magic number: the behaviour is read from here, so changing it here changes the behaviour.
+MAX_LOG_BYTES = 5 * 1024 * 1024
+
+#: What a compaction leaves behind, as a byte budget over the newest rows — ~1 MiB, roughly 3,000
+#: records, enough recent history that the window-scoped halves of the rollup (the per-parent
+#: delegate tree, the backend split) still answer a question.
+#:
+#: Expressed in the same unit as :data:`MAX_LOG_BYTES` and strictly smaller on purpose: a
+#: compaction then cannot leave the log still over the cap, and the gap between the two is the
+#: hysteresis that stops every following append from triggering another whole-file rewrite.
+KEEP_RECENT_BYTES = 1024 * 1024
+
 
 class CompactionRefusedError(RuntimeError):
     """Raised when compaction declines to run because folding would destroy recoverable state.
 
-    Distinct from an ``OSError``: nothing failed and nothing was written. The store is in a state
-    where the *safe* action is to leave both halves on disk, so the caller is told rather than
-    quietly given a smaller number. Callers that must not break a user's answer should treat it the
-    way :func:`record_task` treats a logging failure — the rows are intact, and a later run can
-    still fold them.
+    The condition is a lifetime totals file that is present but cannot be read back as an object —
+    its bytes are unparseable, or the file cannot be read at all. Distinct from an ``OSError``:
+    nothing failed and nothing was written. The store is in a state where the *safe* action is to
+    leave both halves on disk, so the caller is told rather than quietly given a smaller number.
+    Callers that must not break a user's answer should treat it the way :func:`record_task` treats
+    a logging failure — the rows are intact, and a later run can still fold them.
     """
 
 
@@ -416,6 +452,9 @@ def record_task(
         with _LOG_LOCK:
             with target.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
+        # Outside the lock deliberately — `_LOG_LOCK` is not reentrant and compaction holds it for
+        # its whole body, so triggering from inside would deadlock rather than raise.
+        _compact_if_oversized(target)
     except Exception:  # noqa: BLE001
         # Measurement is a side-effect: a failure here must never affect the returned answer.
         return
@@ -653,11 +692,13 @@ def compact_log(
     from. Over-counting is a bug; under-counting is the loss of the only claim this product makes
     about itself, so the recoverable direction is the only one reachable.
 
-    **What that does not buy, stated because five surfaces used to imply otherwise:** a folded row
-    is byte-identical to an unfolded one, and nothing here records a watermark, a fold count or a
-    timestamp — so an inflated figure is not *attributable* and does not correct itself. Whoever
-    wires the automatic trigger has to decide whether a persisted watermark is owed before an
-    unattended crash can inflate the headline (it is additive under the format contract).
+    **What that does not buy:** a folded row is byte-identical to an unfolded one, and nothing here
+    records a watermark, a fold count or a timestamp — so an inflated figure is not *attributable*
+    and does not correct itself. That is an accepted limit, argued where the automatic trigger
+    lives (:func:`_compact_if_oversized`). A *failed* fold puts the totals back, so it is bounded
+    at one batch whenever that rollback lands; the two states where it is not are a crash, which
+    runs no code, and a rollback that fails in its turn — both leave the log over its cap, so the
+    next recorded task re-folds.
 
     Nothing is written at all when there is nothing to fold, so a short log leaves both files
     exactly as they were rather than materializing a zeroed totals file beside it.
@@ -673,8 +714,13 @@ def compact_log(
     compactions overlapping read the same totals and the later write discards the earlier fold
     wholesale. Accepted for a single-operator local tool, and stated rather than papered over — an
     advisory lock would buy a guarantee on POSIX only, and a guarantee that silently does not hold
-    on one supported platform is worse than a limitation written down. The window is one explicit
-    maintenance call today; a caller that makes compaction automatic has to weigh it again.
+    on one supported platform is worse than a limitation written down. What the size cap changed is
+    **frequency, not window width**: compaction went from one deliberate call to a check on every
+    recorded task, in every process, and ``_COMPACT_LOCK`` serializes only the threads of one of
+    them. Two TangleBrain processes crossing the cap together is therefore reachable where it
+    previously took an operator running two maintenance calls at once. It is still a
+    single-operator tool and the window is still the milliseconds of one fold, so the trade stands
+    — but it stands on a frequency this chunk raised, not on the one it was first weighed against.
 
     Args:
         keep_recent: How many of the newest rows to leave in the log. ``0`` folds everything.
@@ -689,10 +735,12 @@ def compact_log(
 
     Raises:
         ValueError: If ``keep_recent`` is negative.
-        CompactionRefusedError: If the totals file exists but does not parse. Nothing is written — the
-            damaged file and every row are left where they are.
-        OSError: If either write fails. A failed totals write leaves both files untouched; a failed
-            log rewrite leaves the over-counting state described above, never a lossy one.
+        CompactionRefusedError: If the totals file exists but cannot be read back as a totals
+            object — unparseable, or unreadable at all. Nothing is written; the damaged file and
+            every row are left where they are.
+        OSError: If either write fails. Both files are left as they were: a failed totals write
+            never reaches the log, and a failed log rewrite puts the totals back. Never a lossy
+            state in either direction.
     """
     if keep_recent < 0:
         raise ValueError("keep_recent must be >= 0")
@@ -702,24 +750,186 @@ def compact_log(
         lines = _read_lines(log)
         if keep_recent >= len(lines):
             return 0
-        # A totals file that is present but unparseable reads as zeros, and folding onto zeros
+        # A totals file that is present but unreadable reads as zeros, and folding onto zeros
         # would overwrite the damaged bytes and *then* delete the rows that could have reconciled
         # them — turning a bad-but-recoverable store into a permanent under-count without a crash.
         # Reading as zeros is right for a rollup, which only renders; it is wrong for a writer,
         # which destroys. Refusing keeps both halves on disk. The log grows meanwhile, which is a
         # smaller problem than a wrong headline.
+        # `read_raw_totals` returns `None` for unreadable bytes as well as unparseable ones, so
+        # this covers both — the file is present and cannot be trusted either way.
         if totals_file.exists() and not isinstance(read_raw_totals(totals_file), dict):
             raise CompactionRefusedError(
-                f"{totals_file} exists but does not parse as a totals object; refusing to fold "
+                f"{totals_file} exists but cannot be read as a totals object; refusing to fold "
                 f"{len(lines) - keep_recent} row(s) onto it. Move or repair the file first — the "
                 f"rows are still in {log} and no figure has been lost."
             )
         cut = len(lines) - keep_recent
         folding = [record for _, record in lines[:cut] if record is not None]
         keeping = [raw for raw, _ in lines[cut:]]
+        snapshot = _totals_snapshot(totals_file)
         write_totals(fold_records_into_totals(folding, read_totals(totals_file)), totals_file)
-        _rewrite_log(log, keeping)
+        try:
+            _rewrite_log(log, keeping)
+        except OSError:
+            # The totals now hold rows the log also still holds. With one manual caller that was a
+            # one-shot over-count; under an automatic trigger the log is *still over its cap*, so
+            # the next recorded task folds the same rows onto the already-inflated total, and the
+            # one after that again — a figure growing by a whole batch per task, from a failure
+            # that repeats (a full disk fails the megabyte-scale log rewrite while the few-hundred
+            # -byte totals write and append still succeed). Putting the totals back makes a failed
+            # fold a no-op instead: nothing was destroyed, because the rows are exactly where they
+            # were.
+            _restore_totals(totals_file, snapshot)
+            raise
     return cut
+
+
+def _totals_snapshot(totals_file: Path) -> tuple[bool, str | None]:
+    """Capture the totals file verbatim, so a fold that cannot finish can be undone exactly.
+
+    Text rather than a parsed value: restoring a re-serialization would silently rewrite a field
+    this version does not define, and the whole point of the snapshot is that the store ends where
+    it started.
+
+    **"Absent" and "could not be read" are returned as different things**, because the rollback
+    does opposite work for them — delete, versus leave alone. Collapsing both into "no content"
+    would make a file this function merely failed to *read* a file the rollback *deletes*, which is
+    the under-count direction the store cannot survive. Unreachable today (the refusal guard runs
+    first, under the same lock), so this is the cheap half of a rule rather than a fix for a live
+    bug — the expensive half is discovering later that it stopped being unreachable.
+
+    Args:
+        totals_file: The lifetime totals path.
+
+    Returns:
+        ``(the file existed, its text or None)``. The text is ``None`` only when the file could not
+        be read — absent, or present and unreadable, which the flag tells apart.
+    """
+    try:
+        return True, totals_file.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False, None
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError: bytes that are not UTF-8 are unreadable here in
+        # exactly the sense that matters, and must not be mistaken for an absent file.
+        return True, None
+
+
+def _restore_totals(totals_file: Path, snapshot: tuple[bool, str | None]) -> None:
+    """Undo a totals write whose paired log rewrite failed. Never raises.
+
+    Best-effort by design. It runs while an ``OSError`` is already propagating, and that error is
+    the one the caller needs to see — a second exception raised from here would replace the
+    diagnosis with the symptom. If the restore itself fails, the store is left over-counting and
+    the log stays over its cap, so the *next* recorded task re-folds: the unbounded case the
+    rollback exists to prevent, back again. Accepted because the restore asks far less of a failing
+    disk than the write that failed — a few hundred bytes, or a delete — and because the
+    alternative, deleting rows to match, is the direction that loses the figure entirely.
+
+    Args:
+        totals_file: The lifetime totals path.
+        snapshot: The pair from :func:`_totals_snapshot`.
+    """
+    existed, previous = snapshot
+    try:
+        if previous is not None:
+            atomic_write(totals_file, previous)
+        elif not existed:
+            totals_file.unlink(missing_ok=True)   # the failed fold created it; take it back out
+        # existed and unreadable: leave it. Over-counting is recoverable; deleting a totals file
+        # this function could not read is not.
+    except OSError:
+        return
+
+
+def _keep_recent_for_budget(log: Path, budget: int) -> int:
+    """Count the newest rows whose bytes fit inside ``budget``.
+
+    Turns the byte budget the cap is stated in into the row count :func:`compact_log` takes. Doing
+    that arithmetic here rather than teaching compaction a second unit leaves its contract — fold
+    everything but the newest N rows — exactly as it was, and keeps the retention policy in one
+    place with the cap it is derived from.
+
+    Args:
+        log: The usage log to measure.
+        budget: How many bytes of the newest rows to keep.
+
+    Returns:
+        The number of trailing rows that fit; ``0`` when not even the newest row does, which folds
+        the log empty rather than leaving a row the budget does not cover.
+    """
+    kept = 0
+    used = 0
+    for raw, _ in reversed(_read_lines(log)):
+        used += len(raw.encode("utf-8")) + 1  # +1 for the newline the rewrite puts back
+        if used > budget:
+            break
+        kept += 1
+    return kept
+
+
+def _compact_if_oversized(log: Path) -> None:
+    """Fold the oldest rows away once the log has grown past :data:`MAX_LOG_BYTES`. Never raises.
+
+    The automatic half of compaction: :func:`compact_log` does the work and this decides when. The
+    check is one ``stat`` per recorded task, which costs nothing beside the append it follows; the
+    fold runs only on the append that crosses the cap, and leaves the log inside
+    :data:`KEEP_RECENT_BYTES` so the next one is a whole window away.
+
+    **Every failure is swallowed here rather than by the caller's blanket ``except``.** Compaction
+    raises by design — ``OSError`` on a failed write, :exc:`CompactionRefusedError` when the totals
+    file is present but unusable — and measurement is a side-effect that must never break the
+    answer (`nonfunctional-requirements.md` § Direction). Catching them at the trigger keeps the
+    caller's own swallow meaning only "the append failed". A refused fold leaves both halves on
+    disk and the log keeps growing until the unusable ``totals.json`` behind it is repaired.
+
+    **The over-count a torn fold leaves is an accepted limit, and this is what makes it reachable
+    with no operator present.** Compaction orders its two writes so an interruption counts rows in
+    both halves and the figure reads too large, but nothing records *which* rows, so the state is
+    neither attributable nor self-correcting. A persisted watermark was considered and rejected:
+    every form of it has to answer "are the rows in front of me already counted", and each way of
+    answering fails toward *under*-counting — a ``ts`` is second-resolution and shared by rows on
+    both sides of a cut, ``task_id`` is optional and absent from most rows, and a digest of the
+    folded prefix races the appends it would be compared against. That trades a vanishing event
+    (a power loss inside the microseconds between two fsynced writes) for a permanent hazard on
+    every read, in the one direction this product's central claim cannot survive.
+
+    **What keeps it to one batch is the rollback, not the odds.** A *failed* fold puts the totals
+    back (:func:`compact_log`), which matters far more here than it did when compaction was a
+    manual call: the log stays over its cap either way, so without the rollback a failure that
+    repeats — a full disk fails the megabyte-scale log rewrite while the small totals write and the
+    append still succeed — would re-fold the same rows on every recorded task and grow the figure
+    without limit. With it, two states still leave rows counted twice, and they are not the same
+    size. A **crash** runs no code, so nothing rolls back — but the next run's fold completes and
+    truncates, which caps the damage at one batch. A **rollback that fails in its turn**
+    (:func:`_restore_totals` swallows its own ``OSError``, so the caller sees the real diagnosis)
+    leaves the totals inflated and the log over its cap, and that is the unbounded case again:
+    every following task re-folds. It is far less likely than the write it follows — putting back a
+    few hundred bytes, or deleting them, asks much less of a failing disk than rewriting a megabyte
+    of log — and it is the honest limit, written down rather than implied.
+
+    Args:
+        log: The usage log just appended to. The lifetime totals are taken from beside it: the two
+            files are one store and resolve together under a single path override.
+    """
+    try:
+        if log.stat().st_size <= MAX_LOG_BYTES:
+            return
+    except OSError:
+        return  # the log went away between the append and the check; nothing to fold
+    if not _COMPACT_LOCK.acquire(blocking=False):
+        return  # another thread of this process is already folding this log
+    try:
+        compact_log(
+            keep_recent=_keep_recent_for_budget(log, KEEP_RECENT_BYTES),
+            log_path=log,
+            totals_path=log.parent / TOTALS_FILENAME,
+        )
+    except (OSError, CompactionRefusedError):
+        return
+    finally:
+        _COMPACT_LOCK.release()
 
 
 def format_rollup(summary: dict, pricing: Pricing) -> str:

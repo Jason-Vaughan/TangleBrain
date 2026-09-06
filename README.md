@@ -177,11 +177,10 @@ paid frontier API.
 
 `tanglebrain --stats` reports a **lifetime** figure, summed from two files: `totals.json` beside
 the log holds permanent aggregates, and the log holds the recent rows. Compaction folds the oldest
-rows into the totals and then drops them, which is what will let the log stay a bounded window
-without the lifetime figure shrinking as it shrinks — the size trigger that invokes it is still to
-come ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)), so the log grows unbounded
-for now. Delete either file and the figure falls back to whatever the other one holds — a smaller
-number, never an error.
+rows into the totals and then drops them, so the log stays a bounded window without the lifetime
+figure shrinking as it shrinks. It runs on a size cap (5 MiB, roughly 15,000 records) — no
+maintenance, and nothing to schedule. Delete either file and the figure falls back to whatever the
+other one holds — a smaller number, never an error.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is

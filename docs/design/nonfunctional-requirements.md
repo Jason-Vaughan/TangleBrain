@@ -64,9 +64,11 @@ Explicitly bounded, and the bounds are the design:
 - **Roster size** is expected in the tens. Selection is a linear scan and that is appropriate;
   anything cleverer would be unjustified.
 
-**Known unbounded quantity:** `usage.jsonl` grows forever. No rotation, no cap, no *automatic* pruning — compaction exists, but nothing invokes it yet.
-Slow-moving for one operator, but it is the one place the system has no scaling story at all —
-[#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101).
+**Bounded storage.** `usage.jsonl` is capped by size: crossing the cap folds its oldest rows into
+`totals.json` and drops them, so the row window stays bounded while the lifetime figure does not
+move. `totals.json` is one object with no per-task keys, so neither half of the store grows without
+limit — which is exactly why the delegates' per-parent tree, one key per parent task id, is never
+folded into it.
 
 ## Reliability
 

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The usage log now prunes itself, capped by size** — recording a task checks the log, and
+  crossing `MAX_LOG_BYTES` (5 MiB, roughly 15,000 records) folds the oldest rows into `totals.json`
+  and drops them until what remains fits `KEEP_RECENT_BYTES` (~1 MiB). The lifetime spend-avoided
+  figure does not move: the fold runs the read path's own summation, so rows crossing the seam
+  change nothing a user sees. The log stops growing without limit, with nothing to schedule and no
+  operator maintenance. Closes
+  [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101).
+
+  **Size, not age.** An age cap is regressive — a light user loses a whole history to the calendar
+  while a heavy user loses nothing — and disk footprint is the cost a cap exists to bound. The
+  retention budget is strictly under the cap, so a fold cannot leave the log still over it and the
+  next fold is a whole window away.
+
+  Both numbers are named constants with their reasoning attached, read at the moment the check runs
+  — changing one changes the behaviour, which is what the tests exercise.
+
+  **The trigger never breaks a recorded task.** It runs outside the append lock (which is not
+  reentrant, so triggering from inside would deadlock rather than raise), and swallows compaction's
+  own failures at source, so the recording path's blanket catch keeps meaning "the append failed".
+  A compaction that *refuses* — a `totals.json` present but unreadable — leaves every row on disk
+  and stops the pruning until that file is repaired or moved aside.
+
+  **The over-count a torn fold leaves is now an accepted limit, stated rather than implied.** A
+  persisted watermark was considered and rejected: every form of one has to answer "are the rows in
+  front of me already counted", and each way of answering fails toward *under*-counting — a
+  second-resolution `ts` is shared by rows on both sides of a cut, `task_id` is optional and absent
+  from most rows, and a digest of the folded prefix races the appends it would be compared against.
+  That trades a power loss inside the microseconds between two fsynced writes for a permanent
+  hazard on every read, in the one direction the lifetime figure cannot survive.
+
+  **A fold whose log rewrite fails now puts the totals back**, so a failed compaction is a no-op
+  rather than a half-applied one. Under a manual call that was a one-shot over-count; under an
+  automatic trigger the log stays over its cap, so a repeating failure — a full disk fails the
+  megabyte-scale log rewrite while the small totals write still succeeds — would otherwise re-fold
+  the same rows on every recorded task and inflate the figure without limit.
+
+  Two states still leave rows counted twice. A **crash** runs no code, so nothing rolls back, but
+  the next run's fold completes and caps the damage at one batch. A **rollback that itself fails**
+  leaves the totals inflated and the log over its cap — the unbounded case again. It asks far less
+  of a failing disk to put a few hundred bytes back than to rewrite a megabyte of log, so it is
+  much the less likely of the two, and it is stated rather than rounded away.
+
 ## [0.21.0] - 2026-09-06
 
 ### Added
