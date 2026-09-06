@@ -1200,6 +1200,28 @@ class CompactionTest(unittest.TestCase):
                 self._compact(keep_recent=2)
         self.assertFalse(self.totals.exists(), "a rolled-back fold left its own file behind")
 
+    def test_a_failed_rewrite_keeps_a_totals_file_it_could_not_read(self):
+        """"Absent" and "unreadable" are different, because the rollback does opposite work for them.
+
+        Deleting a file this run merely failed to *read* would be the under-count direction — the
+        rows that could reconcile it are still on disk, and the totals holding the rest are not.
+        Leaving it over-counts, which is recoverable. The refusal guard makes the state unreachable
+        through `compact_log` today, so the rollback is exercised directly.
+        """
+        self.totals.write_text('{"tasks": 5}', encoding="utf-8")
+        with patch.object(Path, "read_text", side_effect=OSError("unreadable")):
+            snapshot = measurement._totals_snapshot(self.totals)
+        self.assertEqual(snapshot, (True, None), "an unreadable file must not look absent")
+        measurement._restore_totals(self.totals, snapshot)
+        self.assertEqual(self.totals.read_text(encoding="utf-8"), '{"tasks": 5}',
+                         "the rollback deleted a totals file it could not read")
+
+    def test_a_snapshot_tells_an_absent_file_from_an_unreadable_one(self):
+        self.assertEqual(measurement._totals_snapshot(self.totals), (False, None))
+        self.totals.write_bytes(b"\xff\xfe not utf-8")
+        self.assertEqual(measurement._totals_snapshot(self.totals), (True, None),
+                         "undecodable bytes are unreadable, not absent")
+
     def test_a_negative_keep_is_rejected(self):
         with self.assertRaises(ValueError):
             self._compact(keep_recent=-1)
@@ -1419,11 +1441,14 @@ class AutomaticCompactionTest(unittest.TestCase):
             self._flood(60, log=uncapped / LOG_FILENAME)
 
         folds = []
+
+        def count_then_fail(log_path, lines):
+            folds.append(1)
+            raise OSError("disk full")
+
         with patch.object(measurement, "MAX_LOG_BYTES", 2000), \
                 patch.object(measurement, "KEEP_RECENT_BYTES", 500), \
-                patch.object(measurement, "_rewrite_log",
-                             side_effect=lambda *a, **k: folds.append(1) or (_ for _ in ()).throw(
-                                 OSError("disk full"))):
+                patch.object(measurement, "_rewrite_log", side_effect=count_then_fail):
             self._flood(60)
         self.assertGreater(len(folds), 1, "the trigger must have retried, or this proves nothing")
         self.assertEqual(len(read_records(self.log)), 60, "no row was dropped")

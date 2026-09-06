@@ -112,9 +112,9 @@ class CompactionRefusedError(RuntimeError):
     The condition is a lifetime totals file that is present but cannot be read back as an object —
     its bytes are unparseable, or the file cannot be read at all. Distinct from an ``OSError``:
     nothing failed and nothing was written. The store is in a state where the *safe* action is to
-    leave both halves on disk, so the caller is told rather than quietly given a smaller number. Callers that must not break a user's answer should treat it the
-    way :func:`record_task` treats a logging failure — the rows are intact, and a later run can
-    still fold them.
+    leave both halves on disk, so the caller is told rather than quietly given a smaller number.
+    Callers that must not break a user's answer should treat it the way :func:`record_task` treats
+    a logging failure — the rows are intact, and a later run can still fold them.
     """
 
 
@@ -784,47 +784,60 @@ def compact_log(
     return cut
 
 
-def _totals_snapshot(totals_file: Path) -> str | None:
+def _totals_snapshot(totals_file: Path) -> tuple[bool, str | None]:
     """Capture the totals file verbatim, so a fold that cannot finish can be undone exactly.
 
-    Bytes rather than a parsed value: restoring a re-serialization would silently rewrite a field
+    Text rather than a parsed value: restoring a re-serialization would silently rewrite a field
     this version does not define, and the whole point of the snapshot is that the store ends where
     it started.
+
+    **"Absent" and "could not be read" are returned as different things**, because the rollback
+    does opposite work for them — delete, versus leave alone. Collapsing both into "no content"
+    would make a file this function merely failed to *read* a file the rollback *deletes*, which is
+    the under-count direction the store cannot survive. Unreachable today (the refusal guard runs
+    first, under the same lock), so this is the cheap half of a rule rather than a fix for a live
+    bug — the expensive half is discovering later that it stopped being unreachable.
 
     Args:
         totals_file: The lifetime totals path.
 
     Returns:
-        The file's text, or ``None`` when there is nothing to put back — the file is absent, or
-        unreadable, which is the state :exc:`CompactionRefusedError` has already ruled out for
-        every caller that reaches this.
+        ``(the file existed, its text or None)``. The text is ``None`` only when the file could not
+        be read — absent, or present and unreadable, which the flag tells apart.
     """
     try:
-        return totals_file.read_text(encoding="utf-8")
-    except OSError:
-        return None
+        return True, totals_file.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False, None
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError: bytes that are not UTF-8 are unreadable here in
+        # exactly the sense that matters, and must not be mistaken for an absent file.
+        return True, None
 
 
-def _restore_totals(totals_file: Path, previous: str | None) -> None:
+def _restore_totals(totals_file: Path, snapshot: tuple[bool, str | None]) -> None:
     """Undo a totals write whose paired log rewrite failed. Never raises.
 
     Best-effort by design. It runs while an ``OSError`` is already propagating, and that error is
     the one the caller needs to see — a second exception raised from here would replace the
-    diagnosis with the symptom. If the restore itself fails the store is left over-counting, which
-    is where it would have been without this function at all; the restore is far likelier to
-    succeed than the write that failed, since putting back a few hundred bytes (or deleting them)
-    asks much less of a full disk than rewriting a megabyte of log.
+    diagnosis with the symptom. If the restore itself fails, the store is left over-counting and
+    the log stays over its cap, so the *next* recorded task re-folds: the unbounded case the
+    rollback exists to prevent, back again. Accepted because the restore asks far less of a failing
+    disk than the write that failed — a few hundred bytes, or a delete — and because the
+    alternative, deleting rows to match, is the direction that loses the figure entirely.
 
     Args:
         totals_file: The lifetime totals path.
-        previous: The bytes from :func:`_totals_snapshot`, or ``None`` to remove a file that the
-            failed fold created.
+        snapshot: The pair from :func:`_totals_snapshot`.
     """
+    existed, previous = snapshot
     try:
-        if previous is None:
-            totals_file.unlink(missing_ok=True)
-        else:
+        if previous is not None:
             atomic_write(totals_file, previous)
+        elif not existed:
+            totals_file.unlink(missing_ok=True)   # the failed fold created it; take it back out
+        # existed and unreadable: leave it. Over-counting is recoverable; deleting a totals file
+        # this function could not read is not.
     except OSError:
         return
 
