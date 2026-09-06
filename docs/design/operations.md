@@ -113,11 +113,21 @@ cat machine-a/usage.jsonl machine-b/usage.jsonl > /tmp/merged/usage.jsonl
 TANGLEBRAIN_STATE_DIR=/tmp/merged tanglebrain --stats
 ```
 
-`TANGLEBRAIN_STATE_DIR` is the same override the Configuration table above documents, and it is
-safe here by construction: `--stats` returns before anything routes, so nothing is recorded and
-compaction — which only ever triggers from recording a task — cannot fire and prune the merged
-file. The override resolves the legacy cache-tier root to the same directory too, so the first-run
-migration finds source and destination identical and copies nothing in.
+**It must be `TANGLEBRAIN_STATE_DIR`, not one of the other two ways to move the state root.** Two
+independent mechanisms have to hold, and only this override satisfies both. Compaction is gated on
+*recording*: `--stats` returns before anything routes, so nothing is recorded and the fold cannot
+fire and prune the merged file. The first-run migration is gated on the two roots *collapsing*:
+every entry point migrates a pre-0.21 cache-tier root forward before it reads anything, `--stats`
+included, and `legacy_state_root()` honours `TANGLEBRAIN_STATE_DIR` exactly as `state_root()` does
+— so source and destination resolve to the same directory and the migration is a no-op.
+
+`XDG_DATA_HOME` satisfies only the first. The migration does not read it, so pointing it at a
+scratch root leaves source and destination different and copies `~/.cache/tanglebrain` in: on an
+empty scratch root the "merged" view is then silently a third machine's history, and on a populated
+one you get a stray `router-state.json` and a migration notice that reads as though something moved.
+The merged `usage.jsonl` itself survives — the migration skips a destination that already
+exists — so the failure is quiet rather than loud, which is why it is named here rather than left
+to be discovered.
 
 ## Runbook — diagnosing common failures
 

@@ -24,9 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **A combined view is still available, with a procedure.** The log is one JSON object per line so
   two of them concatenate into a file the rollup reads — read it under a throwaway
-  `TANGLEBRAIN_STATE_DIR` rather than writing it back over a live log. The honest limit is that a
-  machine which has already folded rows into its `totals.json` is short by whatever it folded; that
-  file is one object and does not concatenate.
+  `TANGLEBRAIN_STATE_DIR` rather than writing it back over a live log. It has to be that override
+  specifically: every entry point migrates a pre-0.21 cache-tier state root forward before reading
+  anything, `--stats` included, and `TANGLEBRAIN_STATE_DIR` is the one override the migration reads
+  too, so source and destination collapse and it copies nothing. `XDG_DATA_HOME` does not, so a
+  scratch root pointed at by it quietly acquires `~/.cache/tanglebrain`'s history. The honest limit
+  on the view itself is that a machine which has already folded rows into its `totals.json` is short
+  by whatever it folded; that file is one object and does not concatenate.
 
   Stated in `README.md` as well as the two places the plan named: the README's own `--stats`
   example carried the unscoped wording verbatim, above the command a first-time user actually runs,

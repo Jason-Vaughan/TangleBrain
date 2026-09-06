@@ -192,10 +192,15 @@ under a throwaway state root rather than writing it back over a live log:
 ```sh
 mkdir -p /tmp/merged
 cat machine-a/usage.jsonl machine-b/usage.jsonl > /tmp/merged/usage.jsonl
-TANGLEBRAIN_STATE_DIR=/tmp/merged tanglebrain --stats
+TANGLEBRAIN_STATE_DIR=/tmp/merged .venv/bin/tanglebrain --stats
 ```
 
-`--stats` only reads, so this cannot compact or migrate anything. See
+**Use `TANGLEBRAIN_STATE_DIR` specifically, not `XDG_DATA_HOME`.** Every entry point migrates a
+pre-0.21 cache-tier state root forward before it reads anything, `--stats` included.
+`TANGLEBRAIN_STATE_DIR` is the one override the migration reads too, so it resolves source and
+destination to the same directory and copies nothing; point `XDG_DATA_HOME` at a scratch root
+instead and the migration copies `~/.cache/tanglebrain` into it, so the "merged" view silently
+carries a third machine's history. See
 [`docs/design/operations.md`](docs/design/operations.md) for what that view does and does not cover.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
