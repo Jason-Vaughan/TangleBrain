@@ -11,6 +11,7 @@ import io
 import json
 import random
 import shutil
+import threading
 import tempfile
 import unittest
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from unittest.mock import patch
 
 from tanglebrain.measurement import (
     LOG_FILENAME,
+    CompactionRefusedError,
     PLACEHOLDER_PRICING,
     PRICING_HEADER,
     Pricing,
@@ -36,6 +38,7 @@ from tanglebrain.measurement import (
     validate_pricing,
 )
 from tanglebrain.totals import (
+    NOT_PERSISTED,
     TOTALS_FILENAME,
     carry_unknown_fields,
     default_totals_path,
@@ -1044,6 +1047,19 @@ class CompactionTest(unittest.TestCase):
             '{"kind": "task", "tier": "loc\n',
         )
 
+    def test_a_kept_row_keeps_its_own_whitespace(self):
+        # "Verbatim" has to mean the line as found, not the line re-spaced: the rewrite is not
+        # the place to normalize a row it was only asked to keep.
+        self.log.write_text(
+            '{"kind": "task", "spend_avoided_usd": 1.0}\n'
+            '   {"kind": "task", "spend_avoided_usd": 2.0}   \n',
+            encoding="utf-8",
+        )
+        self.assertEqual(self._compact(keep_recent=1), 1)
+        self.assertEqual(self.log.read_text(encoding="utf-8"),
+                         '   {"kind": "task", "spend_avoided_usd": 2.0}   \n')
+        self.assertEqual(self._figure()["tasks"], 2)  # and both rows still count
+
     def test_pricing_refs_survive_the_fold(self):
         # Folding destroys the per-row `pricing_ref` evidence, so the span has to be captured in
         # the totals as the rows go — chunk 05 renders a caveat that would otherwise have no basis.
@@ -1080,6 +1096,64 @@ class CompactionTest(unittest.TestCase):
         self.assertEqual(stored["invented_by_a_later_version"], 99)
         self.assertEqual(stored["delegates"]["invented_nested"], 7)
         self.assertEqual(stored["tasks"], 12)  # and the known fields still folded
+
+    def test_a_corrupt_totals_file_refuses_the_fold_rather_than_overwriting_it(self):
+        """The under-count the write ordering exists to prevent, reached without a crash.
+
+        A present-but-unparseable totals file reads as zeros. Folding onto zeros would replace the
+        damaged bytes and then delete the rows that could have reconciled them — bad-but-recoverable
+        becomes permanent. Refusing keeps both halves on disk, which is the whole point.
+        """
+        self.totals.write_text('{"tasks": 11, "spend_avoided_usd": 4.2', encoding="utf-8")
+        corrupt_bytes = self.totals.read_bytes()
+        records = _generated_records(random.Random(11), 8)
+        self._write_log(records)
+        log_bytes = self.log.read_bytes()
+        with self.assertRaises(CompactionRefusedError):
+            self._compact(keep_recent=2)
+        self.assertEqual(self.totals.read_bytes(), corrupt_bytes)  # damaged, not destroyed
+        self.assertEqual(self.log.read_bytes(), log_bytes)         # and every row still there
+
+    def test_an_absent_totals_file_still_folds(self):
+        # Absence is the normal first-compaction case and must not be confused with corruption.
+        self._write_log(_generated_records(random.Random(12), 8))
+        self.assertEqual(self._compact(keep_recent=2), 6)
+
+    def test_an_append_during_a_compaction_survives_it(self):
+        """`_LOG_LOCK` held across read-fold-truncate — the chunk's stated concurrency deliverable.
+
+        Without the lock the appending thread writes into the file `_rewrite_log` is about to
+        replace, and the row is gone with no error anywhere. Deleting `with _LOG_LOCK:` turns this
+        red, which is what makes the guarantee a contract rather than a comment.
+        """
+        self._write_log(_generated_records(random.Random(13), 6))
+        inside, release = threading.Event(), threading.Event()
+        real_write = write_totals
+
+        def block_mid_compaction(totals, path=None):
+            real_write(totals, path)
+            inside.set()
+            release.wait(5)
+
+        appended = {"kind": "task", "tier": "local", "spend_avoided_usd": 9.0,
+                    "pricing_ref": "arrived-mid-compaction"}
+        with patch("tanglebrain.measurement.write_totals", side_effect=block_mid_compaction):
+            compactor = threading.Thread(target=self._compact, args=(), kwargs={"keep_recent": 2})
+            compactor.start()
+            self.assertTrue(inside.wait(5), "compaction never reached its totals write")
+            appender = threading.Thread(
+                target=record_task,
+                kwargs={"path": "router", "entry": None, "prompt": "x", "response": "y",
+                        "log_path": self.log, "pricing": FIXED},
+            )
+            appender.start()
+            appender.join(0.5)          # blocked on the lock the compaction holds
+            release.set()
+            appender.join(5)
+            compactor.join(5)
+        rows = read_records(self.log)
+        self.assertEqual(len(rows), 3, "the appended row was written into the replaced file")
+        self.assertEqual(str(appended["kind"]), rows[-1]["kind"])
 
     def test_a_negative_keep_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -1165,6 +1239,27 @@ class CarryUnknownFieldsTest(unittest.TestCase):
         # undo the coercion the whole format depends on.
         self.assertEqual(carry_unknown_fields({"by_tier": "not-a-map"}, {"by_tier": {}}),
                          {"by_tier": {}})
+
+    def test_a_deliberately_unstored_key_is_dropped_rather_than_carried(self):
+        # `by_parent` holds one entry per parent task id. If a stored file ever carried it, a
+        # predicate that only asks "did this run compute it" would preserve it forever — unbounded
+        # growth in the one file whose size the totals/window split rests on.
+        self.assertEqual(NOT_PERSISTED[("delegates",)], frozenset({"by_parent"}))
+        got = carry_unknown_fields(
+            {"delegates": {"count": 1, "by_parent": {"t1": {"count": 1}}}},
+            {"delegates": {"count": 9}},
+        )
+        self.assertNotIn("by_parent", got["delegates"])
+
+    def test_a_fold_never_persists_the_parent_tree_even_if_the_file_had_one(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        totals = tmp / TOTALS_FILENAME
+        totals.write_text(json.dumps({"delegates": {"by_parent": {"t1": {"count": 1}}}}),
+                          encoding="utf-8")
+        write_totals(fold_records_into_totals([{"kind": "delegate", "parent_task_id": "t2"}]),
+                     totals)
+        self.assertNotIn("by_parent", json.loads(totals.read_text(encoding="utf-8"))["delegates"])
 
     def test_a_non_object_prior_file_carries_nothing(self):
         self.assertEqual(carry_unknown_fields([1, 2, 3], {"tasks": 1}), {"tasks": 1})

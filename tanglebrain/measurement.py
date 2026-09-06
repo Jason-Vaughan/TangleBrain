@@ -23,8 +23,9 @@ Design notes:
   unbounded and so cannot be folded — and the renderers label it as such.
 - **Compaction moves rows across that seam** (:func:`compact_log`), and the *order* of its two
   writes is its whole guarantee: totals first, rows dropped only after. A torn compaction then
-  over-counts, which shows up as a figure that is too large and can be reconciled against the rows
-  still on disk. The other order loses rows silently and permanently, which is the one failure this
+  **over-counts rather than losing rows** — the figure reads too large. Nothing yet identifies
+  *which* rows were double-counted, so that state is not self-correcting; what the ordering buys is
+  that no row is ever destroyed before something records it, which is the one failure this
   product's central claim cannot survive.
 - **All I/O is fault-tolerant.** A logging failure must never break the user's actual answer, and a
   corrupt log line must never break the rollup. Reads return sensible defaults; the writer swallows
@@ -49,6 +50,7 @@ from tanglebrain.totals import (
     as_int,
     default_totals_path,
     normalize_totals,
+    read_raw_totals,
     read_totals,
     write_totals,
 )
@@ -67,6 +69,18 @@ PARENT_TASK_ID_ENV = "TANGLEBRAIN_TASK_ID"
 # sub-tasks out across threads) can't interleave bytes mid-line. Per-process only; cross-process
 # appends rely on the OS's O_APPEND atomicity for short lines, as before.
 _LOG_LOCK = threading.Lock()
+
+
+class CompactionRefusedError(RuntimeError):
+    """Raised when compaction declines to run because folding would destroy recoverable state.
+
+    Distinct from an ``OSError``: nothing failed and nothing was written. The store is in a state
+    where the *safe* action is to leave both halves on disk, so the caller is told rather than
+    quietly given a smaller number. Callers that must not break a user's answer should treat it the
+    way :func:`record_task` treats a logging failure — the rows are intact, and a later run can
+    still fold them.
+    """
+
 
 # Chars per token for the uniform estimation heuristic. ~4 chars/token is the standard rough
 # approximation for English-ish text across modern BPE tokenizers; good enough for an *estimate*.
@@ -411,9 +425,10 @@ def _read_lines(log_path: str | os.PathLike[str] | None = None) -> list[tuple[st
     """Read the log as ``(raw line, parsed record or None)`` pairs, in chronological order.
 
     :func:`read_records` wants the records and :func:`compact_log` wants the lines — compaction
-    rewrites the rows it keeps **verbatim**, so a line it cannot parse survives rather than being
-    silently deleted by the one operation that could delete it. Both go through this so there is a
-    single definition of what counts as a row.
+    copies the rows it keeps through **unparsed**, so an unknown field and an unparseable line
+    alike survive in the retained window. A line before the cut is folded away with the rest of its
+    span whether or not it parsed. Both callers go through this so there is a single definition of
+    what counts as a row.
 
     Args:
         log_path: Override the usage-log path. Defaults to :func:`default_log_path`.
@@ -429,14 +444,15 @@ def _read_lines(log_path: str | os.PathLike[str] | None = None) -> list[tuple[st
         return []
     lines: list[tuple[str, dict | None]] = []
     for raw in text.splitlines():
-        line = raw.strip()
-        if not line:
+        if not raw.strip():  # blank lines are not rows; nothing carries them forward
             continue
         try:
-            obj = json.loads(line)
+            # `json.loads` tolerates surrounding whitespace itself, so the line is parsed as
+            # found — stripping here would make the "verbatim" the rewrite promises a near-miss.
+            obj = json.loads(raw)
         except json.JSONDecodeError:
             obj = None
-        lines.append((line, obj if isinstance(obj, dict) else None))
+        lines.append((raw, obj if isinstance(obj, dict) else None))
     return lines
 
 
@@ -632,10 +648,16 @@ def compact_log(
 
     **The order of the two writes is the whole point.** The totals file is written first and the
     rows are removed only once that write has landed. An interrupted compaction therefore leaves
-    rows counted in *both* halves, so the figure is too large — visible, reconcilable against rows
-    still on disk, and correctable. The opposite order would drop rows before anything recorded
-    them: a smaller figure, no evidence, no recovery. Over-counting is a bug; under-counting is
-    the loss of the only claim this product makes about itself.
+    rows counted in *both* halves, so the figure reads **too large**. The opposite order would drop
+    rows before anything recorded them: a smaller figure, no evidence, nothing left to recompute
+    from. Over-counting is a bug; under-counting is the loss of the only claim this product makes
+    about itself, so the recoverable direction is the only one reachable.
+
+    **What that does not buy, stated because five surfaces used to imply otherwise:** a folded row
+    is byte-identical to an unfolded one, and nothing here records a watermark, a fold count or a
+    timestamp — so an inflated figure is not *attributable* and does not correct itself. Whoever
+    wires the automatic trigger has to decide whether a persisted watermark is owed before an
+    unattended crash can inflate the headline (it is additive under the format contract).
 
     Nothing is written at all when there is nothing to fold, so a short log leaves both files
     exactly as they were rather than materializing a zeroed totals file beside it.
@@ -646,12 +668,13 @@ def compact_log(
 
     **Concurrency.** ``_LOG_LOCK`` is held across the whole read-fold-truncate, so an append from
     another thread of this process (``delegate_many`` fans out) cannot land between the read and
-    the rewrite. It cannot cover *another process*: a second TangleBrain appending during those
-    milliseconds writes to the file being replaced, and that row is lost. Accepted for a
-    single-operator local tool, and stated rather than papered over — an advisory lock would buy a
-    guarantee on POSIX only, and a guarantee that silently does not hold on one supported platform
-    is worse than a limitation written down. The window is one explicit maintenance call today;
-    a caller that makes compaction automatic has to weigh it again.
+    the rewrite. It cannot cover *another process*, in two ways: a second TangleBrain appending
+    during those milliseconds writes to the file being replaced and that row is lost, and two
+    compactions overlapping read the same totals and the later write discards the earlier fold
+    wholesale. Accepted for a single-operator local tool, and stated rather than papered over — an
+    advisory lock would buy a guarantee on POSIX only, and a guarantee that silently does not hold
+    on one supported platform is worse than a limitation written down. The window is one explicit
+    maintenance call today; a caller that makes compaction automatic has to weigh it again.
 
     Args:
         keep_recent: How many of the newest rows to leave in the log. ``0`` folds everything.
@@ -660,10 +683,14 @@ def compact_log(
             :func:`~tanglebrain.totals.default_totals_path`.
 
     Returns:
-        The number of rows folded away — ``0`` when the window was already short enough.
+        The number of rows removed from the log — ``0`` when the window was already short enough.
+        A line too malformed to parse is removed with the rest of its span and counted here; it
+        contributed nothing to any figure, so nothing is folded in its place.
 
     Raises:
         ValueError: If ``keep_recent`` is negative.
+        CompactionRefusedError: If the totals file exists but does not parse. Nothing is written — the
+            damaged file and every row are left where they are.
         OSError: If either write fails. A failed totals write leaves both files untouched; a failed
             log rewrite leaves the over-counting state described above, never a lossy one.
     """
@@ -675,6 +702,18 @@ def compact_log(
         lines = _read_lines(log)
         if keep_recent >= len(lines):
             return 0
+        # A totals file that is present but unparseable reads as zeros, and folding onto zeros
+        # would overwrite the damaged bytes and *then* delete the rows that could have reconciled
+        # them — turning a bad-but-recoverable store into a permanent under-count without a crash.
+        # Reading as zeros is right for a rollup, which only renders; it is wrong for a writer,
+        # which destroys. Refusing keeps both halves on disk. The log grows meanwhile, which is a
+        # smaller problem than a wrong headline.
+        if totals_file.exists() and not isinstance(read_raw_totals(totals_file), dict):
+            raise CompactionRefusedError(
+                f"{totals_file} exists but does not parse as a totals object; refusing to fold "
+                f"{len(lines) - keep_recent} row(s) onto it. Move or repair the file first — the "
+                f"rows are still in {log} and no figure has been lost."
+            )
         cut = len(lines) - keep_recent
         folding = [record for _, record in lines[:cut] if record is not None]
         keeping = [raw for raw, _ in lines[cut:]]

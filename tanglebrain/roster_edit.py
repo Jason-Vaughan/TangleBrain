@@ -27,7 +27,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tanglebrain.atomic import atomic_copy, atomic_write
+from tanglebrain.atomic import atomic_copy, atomic_write, staging_path
 from tanglebrain.measurement import _backup_dir
 from tanglebrain.roster import RosterError, default_roster_path, load_roster
 
@@ -172,8 +172,11 @@ def save_roster_edits(
     candidate = "\n".join(lines)
 
     # Validate by re-parsing with the real loader before any write — a surgical slip can never land
-    # a malformed roster. Use a sibling temp file so the parse sees exactly what we'd write.
-    check = target.with_name(target.name + ".check.tmp")
+    # a malformed roster. Use a sibling temp file so the parse sees exactly what we'd write, and a
+    # unique name: the panel runs on a threading server, so two concurrent saves sharing one fixed
+    # staging name would interleave into it and validate a mixture, or unlink it out from under
+    # each other. Same reasoning as the writes below, so the same helper names it.
+    check = staging_path(target)
     try:
         check.write_text(candidate, encoding="utf-8")
         try:

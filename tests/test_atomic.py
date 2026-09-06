@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tanglebrain.atomic import _staging_path, atomic_copy, atomic_write
+from tanglebrain.atomic import atomic_copy, atomic_write, staging_path
 
 
 class AtomicWriteTest(unittest.TestCase):
@@ -49,10 +49,36 @@ class AtomicWriteTest(unittest.TestCase):
         self.assertEqual(self.target.read_text(encoding="utf-8"), "old")
         self.assertEqual(self._leftovers(), [])
 
+    def test_contents_are_synced_before_the_rename_that_publishes_them(self):
+        # Atomicity is about readers; durability is about power loss. `compact_log` orders two
+        # writes and needs the first to reach stable storage before the second is even attempted,
+        # so a rename that outruns its own bytes would invert the ordering the store depends on.
+        calls = []
+        real_replace = os.replace
+        with patch("tanglebrain.atomic.os.fsync", side_effect=lambda fd: calls.append("fsync")):
+            with patch("tanglebrain.atomic.os.replace",
+                       side_effect=lambda a, b: (calls.append("replace"), real_replace(a, b))[1]):
+                atomic_write(self.target, "hello")
+        self.assertEqual(calls[:2], ["fsync", "replace"])
+
+    def test_a_directory_that_cannot_be_synced_is_not_an_error(self):
+        # The parent-directory sync is POSIX-only; on a platform that refuses it the write must
+        # still succeed, because the file sync is the half that protects the contents.
+        real_open = os.open
+
+        def refuse_dirs(path, flags, *a, **kw):
+            if Path(path).is_dir():
+                raise OSError("directories are not openable here")
+            return real_open(path, flags, *a, **kw)
+
+        with patch("tanglebrain.atomic.os.open", side_effect=refuse_dirs):
+            atomic_write(self.target, "hello")
+        self.assertEqual(self.target.read_text(encoding="utf-8"), "hello")
+
     def test_staging_names_are_unique_and_sit_beside_the_target(self):
         # A fixed `.tmp` name would let two writers interleave bytes into one staging file and
         # then rename the mixture into place. Unique names make the loser a whole discarded file.
-        first, second = _staging_path(self.target), _staging_path(self.target)
+        first, second = staging_path(self.target), staging_path(self.target)
         self.assertNotEqual(first, second)
         self.assertEqual(first.parent, self.target.parent)  # same dir keeps the rename atomic
         self.assertEqual(second.parent, self.target.parent)

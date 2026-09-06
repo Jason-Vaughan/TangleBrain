@@ -69,8 +69,10 @@ If parent-task attribution ever becomes load-bearing rather than informational, 
   cannot talk the system into more parallelism than the operator allowed.
 - **Results are returned in input order** with per-item `status`, so concurrency is not observable
   in the result contract. A failing item never sinks the batch.
-- **Shared mutable state across threads** is exactly one thing: the usage log, serialized by
-  `measurement._LOG_LOCK`.
+- **Shared mutable state across threads** is the measurement store — the usage log and, since
+  compaction, `totals.json` — both serialized by the one `measurement._LOG_LOCK`. A compaction holds
+  it across read-fold-truncate, so a second writer to *either* file belongs inside that lock. It is
+  a plain `Lock`, not an `RLock`, so nesting an acquisition inside one deadlocks rather than raising.
 
 ## Persistence boundaries
 

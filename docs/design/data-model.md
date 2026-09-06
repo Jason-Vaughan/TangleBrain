@@ -140,8 +140,11 @@ maintaining it:* a version that does not know a field cannot add the folded rows
 it, so the value goes stale rather than being lost. Stale and recoverable beats absent, which is
 why the round-trip preserves rather than drops.
 
-**Writing is atomic.** The file is staged beside itself and renamed over, so a crash mid-write
-leaves the previous totals whole and a reader never sees half an object.
+**Writing is atomic, and durable.** The file is staged beside itself and renamed over, so a crash
+mid-write leaves the previous totals whole and a reader never sees half an object. The staging file
+is fsynced before the rename and the containing directory after it — atomicity alone orders the two
+compaction writes only against a killed *process*, and the ordering has to survive a power loss too.
+The directory sync is POSIX-only and skipped elsewhere; the file sync is not platform-specific.
 
 ### Compaction — how a row becomes a total
 
@@ -150,20 +153,34 @@ log. Nothing triggers it automatically yet; it is an explicit call until the siz
 ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
 
 **The order of those two writes is the whole guarantee.** Interrupted between them, the rows are
-counted in both halves: the figure is too large, which is visible and reconcilable against the rows
-still on disk. The opposite order drops rows before anything records them — a smaller figure, no
-evidence, no recovery. Over-counting is a bug; under-counting is the loss of the only claim this
-product makes about itself, so the writes are ordered rather than merely both performed.
+counted in both halves and the figure reads **too large**. The opposite order drops rows before
+anything records them — a smaller figure, no evidence, nothing left to recompute from.
+Over-counting is a bug; under-counting is the loss of the only claim this product makes about
+itself, so the writes are ordered rather than merely both performed.
+
+**What the ordering does not buy.** A folded row is byte-identical to an unfolded one, and nothing
+is persisted to distinguish them — no watermark, no fold count, no timestamp. So an inflated figure
+is *not* attributable to particular rows and does not correct itself on a later read; the guarantee
+is only that no row is destroyed before something records it. Whoever wires the automatic trigger
+([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)) has to decide whether a persisted
+watermark is owed first — it is additive under this format's own contract.
 
 The fold runs the **same summation** the read path runs, over the same rows in the same order, so a
-figure cannot change merely because rows moved across the seam. Rows that stay are written back
-**byte-for-byte**, so neither a field added by a newer version nor a line left torn by an
-interrupted append is lost to the rewrite that keeps it.
+figure cannot change merely because rows moved across the seam. Rows that stay are **copied through
+unparsed**, so neither a field added by a newer version nor a line left torn by an interrupted
+append is lost to the rewrite that keeps it.
+
+**A damaged totals file is not folded onto.** Reading a corrupt file as zeros is right for a rollup,
+which only renders; it is wrong for a writer, which destroys. Folding onto zeros would replace the
+damaged bytes and *then* delete the rows that could have reconciled them, turning a recoverable
+state into a permanent under-count with no crash involved — so compaction refuses instead, leaving
+both halves on disk. The log grows meanwhile, which is the smaller problem.
 
 **Concurrency is bounded, not solved.** A process-level lock covers the whole read-fold-truncate,
 so no thread of the compacting process can append into the gap. It cannot cover a *second*
-TangleBrain process: a row appended during those milliseconds is written to the file being
-replaced, and is lost. Accepted for a single-operator local tool, and written down rather than
+TangleBrain process, in two ways: a row appended during those milliseconds is written to the file
+being replaced and is lost, and two compactions that overlap read the same stored totals, so the
+later write discards the earlier fold entirely. Accepted for a single-operator local tool, and written down rather than
 implied — an advisory file lock would hold on POSIX only, and a guarantee that silently does not
 hold on one supported platform is worse than a stated limitation.
 

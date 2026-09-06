@@ -272,14 +272,33 @@ def read_raw_totals(path: str | os.PathLike[str] | None = None) -> object:
         return None
 
 
-def carry_unknown_fields(raw: object, totals: dict) -> dict:
-    """Overlay ``totals`` onto ``raw``, keeping any field ``totals`` has no opinion about.
+#: Keys this version *knows about* and deliberately does not persist, by the path of the object
+#: holding them. Carry-through consults this so a deliberate omission is never mistaken for a field
+#: from a newer version: ``delegates.by_parent`` carries one entry per parent task id, so preserving
+#: a stored copy would grow this file without bound — the exact outcome the totals/window split
+#: exists to prevent, in the one file whose size the argument rests on.
+#:
+#: **A field ever RETIRED from the shape above belongs here too.** Removal is a boundary crossing
+#: (`boundaries.md`), and without an entry here the writer would resurrect the retired field from
+#: every install's existing file, at its stale value, forever — a tombstone with no eviction path.
+NOT_PERSISTED: dict[tuple[str, ...], frozenset[str]] = {
+    ("delegates",): frozenset({"by_parent"}),
+}
+
+
+def carry_unknown_fields(raw: object, totals: dict, _path: tuple[str, ...] = ()) -> dict:
+    """Overlay ``totals`` onto ``raw``, keeping any field this version does not define.
 
     The inverse of :func:`normalize_totals`, and the reason a round-trip through an older
-    TangleBrain is not destructive: every key this version knows takes its freshly-computed value,
-    and every key it does not know survives untouched at whatever depth it was found. Nested maps
-    are merged the same way, so a field invented inside ``delegates`` — or inside one backend's
+    TangleBrain is not destructive: every key this version computes takes its freshly-computed
+    value, and every key foreign to it survives untouched at whatever depth it was found. Nested
+    maps are merged the same way, so a field invented inside ``delegates`` — or inside one backend's
     entry — is preserved as readily as a top-level one.
+
+    "Foreign" is not the same question as "absent from what this run computed", and conflating them
+    would make :data:`NOT_PERSISTED` unenforceable — a key deliberately left out would read as one
+    from the future and be carried forward anyway. So a key named there is dropped rather than
+    preserved, whatever the stored file holds.
 
     A key present in both wins for ``totals`` even when the stored value was garbage, because
     :func:`normalize_totals` has already turned that garbage into a usable zero; carrying it back
@@ -288,19 +307,24 @@ def carry_unknown_fields(raw: object, totals: dict) -> dict:
     Args:
         raw: The parsed prior file (see :func:`read_raw_totals`). A non-object is ignored.
         totals: The computed totals to write.
+        _path: The path of the object being merged, used to look up :data:`NOT_PERSISTED`.
+            Internal — callers start at the root.
 
     Returns:
         A new dict — ``totals``, plus whatever only ``raw`` had. Neither argument is mutated.
     """
     if not isinstance(raw, dict):
         return dict(totals)
+    omitted = NOT_PERSISTED.get(_path, frozenset())
     merged = dict(totals)
     for key, value in raw.items():
         key = str(key)
+        if key in omitted:  # known and deliberately unstored — dropping it is the point
+            continue
         if key not in merged:
             merged[key] = value
         elif isinstance(value, dict) and isinstance(merged[key], dict):
-            merged[key] = carry_unknown_fields(value, merged[key])
+            merged[key] = carry_unknown_fields(value, merged[key], (*_path, key))
     return merged
 
 

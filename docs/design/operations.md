@@ -116,6 +116,15 @@ totals discards everything already folded, losing the log discards everything no
 Check the state root above, and check stderr from the last run: a migration that could not copy
 the log forward says so and names both paths.
 
+**"Spend avoided jumped, or `--stats` refuses to compact."**
+A compaction interrupted between its two writes leaves its rows counted in both `totals.json` and
+the log, so the figure reads high until the log is next compacted past them. Nothing records which
+rows were folded, so the inflation cannot be attributed or undone automatically — if the number
+matters more than the history, delete `totals.json` and accept a figure of just the surviving rows.
+A compaction that *refuses* to run is reporting a `totals.json` that exists but does not parse; the
+rows are all still there and nothing was lost. Move the damaged file aside and the next compaction
+folds from zero, or repair it by hand if you can read it.
+
 **Only if that notice appeared and the new log is absent or empty:** the pre-move
 `~/.cache/tanglebrain/usage.jsonl` is still there and can be copied across by hand. **Never copy it
 over a log that already has rows** — the legacy file is frozen at migration time, so overwriting

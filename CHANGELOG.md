@@ -15,16 +15,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes behaviour on upgrade.
 
   **The order of the two writes is the whole feature.** Interrupted between them, a compaction
-  leaves rows counted in both halves: the figure reads too large, which is visible and reconcilable
-  against the rows still on disk. The opposite order would drop rows before anything recorded them
-  — a smaller figure, no evidence, no recovery. Over-counting is a bug; under-counting is the loss
-  of the only claim this product makes about itself, so both directions are pinned by tests that
-  force the interruption rather than waiting for one.
+  leaves rows counted in both halves and the figure reads too large. The opposite order would drop
+  rows before anything recorded them — a smaller figure, no evidence, nothing left to recompute
+  from. Over-counting is a bug; under-counting is the loss of the only claim this product makes
+  about itself, so both directions are pinned by tests that force the interruption rather than
+  waiting for one. What the ordering does *not* buy: nothing is persisted to mark which rows were
+  folded, so an inflated figure is not attributable and does not correct itself — the automatic
+  trigger has to settle whether a watermark is owed before an unattended crash can inflate it.
+
+  Writes are **durable**, not merely atomic: the staging file is fsynced before the rename and the
+  directory after, because `os.replace` orders the two writes against a killed process but not
+  against a power loss. A totals file that is present but unparseable is **not folded onto** —
+  reading it as zeros is right for a rollup, which renders, and wrong for a writer, which destroys,
+  so compaction refuses and leaves both halves on disk.
 
   The fold runs the **same summation** the read path runs, so a figure cannot change merely because
   rows moved across the seam — a property test asserts exact equality across generated logs, and
-  across six successive folds with appends between them. Rows that stay are written back
-  byte-for-byte, so a field added by a newer TangleBrain, or a line left torn by an interrupted
+  across six successive folds with appends between them. Rows that stay are copied
+  through unparsed, so a field added by a newer TangleBrain, or a line left torn by an interrupted
   append, survives the rewrite that keeps it.
 
   Writing the totals also completes their forward-compatibility contract, which until now existed
@@ -36,7 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `boundaries.md` rather than implied.
 
   A process-level lock covers the whole read-fold-truncate. It cannot cover a second TangleBrain
-  process, whose append during a compaction is written to the file being replaced and lost.
+  process: an append during a compaction is written to the file being replaced and lost, and two
+  overlapping compactions read the same stored totals so the later write discards the earlier fold.
   Accepted for a single-operator local tool and written down: an advisory file lock would hold on
   POSIX only, and a guarantee that silently does not hold on a supported platform is worse than a
   stated limitation.
