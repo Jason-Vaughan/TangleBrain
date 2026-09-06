@@ -174,8 +174,15 @@ front of me already counted"*, and each way of answering fails toward **under**-
 second-resolution and shared by rows on both sides of a cut, `task_id` is optional and absent from
 most rows, and a digest of the folded prefix races the appends it would be compared against. That
 trades a vanishing event — a power loss inside the microseconds between two fsynced writes — for a
-permanent hazard on every read, in the one direction the lifetime figure cannot survive. The
-over-count is bounded by a single fold batch, and the limit is written down rather than implied.
+permanent hazard on every read, in the one direction the lifetime figure cannot survive.
+
+**What keeps it to a single batch is a rollback, not the odds.** A fold whose log rewrite *fails*
+puts the totals back, so the operation is a no-op rather than a half-applied one. That is what an
+automatic trigger requires: the log stays over its cap after a failure, so without the rollback a
+failure that repeats — a full disk fails the megabyte-scale log rewrite while the few-hundred-byte
+totals write still succeeds — would re-fold the same rows on every recorded task and inflate the
+figure without limit. Only a crash, which runs no code, can leave rows counted twice; the run after
+it folds them away for good.
 
 The fold runs the **same summation** the read path runs, over the same rows in the same order, so a
 figure cannot change merely because rows moved across the seam. Rows that stay are **copied through
@@ -195,6 +202,13 @@ being replaced and is lost, and two compactions that overlap read the same store
 later write discards the earlier fold entirely. Accepted for a single-operator local tool, and
 written down rather than implied — an advisory file lock would hold on POSIX only, and a guarantee
 that silently does not hold on one supported platform is worse than a stated limitation.
+
+**The size cap raised the frequency of that race, not its width.** Compaction went from a
+deliberate call to a check on every recorded task in every process, and the in-process guard
+serializes threads only. Two TangleBrain processes crossing the cap together is therefore reachable
+where it used to take an operator running two maintenance calls at once. The window is still the
+milliseconds of one fold and the tool is still single-operator, so the trade stands — but it stands
+on the higher frequency, not the one it was first weighed against.
 
 ## Persistence boundaries
 

@@ -983,19 +983,34 @@ class CompactionTest(unittest.TestCase):
         Under-counting is a silent, permanent loss of the only claim the product makes about
         itself, so the two writes are ordered — and a test that could not tell them apart would
         leave the ordering free to be reversed by anyone tidying the function.
+
+        The ordering is read **at the seam** — the figure is captured from inside the log rewrite,
+        the instant before it fails — rather than from the wreckage afterwards. That is what a
+        failed fold now leaves nothing to inspect: it puts the totals back. Reading it here is
+        stricter, not looser, because it observes the order directly instead of inferring it from
+        what survived, and a rewrite-first implementation still turns it red — the totals would not
+        yet hold the folded rows when the rewrite runs.
         """
         records = _generated_records(random.Random(7), 10)
         self._write_log(records)
         truth = self._figure()
         folded_tasks = sum(1 for r in records[:9] if r["kind"] == "task")
-        with patch("tanglebrain.measurement._rewrite_log", side_effect=OSError("crash")):
+        at_the_seam: dict = {}
+
+        def look_then_crash(log_path, lines):
+            at_the_seam.update(self._figure())
+            raise OSError("crash")
+
+        with patch("tanglebrain.measurement._rewrite_log", side_effect=look_then_crash):
             with self.assertRaises(OSError):
                 self._compact(keep_recent=1)
-        torn = self._figure()
+        self.assertTrue(at_the_seam, "the rewrite was never reached")
         self.assertEqual(len(read_records(self.log)), 10)      # nothing was dropped
-        self.assertTrue(self.totals.exists())                  # the fold had already landed
-        self.assertEqual(torn["tasks"], truth["tasks"] + folded_tasks)
-        self.assertGreater(torn["spend_avoided_usd"], truth["spend_avoided_usd"])
+        self.assertEqual(at_the_seam["tasks"], truth["tasks"] + folded_tasks)
+        self.assertGreater(at_the_seam["spend_avoided_usd"], truth["spend_avoided_usd"])
+        # And the half-applied state does not outlive the failure — see
+        # `test_a_failed_rewrite_puts_the_totals_back` for the rollback itself.
+        self.assertEqual(_without_window_scope(self._figure()), _without_window_scope(truth))
 
     def test_a_failed_totals_write_drops_no_rows(self):
         # The other half of the ordering. If the log were rewritten first, this run would lose
@@ -1156,6 +1171,34 @@ class CompactionTest(unittest.TestCase):
         rows = read_records(self.log)
         self.assertEqual(len(rows), 3, "the appended row was written into the replaced file")
         self.assertEqual(rows[-1].get("origin"), "arrived-mid-compaction")
+
+    def test_a_failed_rewrite_puts_the_totals_back(self):
+        """A half-applied fold is undone, so the figure is exactly what it was before the attempt.
+
+        The rows were never destroyed, so restoring the totals loses nothing — and it is what makes
+        "the over-count is bounded by one batch" true rather than hopeful. Asserting the *figure*
+        rather than the row count is the point: the rows survive either way, and the number is what
+        goes wrong.
+        """
+        write_totals(FULL_TOTALS, self.totals)
+        self._write_log(_generated_records(random.Random(21), 10))
+        before = self._figure()
+        stored_before = self.totals.read_text(encoding="utf-8")
+        with patch("tanglebrain.measurement._rewrite_log", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                self._compact(keep_recent=2)
+        self.assertEqual(len(read_records(self.log)), 10, "no row was dropped")
+        self.assertEqual(self.totals.read_text(encoding="utf-8"), stored_before,
+                         "the totals file is byte-identical, foreign fields included")
+        self.assertEqual(_without_window_scope(self._figure()), _without_window_scope(before))
+
+    def test_a_failed_rewrite_removes_a_totals_file_the_fold_created(self):
+        """Nothing existed before the attempt, so nothing should exist after it."""
+        self._write_log(_generated_records(random.Random(22), 10))
+        with patch("tanglebrain.measurement._rewrite_log", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                self._compact(keep_recent=2)
+        self.assertFalse(self.totals.exists(), "a rolled-back fold left its own file behind")
 
     def test_a_negative_keep_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -1345,9 +1388,12 @@ class AutomaticCompactionTest(unittest.TestCase):
             measurement._compact_if_oversized(self.log)          # refusal: must not raise
             self.assertEqual(len(read_records(self.log)), 30)
             self.totals.unlink()
+            before = self._figure()
             with patch.object(measurement, "_rewrite_log", side_effect=OSError("disk full")):
                 measurement._compact_if_oversized(self.log)      # OSError: must not raise either
             self.assertEqual(len(read_records(self.log)), 30)
+            self.assertEqual(_without_window_scope(self._figure()),
+                             _without_window_scope(before), "a swallowed failure moved the figure")
 
     def test_a_failing_fold_never_breaks_the_append(self):
         """The write that matters already happened; compaction's `OSError` is swallowed at source."""
@@ -1356,6 +1402,33 @@ class AutomaticCompactionTest(unittest.TestCase):
                 patch.object(measurement, "_rewrite_log", side_effect=OSError("disk full")):
             self._flood(40)
         self.assertEqual(len(read_records(self.log)), 40, "every appended row is on disk")
+
+    def test_a_fold_that_keeps_failing_does_not_inflate_the_figure(self):
+        """The failure mode an automatic trigger creates and a manual call never could.
+
+        A rewrite failure leaves the log over its cap, so the *next* recorded task folds the same
+        rows again. Without the rollback in `compact_log` those folds land on an already-inflated
+        total and the figure grows by a whole batch per task — silently, with no crash, from a
+        condition that repeats (a full disk fails a megabyte-scale rewrite while a 300-byte append
+        still succeeds). The comparison is against the same flood under a cap it never reaches, so
+        what is asserted is the figure a user would read.
+        """
+        uncapped = self.tmp / "uncapped"
+        uncapped.mkdir()
+        with patch.object(measurement, "MAX_LOG_BYTES", 100 * 1024 * 1024):
+            self._flood(60, log=uncapped / LOG_FILENAME)
+
+        folds = []
+        with patch.object(measurement, "MAX_LOG_BYTES", 2000), \
+                patch.object(measurement, "KEEP_RECENT_BYTES", 500), \
+                patch.object(measurement, "_rewrite_log",
+                             side_effect=lambda *a, **k: folds.append(1) or (_ for _ in ()).throw(
+                                 OSError("disk full"))):
+            self._flood(60)
+        self.assertGreater(len(folds), 1, "the trigger must have retried, or this proves nothing")
+        self.assertEqual(len(read_records(self.log)), 60, "no row was dropped")
+        self.assertEqual(_without_window_scope(self._figure()),
+                         _without_window_scope(self._figure(uncapped)))
 
     def test_the_trigger_runs_outside_the_append_lock(self):
         """`_LOG_LOCK` is not reentrant, so a trigger inside it would hang rather than raise.

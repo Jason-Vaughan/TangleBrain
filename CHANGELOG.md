@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   That trades a power loss inside the microseconds between two fsynced writes for a permanent
   hazard on every read, in the one direction the lifetime figure cannot survive.
 
+  **A fold whose log rewrite fails now puts the totals back**, so a failed compaction is a no-op
+  rather than a half-applied one. Under a manual call that was a one-shot over-count; under an
+  automatic trigger the log stays over its cap, so a repeating failure — a full disk fails the
+  megabyte-scale log rewrite while the small totals write still succeeds — would otherwise re-fold
+  the same rows on every recorded task and inflate the figure without limit.
+
 ## [0.21.0] - 2026-09-06
 
 ### Added
