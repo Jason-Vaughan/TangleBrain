@@ -19,8 +19,11 @@ jobs, and the second one is served worse.
 
   *Why:* the signal exists to inform a human who is curious, not to gate anything. An observability
   path that can fail the operation it observes has inverted its own priority. The cost of this rule
-  is honest and worth naming: failures here are **silent by construction**, which is exactly why the
-  unlinked-delegation case below needs a positive signal rather than more error handling.
+  is honest and worth naming: swallowing means failures here are **silent by default**, which is
+  exactly why the unlinked-delegation case below needs a positive signal rather than more error
+  handling. One such signal exists: a lost usage-log append is swallowed as ever, and also said
+  once per process on stderr, because a headline summed from a log with a hole in it understates
+  while still labelled *lifetime*.
 
 - **Observability never affects the answer.** Canonical statement, and the scope of the
   `measurement.py` broad-catch waiver, live in
