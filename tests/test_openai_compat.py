@@ -399,5 +399,84 @@ class FromEntryTest(unittest.TestCase):
                 self.assertIn("base_url", str(ctx.exception))
 
 
+class ErrorMessagesCarryNoResponseTextTest(unittest.TestCase):
+    """This adapter's errors must not reproduce the response they could not use.
+
+    The router collects `str(exc)` into a task's `failures` and `record_task` writes that into
+    `usage.jsonl`, so an error that quotes a body puts response text on disk — which
+    `docs/design/data-model.md` § Invariants guarantees never happens, and grounds in there being
+    nothing to redact rather than in a filter.
+
+    The sibling tests above assert only that `AdapterError` is raised, so they pass whether or not
+    the body is quoted. These pin the body OUT, which is what makes the guarantee checkable: revert
+    any `describe_shape` call here and one of these fails.
+    """
+
+    #: Distinctive enough that a substring check cannot pass by accident.
+    BODY = "Zaphod Beeblebrox ate the last Vogon poetry anthology"
+
+    def _adapter(self) -> OpenAICompatAdapter:
+        return OpenAICompatAdapter(base_url=URL, model="gpt-oss-120b", key_ref="none")
+
+    def test_unexpected_response_shape_is_described_not_quoted(self):
+        body = {"unexpected": self.BODY}
+        fake = fake_client_returning(make_response(200, json_body=body))
+        with patch("tanglebrain.adapters.openai_compat.httpx.Client", return_value=fake):
+            with self.assertRaises(AdapterError) as ctx:
+                self._adapter().run("q")
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        self.assertNotIn("Zaphod", msg)
+        # Still diagnostic: the envelope's own field names survive.
+        self.assertIn("unexpected", msg)
+
+    def test_null_content_error_does_not_quote_the_envelope(self):
+        # The truncated-response path: content is None, and the whole envelope was interpolated.
+        body = {"choices": [{"message": {"content": None, "reasoning_content": self.BODY}}]}
+        fake = fake_client_returning(make_response(200, json_body=body))
+        with patch("tanglebrain.adapters.openai_compat.httpx.Client", return_value=fake):
+            with self.assertRaises(AdapterError) as ctx:
+                self._adapter().run("q")
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        self.assertIn("max_tokens", msg)  # the actionable hint is intact
+
+    def _patched_client(self, handler):
+        """Patch ``httpx.Client`` so the adapter talks to ``handler`` — the house idiom above."""
+
+        def factory(**kwargs):
+            return _RealClient(
+                transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout")
+            )
+
+        return patch("tanglebrain.adapters.openai_compat.httpx.Client", new=factory)
+
+    def _stream_error(self, *events: str) -> str:
+        """Run the streaming path over ``events`` and return the AdapterError message.
+
+        Args:
+            events: Raw SSE payloads (the part after ``data: ``) the transport should yield.
+
+        Returns:
+            The stringified :class:`AdapterError` the stream raised.
+        """
+        body = sse_bytes(*events)
+        with self._patched_client(lambda req: httpx.Response(200, content=body)):
+            with self.assertRaises(AdapterError) as ctx:
+                list(self._adapter().run_stream("q"))
+        return str(ctx.exception)
+
+    def test_malformed_sse_data_line_is_not_quoted(self):
+        msg = self._stream_error(self.BODY)
+        self.assertNotIn(self.BODY, msg)
+        self.assertIn("malformed SSE", msg)
+
+    def test_broken_sse_event_shape_does_not_quote_the_event(self):
+        # A spec-valid JSON event with a broken shape — the delta carries completion text.
+        msg = self._stream_error(json.dumps({"choices": [{"delta": self.BODY}]}))
+        self.assertNotIn(self.BODY, msg)
+        self.assertNotIn("Zaphod", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -370,11 +370,13 @@ class OpenAICompatAdapter:
                             event = json.loads(data)
                         except ValueError as exc:
                             raise AdapterError(
-                                f"malformed SSE data line from model {self.model!r}: {describe_shape(data)}"
+                                f"malformed SSE data line from model {self.model!r}: "
+                                f"{describe_shape(data)}"
                             ) from exc
                         if not isinstance(event, dict):
                             raise AdapterError(
-                                f"unexpected SSE event shape from model {self.model!r}: {event!r}"
+                                f"unexpected SSE event shape from model "
+                                f"{self.model!r}: {describe_shape(event)}"
                             )
                         if "error" in event:
                             raise AdapterError(
@@ -391,7 +393,8 @@ class OpenAICompatAdapter:
                             # to AdapterError like every other decode failure (S2's mid-stream
                             # error framing catches AdapterError, not raw AttributeError).
                             raise AdapterError(
-                                f"unexpected SSE event shape from model {self.model!r}: {event!r}"
+                                f"unexpected SSE event shape from model "
+                                f"{self.model!r}: {describe_shape(event)}"
                             ) from exc
                         if content:
                             produced = True

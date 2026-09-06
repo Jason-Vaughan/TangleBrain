@@ -29,10 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   key that is really content is counted rather than shown. The failure signal #100 added is intact:
   the reason and the entry id still persist.
 
-  **The guarantee now has a mechanism.** Its norm-registry entry lists enforcement as Critic review,
-  which is invisible between reviews — which is how this survived. A test now drives a real
+  **The guarantee now has a mechanism.** Its norm-registry entry listed enforcement as Critic
+  review, which is invisible between reviews — which is how this survived. A test now drives a real
   unparseable response through the adapter, the router's failure shape, and `record_task`, and
-  fails if any future site reintroduces a body.
+  fails if any future site reintroduces a body; each adapter additionally pins its own sites, and
+  the shape helper's key filter is tested directly. The registry entry now names those tests
+  instead of naming a review.
+
+  **What this does not cover, stated rather than implied.** Two error paths still pass third-party
+  text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, and a failed CLI's
+  stderr. Both are provider diagnostics rather than completions — but a 400 can echo the offending
+  input, and a CLI's argv carries the prompt, so either could in principle carry input text into
+  the log. They are kept verbatim deliberately: replacing `invalid api key` or
+  `claude: command not found` with a shape would make the commonest setup failures undiagnosable.
+  Closing that properly means an error carrying a separately constructed summary for persistence,
+  distinct from the message shown on stderr — recorded on
+  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153) rather than done here.
 
 - **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
   has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its

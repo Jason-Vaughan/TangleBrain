@@ -12,7 +12,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.base import AdapterError, describe_shape
 from tanglebrain.adapters.cli import (
     CliAdapter,
     _parse_claude_json,
@@ -437,5 +437,46 @@ class ErrorMessagesCarryNoResponseTextTest(unittest.TestCase):
         self.assertNotIn(self.BODY, msg)
         # The subtype is claude's own enum, not model output, and it is the diagnostic.
         self.assertIn("overloaded", msg)
+
+
+class DescribeShapeTest(unittest.TestCase):
+    """`describe_shape` is the mechanism every raise site depends on — pin its edges directly.
+
+    Its key filter is the only thing standing between content and an error message when content
+    lands in *key* position, and every other test here would still pass if that filter were
+    removed, because their fixtures all use schema-shaped keys.
+    """
+
+    def test_text_is_reduced_to_a_length(self):
+        self.assertEqual(describe_shape("hello there"), "11 chars of text")
+
+    def test_schema_shaped_keys_are_named(self):
+        self.assertEqual(
+            describe_shape({"result": 1, "subtype": 2}), "object with keys ['result', 'subtype']"
+        )
+
+    def test_prose_in_key_position_is_counted_not_shown(self):
+        # The case the filter exists for: free text landing in key position.
+        prose = "the patient's name is Zaphod Beeblebrox"
+        out = describe_shape({prose: 1})
+        self.assertNotIn(prose, out)
+        self.assertNotIn("Zaphod", out)
+        self.assertEqual(out, "object with 1 key(s), none schema-shaped")
+
+    def test_an_over_long_identifier_is_not_named(self):
+        # Identifier-shaped but far longer than any schema field — treated as content.
+        self.assertNotIn("a" * 60, describe_shape({"a" * 60: 1}))
+
+    def test_key_list_is_bounded(self):
+        self.assertIn("+4 more", describe_shape({f"k{i}": i for i in range(12)}))
+
+    def test_containers_and_scalars_use_one_vocabulary(self):
+        self.assertEqual(describe_shape([1, 2, 3]), "array of 3 item(s)")
+        self.assertEqual(describe_shape({}), "empty object")
+        self.assertEqual(describe_shape(None), "null")
+        self.assertEqual(describe_shape(1.5), "number")
+        self.assertEqual(describe_shape(True), "boolean")
+
+
 if __name__ == "__main__":
     unittest.main()

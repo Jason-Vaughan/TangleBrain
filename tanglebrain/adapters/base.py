@@ -35,18 +35,19 @@ def describe_shape(value: object) -> str:
     Adapter errors are **persisted**: the router collects ``str(exc)`` into a task's ``failures``
     and :func:`~tanglebrain.measurement.record_task` writes that into the usage log. So an error
     that quotes the body it could not parse writes backend response text to disk, and
-    ``data-model.md`` § Direction guarantees that never happens — grounding the guarantee in being
-    *structural*: "a redaction filter can be bypassed by the next code path that forgets it; there
-    is nothing to redact cannot." Quoting a body makes it procedural. This keeps it structural by
-    never putting the content into the string in the first place.
+    ``docs/design/data-model.md`` § Invariants guarantees that never happens — grounding it in
+    being *structural*: "a redaction filter can be bypassed by the next code path that forgets
+    it; there is nothing to redact cannot." Quoting a body makes it procedural. This keeps it
+    structural by never putting the content into the string in the first place.
 
-    What survives is what actually diagnoses a misconfigured backend: the size of what arrived and,
-    for an object, its field names. **Keys are named only when they look like schema** — an
+    What survives is what diagnoses a misconfigured backend: the size of what arrived and, for
+    an object, its field names. **Keys are named only when they look like schema** — an
     identifier-shaped, short name. A key that is neither is content that happened to land in key
     position, so it is counted rather than shown.
 
     Args:
-        value: Anything an adapter received and could not use — decoded JSON, raw text, a fragment.
+        value: Anything an adapter received and could not use — decoded JSON, raw text, or a
+            fragment of either.
 
     Returns:
         A short, content-free description, e.g. ``52 chars of text`` or
@@ -59,7 +60,7 @@ def describe_shape(value: object) -> str:
     if isinstance(value, bool):
         return "boolean"
     if isinstance(value, (int, float)):
-        return type(value).__name__
+        return "number"
     if isinstance(value, dict):
         if not value:
             return "empty object"

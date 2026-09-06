@@ -1922,5 +1922,7 @@ class PersistedRecordCarriesNoResponseTextTest(unittest.TestCase):
         written = self._log_after_failed_parse(self.BODY)
         self.assertNotIn(self.PROMPT, written)
         self.assertNotIn("Marvin", written)
+
+
 if __name__ == "__main__":
     unittest.main()
