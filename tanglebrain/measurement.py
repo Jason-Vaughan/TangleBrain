@@ -695,9 +695,10 @@ def compact_log(
     **What that does not buy:** a folded row is byte-identical to an unfolded one, and nothing here
     records a watermark, a fold count or a timestamp — so an inflated figure is not *attributable*
     and does not correct itself. That is an accepted limit, argued where the automatic trigger
-    lives (:func:`_compact_if_oversized`). It is bounded at one batch because a *failed* fold puts
-    the totals back — only a crash, which runs no code, can leave rows counted twice, and the run
-    that follows it folds them away for good.
+    lives (:func:`_compact_if_oversized`). A *failed* fold puts the totals back, so it is bounded
+    at one batch whenever that rollback lands; the two states where it is not are a crash, which
+    runs no code, and a rollback that fails in its turn — both leave the log over its cap, so the
+    next recorded task re-folds.
 
     Nothing is written at all when there is nothing to fold, so a short log leaves both files
     exactly as they were rather than materializing a zeroed totals file beside it.
@@ -766,7 +767,7 @@ def compact_log(
         cut = len(lines) - keep_recent
         folding = [record for _, record in lines[:cut] if record is not None]
         keeping = [raw for raw, _ in lines[cut:]]
-        previous = _totals_snapshot(totals_file)
+        snapshot = _totals_snapshot(totals_file)
         write_totals(fold_records_into_totals(folding, read_totals(totals_file)), totals_file)
         try:
             _rewrite_log(log, keeping)
@@ -779,7 +780,7 @@ def compact_log(
             # -byte totals write and append still succeed). Putting the totals back makes a failed
             # fold a no-op instead: nothing was destroyed, because the rows are exactly where they
             # were.
-            _restore_totals(totals_file, previous)
+            _restore_totals(totals_file, snapshot)
             raise
     return cut
 
@@ -899,8 +900,14 @@ def _compact_if_oversized(log: Path) -> None:
     manual call: the log stays over its cap either way, so without the rollback a failure that
     repeats — a full disk fails the megabyte-scale log rewrite while the small totals write and the
     append still succeed — would re-fold the same rows on every recorded task and grow the figure
-    without limit. With it, only a crash can leave rows counted twice, and the run after the crash
-    folds them away for good. The limit is written down rather than implied.
+    without limit. With it, two states still leave rows counted twice, and they are not the same
+    size. A **crash** runs no code, so nothing rolls back — but the next run's fold completes and
+    truncates, which caps the damage at one batch. A **rollback that fails in its turn**
+    (:func:`_restore_totals` swallows its own ``OSError``, so the caller sees the real diagnosis)
+    leaves the totals inflated and the log over its cap, and that is the unbounded case again:
+    every following task re-folds. It is far less likely than the write it follows — putting back a
+    few hundred bytes, or deleting them, asks much less of a failing disk than rewriting a megabyte
+    of log — and it is the honest limit, written down rather than implied.
 
     Args:
         log: The usage log just appended to. The lifetime totals are taken from beside it: the two

@@ -181,8 +181,15 @@ puts the totals back, so the operation is a no-op rather than a half-applied one
 automatic trigger requires: the log stays over its cap after a failure, so without the rollback a
 failure that repeats — a full disk fails the megabyte-scale log rewrite while the few-hundred-byte
 totals write still succeeds — would re-fold the same rows on every recorded task and inflate the
-figure without limit. Only a crash, which runs no code, can leave rows counted twice; the run after
-it folds them away for good.
+figure without limit.
+
+**Two states still leave rows counted twice, and they are not the same size.** A **crash** runs no
+code, so nothing rolls back — but the next run's fold completes and truncates, which caps the
+damage at one batch. A **rollback that itself fails** leaves the totals inflated and the log over
+its cap, and that is the unbounded case again: every following task re-folds. It is far less likely
+than the write it follows, because putting a few hundred bytes back asks much less of a failing
+disk than rewriting a megabyte of log — but it is not impossible, and a signal that surfaces
+stalled pruning has to cover it as well as the refusal case.
 
 The fold runs the **same summation** the read path runs, over the same rows in the same order, so a
 figure cannot change merely because rows moved across the seam. Rows that stay are **copied through

@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   megabyte-scale log rewrite while the small totals write still succeeds — would otherwise re-fold
   the same rows on every recorded task and inflate the figure without limit.
 
+  Two states still leave rows counted twice. A **crash** runs no code, so nothing rolls back, but
+  the next run's fold completes and caps the damage at one batch. A **rollback that itself fails**
+  leaves the totals inflated and the log over its cap — the unbounded case again. It asks far less
+  of a failing disk to put a few hundred bytes back than to rewrite a megabyte of log, so it is
+  much the less likely of the two, and it is stated rather than rounded away.
+
 ## [0.21.0] - 2026-09-06
 
 ### Added

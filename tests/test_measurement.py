@@ -1206,7 +1206,9 @@ class CompactionTest(unittest.TestCase):
         Deleting a file this run merely failed to *read* would be the under-count direction — the
         rows that could reconcile it are still on disk, and the totals holding the rest are not.
         Leaving it over-counts, which is recoverable. The refusal guard makes the state unreachable
-        through `compact_log` today, so the rollback is exercised directly.
+        through `compact_log` today, so the rollback is exercised directly — which also means the
+        file preserved here stands for the *post-fold* one the real sequence would have written,
+        not the pre-fold one. What is pinned is the helper's branch, not an end-to-end path.
         """
         self.totals.write_text('{"tasks": 5}', encoding="utf-8")
         with patch.object(Path, "read_text", side_effect=OSError("unreadable")):
