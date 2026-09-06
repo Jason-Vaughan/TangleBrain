@@ -552,9 +552,14 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
             # Held out of the headline like delegates: a failed task avoided no spend (#100).
             summary["failures"] += 1
             continue
-        # Collected from here down, so only the records that put money into a rendered figure
-        # widen the span. A failure record priced nothing, and letting it contribute a revision
-        # would caveat a figure it never touched.
+        # Collected from here down, so a record widens the span exactly when its priced money
+        # reaches a figure in this summary. That is every kind but a failure record, whose money is
+        # discarded above: a delegate's cloud-equiv lands in `delegates`, and an `api` task's lands
+        # in `cloud_equiv_usd` even though it avoided nothing. Both are priced figures a reader can
+        # see, so the revision behind them belongs in the span; a failure record touched none, and
+        # letting it contribute would caveat a figure it never entered. Over-inclusion is the safe
+        # direction for a caveat — one that stays silent over a mixed figure is the defect it
+        # exists to prevent.
         ref = r.get("pricing_ref")
         if ref not in (None, ""):
             pricing_refs.add(str(ref))
@@ -951,7 +956,9 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
     config was edited — not that the rates moved. Editing the label alone raises the caveat over a
     figure nothing changed underneath, and editing the rates while leaving the label alone moves a
     figure this line cannot see. Hence the wording below: it reports an edit, not a rate change,
-    and the absence of a span is not a claim that the rates held.
+    and the absence of a span is not a claim that the rates held. Widening the record to carry the
+    rates would catch both and is an accepted limit rather than open work — this line exists to stop
+    one label being asserted over a mixed history, which it does.
 
     Args:
         summary: The aggregate from :func:`rollup`.

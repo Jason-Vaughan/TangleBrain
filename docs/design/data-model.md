@@ -122,8 +122,9 @@ that is expected — history is priced when it happens and an edit never restate
 **A span witnesses an edit, not a rate change.** `pricing_ref` carries the reference-model *label*,
 which is all of a pricing revision a record holds, so relabelling raises the caveat over a figure
 nothing moved underneath, and editing the rates while keeping the label leaves a real span
-undetected. Recording the rates per row would close the gap and is not worth a wider record: the
-caveat's job is to stop a single label being asserted over a mixed history, and it does that.
+undetected. Widening the record to carry the rates themselves would catch both and is an
+**accepted limit** rather than open work: the caveat exists to stop one label being asserted over a
+mixed history, which it does, and the label is the part of a pricing revision an operator recognises.
 
 **The delegates' `by_parent` tree is deliberately absent.** It carries one key per parent task id,
 so its cardinality grows without bound and it cannot live in a file that must stay small. It is
