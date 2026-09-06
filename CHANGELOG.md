@@ -42,7 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because measurement must never break the answer, and the cost was that the usage log could stop
   recording with nobody told — leaving `--stats` understating a figure still labelled *lifetime*.
   The exception is still swallowed; the first lost append of a process now also prints a warning to
-  stderr naming the error, the path, and which direction the figure moves.
+  stderr naming the error — which for the disk failures that dominate carries the errno and the
+  path — and which direction the figure moves.
 
   **Once per process, not once per task.** The recording path runs on every routed request, so a
   per-task warning is a stream the operator learns to scroll past — the same reasoning that fires

@@ -110,11 +110,17 @@ The tool description enumerating the target menu is built **once at server start
 is invisible to a running server. Restart it.
 
 **"Stats look wrong / spend-avoided dropped."**
-Most likely one of the two measurement files was deleted; neither is **reconstructible**. The
-figure is `totals.json` plus the rows in `usage.jsonl`, so losing either shrinks it — losing the
-totals discards everything already folded, losing the log discards everything not yet folded.
-Check the state root above, and check stderr from the last run: a migration that could not copy
-the log forward says so and names both paths.
+**Check stderr from the last run first** — a task that could not be recorded says so, naming the
+error and which way the figure moves. That notice fires once per process, so one line can stand
+for any number of lost tasks, and a run whose log was never writable understates by however much
+it dropped. Nothing is recoverable after the fact; what the notice buys is knowing the figure is
+short rather than believing it.
+
+Failing that, most likely one of the two measurement files was deleted; neither is
+**reconstructible**. The figure is `totals.json` plus the rows in `usage.jsonl`, so losing either
+shrinks it — losing the totals discards everything already folded, losing the log discards
+everything not yet folded. Check the state root above, and check stderr for the other notice that
+lands there: a migration that could not copy the log forward says so and names both paths.
 
 **"Spend avoided jumped, or `--stats` refuses to compact."**
 A compaction interrupted between its two writes leaves its rows counted in both `totals.json` and

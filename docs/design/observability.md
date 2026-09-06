@@ -21,9 +21,9 @@ jobs, and the second one is served worse.
   path that can fail the operation it observes has inverted its own priority. The cost of this rule
   is honest and worth naming: swallowing means failures here are **silent by default**, which is
   exactly why the unlinked-delegation case below needs a positive signal rather than more error
-  handling. One such signal exists: a lost usage-log append is swallowed as ever, and also said
-  once per process on stderr, because a headline summed from a log with a hole in it understates
-  while still labelled *lifetime*.
+  handling. A lost usage-log append is swallowed as ever, and also said once per process on
+  stderr, because a headline summed from a log with a hole in it understates while still labelled
+  *lifetime*.
 
 - **Observability never affects the answer.** Canonical statement, and the scope of the
   `measurement.py` broad-catch waiver, live in
