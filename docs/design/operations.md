@@ -82,6 +82,32 @@ last resort (all orchestrators failed) or when named explicitly.
 | OpenAI-compatible endpoint | `tanglebrain-serve` |
 | MCP delegate server | registered by the orchestrator; not launched by hand |
 
+## The spend-avoided figure is per-machine
+
+`--stats` reports what **this machine** routed. Each machine keeps its own `usage.jsonl` and
+`totals.json` under its own state root, and nothing merges them. A second laptop starts at zero and
+stays independent of the first — a small number there is the design working, not a history that
+went missing.
+
+**Merging is a decided non-goal, not an omission.** A combined figure needs three things this tool
+does not have and should not grow: a stable machine identity, de-duplication of task ids across
+hosts, and a conflict rule for compaction running independently on each machine. That is a
+distributed-systems problem inside a router whose whole premise is local-first and single-operator,
+and the sync layer would end up larger than the thing it measures. The scope is bounded on purpose
+— see **one operator, one machine** in
+[`nonfunctional-requirements.md`](nonfunctional-requirements.md).
+
+**A combined view is still available to anyone who wants one, and the format is that way so it
+is.** The log is one JSON object per line, so `cat a/usage.jsonl b/usage.jsonl` produces a file the
+rollup reads. How complete that is depends on whether either machine has compacted: a log too young
+to have crossed the size cap *is* that machine's lifetime, so concatenating two of them loses
+nothing; once a machine has folded rows away, the folded part lives in its `totals.json` — one
+object, which does not concatenate — and is absent from the combined file. Nothing de-duplicates
+either, which is the same gap that makes real merging a project rather than a flag.
+
+Treat the result as a report. Writing it back over a machine's own log makes that machine's
+`--stats` claim the other machine's work from then on.
+
 ## Runbook — diagnosing common failures
 
 **"It routed to the wrong backend."**

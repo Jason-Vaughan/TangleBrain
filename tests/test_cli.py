@@ -736,3 +736,44 @@ class RosterHelpTextTest(unittest.TestCase):
         # The specific wrong claim this replaces: that the packaged copy is what you get.
         help_text = self._roster_help()
         self.assertNotIn("defaults to the packaged tanglebrain/config/roster.yaml", help_text)
+
+
+class StatsHelpTextTest(unittest.TestCase):
+    """``--help`` must say the spend-avoided figure covers one machine.
+
+    A user who assumes ``--stats`` aggregates across their machines reads a second laptop's small
+    number as a lost history rather than as the design working, and quietly stops trusting the
+    figure. The scope is a decision (`docs/design/operations.md`), so the place it is stated has to
+    be the place a user actually looks — and stated wording drifts silently unless something
+    asserts it, which is the class of defect #102 was filed for.
+    """
+
+    def _stats_help(self) -> str:
+        """Return the ``--stats`` help text as rendered by argparse.
+
+        Returns:
+            The help line's text, lowercased for stable matching.
+        """
+        from tanglebrain.cli import build_parser
+
+        for action in build_parser()._actions:
+            if "--stats" in action.option_strings:
+                return (action.help or "").lower()
+        self.fail("no --stats argument found")
+
+    def test_help_scopes_the_figure_to_this_machine(self):
+        help_text = self._stats_help()
+        self.assertIn("this machine", help_text)
+
+    def test_help_states_that_merging_is_deliberate(self):
+        # "per-machine" alone reads as a limitation someone forgot to fix. The wording has to
+        # carry that it is chosen, or the sentence invites the bug report it exists to prevent.
+        help_text = self._stats_help()
+        self.assertIn("non-goal", help_text)
+
+    def test_help_does_not_describe_the_figure_unscoped(self):
+        # The specific claim this replaces: "every routed task so far", which names no machine and
+        # so lets the reader supply the wrong one. A substring test for the new wording alone would
+        # still pass if the scope were re-broadened alongside it.
+        help_text = self._stats_help()
+        self.assertNotIn("every routed task so far", help_text)
