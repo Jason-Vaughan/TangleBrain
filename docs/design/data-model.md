@@ -142,7 +142,7 @@ does not.**
 | Settings | `config/settings.yaml` | Durable | Both gates read as off. Fails safe. |
 | Pricing reference | `config/pricing.yaml` | Durable, packaged | Cost figures unavailable; routing unaffected. |
 | Rotation cursor | `<state root>/router-state.json` | **Durable, data-tier** | Rotation restarts from the beginning. Harmless — it is a fairness hint, not correctness. |
-| Usage log (row window) | `<state root>/usage.jsonl` | **Durable, data-tier** | Recent per-task detail is gone; the lifetime figure survives in `totals.json`. See below. |
+| Usage log (row window) | `<state root>/usage.jsonl` | **Durable, data-tier** | **Today: the entire lifetime spend-avoided figure, permanently.** Nothing folds rows into `totals.json` yet, so the rows still carry the whole figure. Once the fold lands ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)) this becomes recent per-task detail only. See below. |
 | Lifetime totals | `<state root>/totals.json` | **Durable, data-tier** | The lifetime figure falls back to whatever the surviving rows sum to — a smaller number, never an error. |
 | Config backups | `<state root>/backups/` | **Durable, data-tier** | The only copy of a hand-edited roster or pricing file the GUI replaced. |
 | In-flight request | memory | None | No retry, no queue, no journal. A crash mid-route loses the request and the caller sees a failure. Deliberate — this is a router, not a job system. |

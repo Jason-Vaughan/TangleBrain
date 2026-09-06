@@ -734,9 +734,30 @@ class RollupReadsTotalsPlusRowsTest(unittest.TestCase):
              "out_tokens_est": 6, "cloud_equiv_usd": 0.25, "pricing_ref": "test-frontier"},
         ]
 
-    def test_no_totals_rolls_up_exactly_as_before(self):
-        rows = self._rows()
-        self.assertEqual(rollup(rows), rollup(rows, empty_totals()))
+    def test_no_totals_rolls_up_to_the_window_figure(self):
+        # Asserted against an explicit expected dict rather than against `rollup(rows,
+        # empty_totals())` — that comparison is two spellings of the same zero argument through the
+        # same normalizer, so it would hold even if every summation below were wrong.
+        self.assertEqual(rollup(self._rows()), {
+            "tasks": 1,
+            "failures": 0,
+            "lost_attempts": 0,
+            "by_tier": {"local": 1},
+            "by_origin": {"cli": 1},
+            "in_tokens_est": 10,
+            "out_tokens_est": 20,
+            "cloud_equiv_usd": 0.5,
+            "spend_avoided_usd": 0.5,
+            "pricing_refs": ["test-frontier"],
+            "delegates": {
+                "count": 1,
+                "by_backend": {"m1": {"count": 1, "in_tokens_est": 5, "out_tokens_est": 6}},
+                "by_parent": {"t1": {"count": 1, "by_backend": {"m1": 1}}},
+                "in_tokens_est": 5,
+                "out_tokens_est": 6,
+                "cloud_equiv_usd": 0.25,
+            },
+        })
 
     def test_scalars_and_maps_sum_across_totals_and_rows(self):
         got = rollup(self._rows(), FULL_TOTALS)

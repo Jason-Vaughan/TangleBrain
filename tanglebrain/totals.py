@@ -46,9 +46,11 @@ _FLOAT_FIELDS = ("cloud_equiv_usd", "spend_avoided_usd")
 _COUNT_MAPS = ("by_tier", "by_origin")
 _DELEGATE_INT_FIELDS = ("count", "in_tokens_est", "out_tokens_est")
 _DELEGATE_FLOAT_FIELDS = ("cloud_equiv_usd",)
-# Per-backend aggregates, the one nested numeric map that is bounded enough to fold (one key per
-# roster backend, not one per task).
-_BACKEND_INT_FIELDS = ("count", "in_tokens_est", "out_tokens_est")
+#: Per-backend aggregate fields — the one nested numeric map bounded enough to fold (one key per
+#: roster backend, not one per task). Public because `measurement.rollup` builds its own per-backend
+#: entries from this tuple: a second literal there would be a third copy of a field list that has to
+#: agree, and the drift would only surface as a per-backend figure silently going window-scoped.
+BACKEND_INT_FIELDS = ("count", "in_tokens_est", "out_tokens_est")
 
 
 def as_int(value: object) -> int:
@@ -104,11 +106,14 @@ def default_totals_path() -> Path:
 def empty_totals() -> dict:
     """Return a zeroed totals structure — the value an absent or corrupt file reads as.
 
-    Every field the rollup treats as lifetime appears here. The one deliberate omission is the
-    delegates' ``by_parent`` tree, which is unbounded and therefore window-scoped (see the module
-    docstring). ``tests/test_measurement.py`` asserts that correspondence instead of trusting it,
-    so a field added to the rollup with no decision about its lifetime home fails the suite rather
-    than quietly becoming window-scoped next to a lifetime headline.
+    Every field the rollup treats as lifetime appears here, and the correspondence is mostly
+    *constructed* rather than asserted: :func:`~tanglebrain.measurement.rollup` seeds its summary
+    from this structure and builds its per-backend entries from :data:`BACKEND_INT_FIELDS`, so a
+    field declared here flows into the rollup with nothing to keep in step. What construction does
+    not cover is a key the rollup adds on its own, and
+    ``test_every_lifetime_rollup_field_has_a_home_in_totals`` pins exactly that residual — with the
+    delegates' ``by_parent`` tree as the single named exception, unbounded and therefore
+    window-scoped (see the module docstring). A second exception fails the suite.
 
     Returns:
         A fresh, fully-zeroed totals dict. Never shared — callers may mutate it.
@@ -157,7 +162,7 @@ def _backend_map(raw: object) -> dict:
     out: dict = {}
     for model, info in raw.items():
         info = info if isinstance(info, dict) else {}
-        out[str(model)] = {field: as_int(info.get(field)) for field in _BACKEND_INT_FIELDS}
+        out[str(model)] = {field: as_int(info.get(field)) for field in BACKEND_INT_FIELDS}
     return out
 
 

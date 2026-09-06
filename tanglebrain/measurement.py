@@ -38,7 +38,7 @@ from pathlib import Path
 import yaml
 
 from tanglebrain.router import state_root
-from tanglebrain.totals import as_float, as_int, normalize_totals
+from tanglebrain.totals import BACKEND_INT_FIELDS, as_float, as_int, normalize_totals
 
 LOG_FILENAME = "usage.jsonl"
 
@@ -471,9 +471,12 @@ def rollup(records: list[dict], totals: dict | None = None) -> dict:
     # well-formed dict. `normalize_totals` also builds a fresh structure, which is what keeps the
     # window's rows from accumulating into a caller's own totals dict below.
     stored = normalize_totals(totals)
-    summary: dict = {k: v for k, v in stored.items() if k not in ("pricing_refs", "delegates")}
-    pricing_refs: set[str] = set(stored["pricing_refs"])
-    delegates: dict = dict(stored["delegates"])
+    # Popped rather than listed in an exclusion tuple: a hand-maintained list of "keys handled
+    # separately" is a third place the field list has to agree, and adding a name to it would drop
+    # a lifetime figure out of the summary in silence.
+    summary: dict = dict(stored)
+    pricing_refs: set[str] = set(summary.pop("pricing_refs"))
+    delegates: dict = dict(summary.pop("delegates"))
     # Window-scoped, and the only figure here that is: one key per parent task id is unbounded, so
     # it is never folded into the stored totals and always starts empty.
     delegates["by_parent"] = {}
@@ -496,7 +499,7 @@ def rollup(records: list[dict], totals: dict | None = None) -> dict:
             delegates["count"] += 1
             model = str(r.get("model", "unknown"))
             backend = delegates["by_backend"].setdefault(
-                model, {"count": 0, "in_tokens_est": 0, "out_tokens_est": 0}
+                model, {field: 0 for field in BACKEND_INT_FIELDS}
             )
             backend["count"] += 1
             backend["in_tokens_est"] += in_tok

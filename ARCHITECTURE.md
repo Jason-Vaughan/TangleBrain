@@ -163,13 +163,21 @@ below) as a by-backend breakdown, and each is **linked back to the specific top-
 it** across the process boundary (the per-parent-task tree, below) — so the roadmap is complete, not
 just core-complete.
 
-### Measurement — per-task records (`measurement.py`)
+### Measurement — lifetime totals and per-task records (`measurement.py`, `totals.py`)
 
 Each routed task is appended as one JSON line to `usage.jsonl` under the state root
 (`TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` → `~/.local/share/tanglebrain`): the path
 taken, the tier and model that served it, estimated token counts,
 and a **cloud-equivalent cost figure** — what the same work would have cost on a paid frontier API,
-using the reference price in `config/pricing.yaml`. `tanglebrain --stats` rolls those records up.
+using the reference price in `config/pricing.yaml`.
+
+The store has **two halves**. `totals.json` (`totals.py`), beside the log under the same state root,
+holds the permanent lifetime aggregates; the log holds a window of per-task rows. `tanglebrain
+--stats` sums the two, which is what lets the row window be bounded without the lifetime figure
+shrinking under it. An absent or corrupt totals file reads as zeros, so a log that has never been
+compacted rolls up from its rows alone. The delegates' `by_parent` tree is the one figure that
+cannot be folded — one key per parent task id is unbounded — so it stays window-scoped and both
+renderers label it.
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response (the
 authenticated CLIs expose no usable counts), so one consistent approximate methodology applies to
 every tier. All measurement I/O is best-effort: logging never breaks routing, and a corrupt record
