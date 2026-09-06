@@ -7,6 +7,7 @@ sums stored lifetime totals with the current row window.
 """
 from __future__ import annotations
 
+import copy
 import io
 import json
 import random
@@ -383,6 +384,99 @@ class FormatRollupTest(unittest.TestCase):
     def test_placeholder_caveat_shown(self):
         out = format_rollup(rollup([]), PLACEHOLDER_PRICING)
         self.assertIn("PLACEHOLDER", out)
+
+
+class PricingRevisionSpanTest(unittest.TestCase):
+    """The reference-pricing line describes the figure, not the current config.
+
+    Each record is priced when it runs and a `pricing.yaml` edit never restates history, so a
+    figure summed across an edit spans several revisions and the block has to say so.
+    """
+
+    @staticmethod
+    def _ref_line(out: str) -> str:
+        return next(line for line in out.splitlines() if "Pricing ref:" in line)
+
+    @staticmethod
+    def _rows(*refs: str) -> list[dict]:
+        return [{"kind": "task", "tier": "local", "spend_avoided_usd": 1.0, "pricing_ref": r}
+                for r in refs]
+
+    def test_one_revision_matching_current_pricing_renders_exactly_as_before(self):
+        # Byte-identity against the pre-span behaviour, expressed as the only difference that
+        # behaviour could not see: the field itself. Every record today carries `pricing_ref`, so
+        # stripping it reproduces the block this line used to print.
+        rows = self._rows("test-frontier", "test-frontier")
+        stripped = [{k: v for k, v in r.items() if k != "pricing_ref"} for r in rows]
+        self.assertEqual(format_rollup(rollup(rows), FIXED), format_rollup(rollup(stripped), FIXED))
+        self.assertEqual(self._ref_line(format_rollup(rollup(rows), FIXED)),
+                         "  Pricing ref:    test-frontier")
+
+    def test_one_revision_is_named_even_when_it_is_not_the_configured_one(self):
+        # An operator who edits the rates and has not routed anything since: the figure is still a
+        # figure priced under the old revision, and labelling it with the new one is the defect.
+        out = format_rollup(rollup(self._rows("older-frontier")), FIXED)
+        self.assertEqual(self._ref_line(out), "  Pricing ref:    older-frontier")
+        self.assertNotIn("test-frontier", out)
+
+    def test_a_span_reports_its_count_and_says_why_that_is_expected(self):
+        out = format_rollup(rollup(self._rows("frontier-a", "frontier-b", "frontier-c")), FIXED)
+        self.assertEqual(self._ref_line(out), "  Pricing ref:    3 revisions")
+        self.assertIn("spans an edit to the reference pricing", out)
+        # The reassurance the caveat exists to carry: an edit does not restate what came before.
+        self.assertIn("keeps the figure it was priced at", out)
+
+    def test_the_span_note_reports_an_edit_rather_than_a_rate_change(self):
+        # `pricing_ref` carries the reference-model label and nothing else, so a span is evidence
+        # that the pricing config was edited — a relabelling raises it over unchanged rates. The
+        # line must not claim to have seen the rates move.
+        out = format_rollup(rollup(self._rows("frontier-a", "frontier-b")), FIXED)
+        self.assertIn("spans an edit to the reference pricing", out)
+        self.assertNotIn("rates changed", out)
+
+    def test_the_span_note_does_not_read_as_a_fault(self):
+        # A benign, expected state must not borrow the warning glyph the placeholder caveat owns,
+        # or the caveat that does mean something stops being read.
+        out = format_rollup(rollup(self._rows("frontier-a", "frontier-b")), FIXED)
+        self.assertIn("ℹ pricing:", out)
+        self.assertNotIn("⚠", out)
+
+    def test_the_revisions_are_counted_never_listed(self):
+        # Partitioning the headline by revision was considered and rejected: correct, unreadable,
+        # and unbounded in width once an operator has tuned the rates a few times.
+        out = format_rollup(rollup(self._rows("frontier-a", "frontier-b")), FIXED)
+        self.assertNotIn("frontier-a", out)
+        self.assertNotIn("frontier-b", out)
+
+    def test_no_span_note_when_the_history_holds_one_revision(self):
+        self.assertNotIn("ℹ pricing:", format_rollup(rollup(self._rows("frontier-a")), FIXED))
+
+    def test_a_history_with_no_revision_evidence_falls_back_to_current_pricing(self):
+        # An empty log, or rows written before the per-record field existed: there is nothing
+        # truer to print, so the line stays exactly what it has always been.
+        for summary in (rollup([]), rollup([{"kind": "task", "tier": "local"}])):
+            out = format_rollup(summary, FIXED)
+            self.assertEqual(self._ref_line(out), "  Pricing ref:    test-frontier")
+            self.assertNotIn("ℹ pricing:", out)
+
+    def test_a_span_across_folded_totals_and_live_rows_is_detected(self):
+        # The case the stored `pricing_refs` set exists for: the rows carrying the older revision
+        # are gone, and the span has to survive them.
+        out = format_rollup(rollup(self._rows("frontier-b"), {"pricing_refs": ["frontier-a"]}), FIXED)
+        self.assertEqual(self._ref_line(out), "  Pricing ref:    2 revisions")
+
+    def test_a_failure_only_history_names_no_revision(self):
+        # A failed task priced nothing, so it never widens the span — `rollup` collects the ref
+        # only from records that put money into the figure.
+        out = format_rollup(rollup([{"kind": "failure", "pricing_ref": "never-charged"}]), FIXED)
+        self.assertEqual(self._ref_line(out), "  Pricing ref:    test-frontier")
+
+    def test_rendering_stores_nothing_and_mutates_nothing(self):
+        # A display fix: no stored value changes, and the summary it was handed comes back intact.
+        summary = rollup(self._rows("frontier-a", "frontier-b"))
+        before = copy.deepcopy(summary)
+        format_rollup(summary, FIXED)
+        self.assertEqual(summary, before)
 
 
 class DefaultLogPathTest(unittest.TestCase):
@@ -1080,7 +1174,7 @@ class CompactionTest(unittest.TestCase):
 
     def test_pricing_refs_survive_the_fold(self):
         # Folding destroys the per-row `pricing_ref` evidence, so the span has to be captured in
-        # the totals as the rows go — chunk 05 renders a caveat that would otherwise have no basis.
+        # the totals as the rows go, or `--stats` goes blind to it after the first compaction.
         self._write_log([
             {"kind": "task", "pricing_ref": "frontier-b", "spend_avoided_usd": 1.0},
             {"kind": "task", "pricing_ref": "frontier-a", "spend_avoided_usd": 1.0},

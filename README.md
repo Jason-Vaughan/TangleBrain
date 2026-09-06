@@ -189,6 +189,11 @@ applied to every tier. The reference frontier price lives in
 model you want to compare against. A `placeholder` flag makes the rollup render a PLACEHOLDER caveat
 when the rates are rough. Logging is best-effort and never affects the returned answer.
 
+**Editing the price never restates history.** Each task is priced when it runs and keeps that
+figure, so tuning `pricing.yaml` cannot retroactively inflate what you have already saved. The
+`Pricing ref:` line names the revision a figure was computed under; once your history spans an
+edit it reports how many revisions it spans instead of asserting one.
+
 ### Knob panel (`tanglebrain-gui`)
 
 A thin **localhost-only** web panel over the config — zero extra dependencies (stdlib `http.server`

@@ -115,7 +115,15 @@ Fields, each answering a question `--stats` asks:
 
 `pricing_refs` is the set of reference-pricing revisions the stored figure was computed under. It is
 stored rather than derived because folding rows destroys the per-row `pricing_ref` evidence, and a
-caveat that has to outlive its rows must be captured before they go.
+caveat that has to outlive its rows must be captured before they go. `--stats` reads it: a figure
+spanning one revision is labelled with that revision, and one spanning several says how many and why
+that is expected — history is priced when it happens and an edit never restates it.
+
+**A span witnesses an edit, not a rate change.** `pricing_ref` carries the reference-model *label*,
+which is all of a pricing revision a record holds, so relabelling raises the caveat over a figure
+nothing moved underneath, and editing the rates while keeping the label leaves a real span
+undetected. Recording the rates per row would close the gap and is not worth a wider record: the
+caveat's job is to stop a single label being asserted over a mixed history, and it does that.
 
 **The delegates' `by_parent` tree is deliberately absent.** It carries one key per parent task id,
 so its cardinality grows without bound and it cannot live in a file that must stay small. It is
