@@ -464,6 +464,16 @@ class DescribeShapeTest(unittest.TestCase):
         self.assertNotIn("Zaphod", out)
         self.assertEqual(out, "object with 1 key(s), none schema-shaped")
 
+    def test_a_single_identifier_shaped_token_is_reproduced(self):
+        # The filter's known limit, pinned so it stays known. It tests SHAPE, not content-ness —
+        # telling a schema field name from content is not decidable — so content that happens to be
+        # a single identifier-shaped token survives. A test using prose WITH SPACES does not cover
+        # this: it exercises the punctuation path instead. Change this only alongside a decision
+        # recorded in the residual list.
+        self.assertEqual(
+            describe_shape({"patient_name_zaphod": 1}), "object with keys ['patient_name_zaphod']"
+        )
+
     def test_an_over_long_identifier_is_not_named(self):
         # Identifier-shaped but far longer than any schema field — treated as content.
         self.assertNotIn("a" * 60, describe_shape({"a" * 60: 1}))
@@ -482,19 +492,16 @@ class DescribeShapeTest(unittest.TestCase):
 class DescribeShapeSiteCensusTest(unittest.TestCase):
     """Every `describe_shape` call site must have a test that pins its body out.
 
-    "The guard fails if any future site reintroduces a body" is a claim over a set that changes,
-    and twice now the thing recomputing it was a person who forgot: first the three
-    `openai_compat` sites shipped unpinned, then the site added while fixing *that* shipped
-    unpinned too. Both times the suite stayed green with the body restored.
-
-    So this counts the sites instead. It cannot prove a given site is pinned — only a per-site
-    assertion does that, and those live in this file and `test_openai_compat.py`. What it does is
-    fail the moment a site is added or removed, which is the moment the claim would silently stop
-    being true. Adding a site is then a two-line change: write its pin, bump the count here.
+    "Every site is pinned" is a claim over a set that changes, so it needs something that
+    recomputes it. This counts the sites. It cannot prove a given site is pinned — only the
+    per-site assertions do that, and they live in this file and `test_openai_compat.py` — but it
+    fails the moment a site is added or removed, which is the moment the claim would otherwise stop
+    being true without anything saying so. Adding a site is a two-line change: write its pin, then
+    bump the count here.
     """
 
     #: Call sites per module, excluding `base.py` where the helper is defined. Bump ONLY together
-    #: with a matching per-site pin test — that pairing is the whole point of this census.
+    #: with a matching per-site pin test — that pairing is what this census exists to enforce.
     EXPECTED = {"cli.py": 5, "openai_compat.py": 5}
 
     def test_site_count_matches_the_pinned_inventory(self):

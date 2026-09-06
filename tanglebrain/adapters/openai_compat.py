@@ -232,6 +232,10 @@ class OpenAICompatAdapter:
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:
+            # The provider's error body, kept verbatim: it is what distinguishes a bad key from a
+            # missing model from a quota stop, and a shape would make the commonest setup failure
+            # undiagnosable. Accepted limit: a 400 can echo the request, so this is one of the
+            # points where the never-on-disk guarantee is a judgement rather than structural.
             body = exc.response.text
             raise AdapterError(
                 f"LiteLLM returned {exc.response.status_code} for model {self.model!r}: {body}"
@@ -380,9 +384,9 @@ class OpenAICompatAdapter:
                             )
                         if "error" in event:
                             # The provider's own error envelope, kept verbatim for the same reason
-                            # as an HTTP error body: it is the diagnostic. Same accepted limit too
-                            # — an upstream may echo the request into it. See the residual block in
-                            # the chunk that introduced `describe_shape`.
+                            # as an HTTP error body above: it is the diagnostic, and an upstream
+                            # may echo the request into it. One of the accepted limits on the
+                            # never-on-disk guarantee, named in CHANGELOG.md.
                             raise AdapterError(
                                 f"in-stream error from model {self.model!r}: {event['error']!r}"
                             )

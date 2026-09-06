@@ -20,13 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Fixed where the message is built, not where it is written.** Filtering at the persistence
   boundary would be exactly the "redaction filter … bypassed by the next code path that forgets it"
-  that the guarantee's own rationale rejects. Eight sites across the CLI and OpenAI-compatible
-  adapters now describe the *shape* of what arrived instead of reproducing it.
+  that the guarantee's own rationale rejects. Every response-bearing raise site in the CLI and
+  OpenAI-compatible adapters now describes the *shape* of what arrived instead of reproducing it;
+  the census test below is what knows how many there are.
 
   **The errors got more useful, not less.** `response JSON missing 'text' field: object with keys
   ['response', 'stats']` says immediately that the wrong parser is wired, which a dumped body never
-  did. Object keys are named only when they look like schema — identifier-shaped and short — so a
-  key that is really content is counted rather than shown. The failure signal #100 added is intact:
+  did. Object keys are named only when they look like schema — identifier-shaped and short —
+  which catches free text in key position but **not** a single identifier-shaped token: a key like
+  `patient_name_zaphod` is still reproduced. That heuristic is the one place this guarantee is a
+  judgement rather than a structural property, and it is listed with the residuals below rather
+  than counted as covered. The failure signal #100 added is intact:
   the reason and the entry id still persist.
 
   **The guarantee now has a mechanism.** Its norm-registry entry listed enforcement as Critic
@@ -34,9 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unparseable response through the adapter, the router's failure shape, and `record_task`, and
   fails if a body comes back; each adapter pins its own sites, and the shape helper's key filter is
   tested directly. A census test additionally fails the moment a call site is added or removed —
-  because "every site is pinned" is a claim over a set that changes, and twice during this work the
-  thing recomputing it was a person who forgot. The registry entry now names those tests instead of
-  naming a review.
+  because "every site is pinned" is a claim over a set that changes, and a claim like that needs
+  something other than a person to recompute it. The registry entry now names those tests instead
+  of naming a review.
 
   **What this does not cover, stated rather than implied.** Three error paths still pass
   third-party text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, that
@@ -46,7 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `claude: command not found` with a shape would make the commonest setup failures undiagnosable.
   Closing that properly means an error carrying a separately constructed summary for persistence,
   distinct from the message shown on stderr — recorded on
-  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153) rather than done here.
+  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153) rather than done here. The
+  identifier-shaped-key heuristic above is the fourth item on that list: distinguishing a schema
+  field name from content is not decidable, so that one is a judgement call by construction rather
+  than something a later fix closes.
+
+  **What this replaces, honestly:** the guarantee is now structural everywhere a *completion* could
+  reach the log, and heuristic at the four points above where third-party diagnostic text can. That
+  is a narrower claim than the one this project made before, which was structural everywhere and
+  wrong.
 
 - **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
   has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its
