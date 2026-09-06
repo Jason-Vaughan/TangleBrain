@@ -38,11 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thing recomputing it was a person who forgot. The registry entry now names those tests instead of
   naming a review.
 
-  **What this does not cover, stated rather than implied.** Two error paths still pass third-party
-  text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, and a failed CLI's
-  stderr. Both are provider diagnostics rather than completions — but a 400 can echo the offending
-  input, and a CLI's argv carries the prompt, so either could in principle carry input text into
-  the log. They are kept verbatim deliberately: replacing `invalid api key` or
+  **What this does not cover, stated rather than implied.** Three error paths still pass
+  third-party text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, that
+  endpoint's in-stream `error` envelope, and a failed CLI's stderr. All three are provider
+  diagnostics rather than completions — but a 400 can echo the offending input, and a CLI's argv
+  carries the prompt, so any of them could in principle carry input text into the log. They are kept verbatim deliberately: replacing `invalid api key` or
   `claude: command not found` with a shape would make the commonest setup failures undiagnosable.
   Closing that properly means an error carrying a separately constructed summary for persistence,
   distinct from the message shown on stderr — recorded on
