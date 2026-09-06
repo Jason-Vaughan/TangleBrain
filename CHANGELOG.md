@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Weekly dependency updates now cover Python packages and GitHub Actions.** Dependabot groups
+  each ecosystem into one review unit and caps its open queue, so new releases are surfaced without
+  producing one unsolicited pull request per dependency. Existing CI still decides whether an
+  update is compatible, including the deliberate dependency ceilings in `pyproject.toml`.
+
 - **`--stats` no longer asserts one pricing revision over a history that spans several.** The
   `Pricing ref:` line described the *current* `config/pricing.yaml` while the figure beside it
   summed tasks priced under whatever revision was in force when each one ran. It now describes the
