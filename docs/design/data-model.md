@@ -37,8 +37,8 @@ These bind. Departing from one is a decision to record and justify.
 
   *Why:* usage records written by every past version are still on disk and still get rolled up.
   There is no migration story for an append-only log, so forward-compatibility has to be a property
-  of the format rather than an event. `task_id`, `parent_task_id`, and `origin` were all added under
-  this rule.
+  of the format rather than an event. `task_id`, `parent_task_id`, `linkage_lost`, and `origin` were
+  all added under this rule.
 
 ## Entities
 
@@ -89,7 +89,8 @@ Written by `tanglebrain/measurement.py`. Always-present fields:
 `ts` · `kind` (`task` \| `delegate` \| `failure`) · `path` · `tier` · `model` · `in_tokens_est` ·
 `out_tokens_est` · `cloud_equiv_usd` · `spend_avoided_usd` · `pricing_ref`
 
-Optional, written only when present: `task_id` · `parent_task_id` · `origin` (`cli` \| `gui` \|
+Optional, written only when present: `task_id` · `parent_task_id` · `linkage_lost` (`true` only,
+when a delegate reaches measurement without its expected parent id) · `origin` (`cli` \| `gui` \|
 `serve`) · `failures` (#100 — the `[{entry, error}, …]` attempts lost before the outcome: the
 failovers behind a served task, or every attempt on a `kind: "failure"` record).
 
@@ -130,6 +131,10 @@ mixed history, which it does, and the label is the part of a pricing revision an
 so its cardinality grows without bound and it cannot live in a file that must stay small. It is
 inherently window-scoped, and `--stats` and the GUI panel both label it as such rather than letting
 a window count sit unmarked beneath a lifetime headline.
+
+`delegates.linkage_lost` is present in `totals.json` because it is a bounded scalar. It counts
+parentless `kind: delegate` rows, including legacy rows written before `linkage_lost` existed, and
+therefore survives compaction. Parentless `kind: task` rows are top-level roots and do not count.
 
 **There is deliberately no schema-version field.** The forward-compatibility contract is the same
 one the usage record honours — an unknown key is ignored, a missing key reads as zero — and that is

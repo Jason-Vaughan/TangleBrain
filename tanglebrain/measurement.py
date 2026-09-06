@@ -396,8 +396,8 @@ def record_task(
         task_id: For a top-level task, the id minted for this routed task (so its delegated sub-calls
             can be linked back to it). Omitted from the record when ``None``.
         parent_task_id: For a delegated sub-call, the id of the top-level task that spawned it (read
-            from :data:`PARENT_TASK_ID_ENV`). Omitted from the record when ``None`` — e.g. a delegate
-            invoked outside a propagated task, which rolls up as ``unlinked``. For a top-level task,
+            from :data:`PARENT_TASK_ID_ENV`). Omitted from the record when ``None``; a delegate in
+            that state instead records ``linkage_lost: true``. For a top-level task,
             an external caller's own task/session identity (#74: the serve endpoint's
             ``X-TangleBrain-Parent-Task`` header) — pure attribution metadata; the delegate tree's
             ``by_parent`` rollup reads it only off ``delegate`` records.
@@ -441,6 +441,11 @@ def record_task(
             record["task_id"] = str(task_id)
         if parent_task_id is not None:
             record["parent_task_id"] = str(parent_task_id)
+        elif kind == "delegate":
+            # Reaching this writer through the delegate path proves that a parent hop was expected.
+            # The absence is therefore positive evidence of lost propagation, while a top-level
+            # task without a parent remains an ordinary root and receives no such field.
+            record["linkage_lost"] = True
         if origin is not None:
             record["origin"] = str(origin)
         # Written only when attempts were actually lost (never as an empty list), and only from a
@@ -577,6 +582,10 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
             # with no parent_task_id (run outside a propagated task) groups under "unlinked".
             parent_id = r.get("parent_task_id")
             parent_key = str(parent_id) if parent_id not in (None, "") else "unlinked"
+            if parent_key == "unlinked":
+                # Missing fields on old delegate rows mean the same thing as the new positive
+                # signal: the record reached the delegate seam but its parent id did not.
+                delegates["linkage_lost"] += 1
             parent = delegates["by_parent"].setdefault(parent_key, {"count": 0, "by_backend": {}})
             parent["count"] += 1
             parent["by_backend"][model] = parent["by_backend"].get(model, 0) + 1
@@ -619,11 +628,12 @@ def rollup(records: list[dict], totals: dict | None = None) -> dict:
         never guessed at), ``in_tokens_est`` / ``out_tokens_est`` (summed estimates), and
         ``cloud_equiv_usd`` / ``spend_avoided_usd``
         (summed dollars) — all over **top-level tasks only** — plus ``delegates``, a separate
-        sub-rollup of delegated sub-calls ``{count, by_backend: {model: {count, in_tokens_est,
+        sub-rollup of delegated sub-calls ``{count, linkage_lost, by_backend: {model: {count, in_tokens_est,
         out_tokens_est}}, by_parent: {parent_task_id: {count, by_backend: {model: count}}},
         in_tokens_est, out_tokens_est, cloud_equiv_usd}``. ``by_parent`` groups each delegate under
         the top-level task that spawned it (via ``parent_task_id``); delegates with no
-        ``parent_task_id`` are grouped under the sentinel ``"unlinked"``. Delegate records are kept
+        ``parent_task_id`` are grouped under the sentinel ``"unlinked"`` and increment the
+        lifetime ``linkage_lost`` count. Delegate records are kept
         out of the headline so a sub-call's saving is never double-counted against its parent task;
         their cloud-equiv is informational. A record without a ``kind`` field counts as a task.
 
@@ -1029,17 +1039,13 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
         by_parent = delegates.get("by_parent") or {}
         if by_parent:
             linked = [k for k in by_parent if k != "unlinked"]
-            unlinked = (by_parent.get("unlinked") or {}).get("count", 0)
             if linked:
                 tree = f"{len(linked)} parent task(s)"
-                if unlinked:
-                    tree += f", {unlinked} unlinked"
-            else:
-                tree = f"{unlinked} unlinked"  # all sub-calls ran outside a propagated task
-            # The one window-scoped line in a lifetime block, and it says so. The parent tree has
-            # one key per parent task id, so it cannot be folded into the permanent totals; an
-            # unlabelled window split sitting under a lifetime headline reads as a lifetime count.
-            lines.append(f"    Linked to:    {tree} (within the current row window)")
+                # The one window-scoped line in a lifetime block, and it says so. The parent tree
+                # has one key per parent task id, so it cannot be folded into permanent totals.
+                lines.append(f"    Linked to:    {tree} (within the current row window)")
+        if delegates.get("linkage_lost"):
+            lines.append(f"    Linkage lost: {delegates.get('linkage_lost', 0)}")
         lines.append(
             f"    Est. tokens:  in {delegates.get('in_tokens_est', 0):,} / "
             f"out {delegates.get('out_tokens_est', 0):,}"

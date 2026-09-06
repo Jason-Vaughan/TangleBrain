@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Lost delegate linkage is now a positive lifetime signal (#123).** A delegated sub-call that
+  reaches measurement without its expected `TANGLEBRAIN_TASK_ID` records the additive optional
+  field `linkage_lost: true`. The rollup, `--stats`, and knob panel report that count separately
+  from genuine top-level tasks and from the window-scoped `by_parent` tree. Legacy parentless
+  delegate rows are inferred from `kind: delegate`, so the count covers existing history and is
+  folded into `totals.json`; measurement still never raises and stores no prompt or response text.
+
 - **`--stats` no longer asserts one pricing revision over a history that spans several.** The
   `Pricing ref:` line described the *current* `config/pricing.yaml` while the figure beside it
   summed tasks priced under whatever revision was in force when each one ran. It now describes the

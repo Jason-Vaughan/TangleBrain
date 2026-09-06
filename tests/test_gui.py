@@ -140,6 +140,7 @@ class ViewStatsTest(unittest.TestCase):
         self.assertEqual(out["summary"]["tasks"], 1)
         delegates = out["summary"]["delegates"]
         self.assertEqual(delegates["count"], 1)
+        self.assertEqual(delegates["linkage_lost"], 1)
         self.assertEqual(delegates["by_backend"]["local-x"]["count"], 1)
 
     def test_includes_parent_task_tree(self):

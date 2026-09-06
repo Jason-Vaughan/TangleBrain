@@ -14,8 +14,8 @@ jobs, and the second one is served worse.
 ## Invariants
 
 - **Observability degrades to less information, never to an error.** A lost correlation id records
-  `unlinked`; a corrupt record is skipped; a rollup over a partially-damaged log still produces a
-  rollup.
+  `linkage_lost: true`; a corrupt record is skipped; a rollup over a partially-damaged log still
+  produces a rollup.
 
   *Why:* the signal exists to inform a human who is curious, not to gate anything. An observability
   path that can fail the operation it observes has inverted its own priority. The cost of this rule
@@ -68,16 +68,13 @@ two-part store goes wrong.
 optional `X-TangleBrain-Parent-Task` header is sanitized into `parent_task_id` — metadata only,
 never routed on.
 
-**The limit, stated because it is invisible.** The middle hop runs inside software TangleBrain does
-not own. It is verified live against one orchestrator (Claude Code), not hermetically. A delegation
-that loses the variable is recorded `unlinked` rather than raising — correct behavior, but it means
-a different orchestrator that does not forward environment to its MCP children produces a complete,
-correct-*looking* log in which every delegation is silently unparented, with nothing anywhere
-reporting that linkage was lost.
-
-If parent attribution ever becomes load-bearing rather than informational, this needs a **positive**
-signal — a count of unlinked delegations surfaced in `--stats` would be the cheap version — not more
-error handling.
+The middle hop runs inside software TangleBrain does not own. It is verified live against one
+orchestrator (Claude Code), not hermetically. The delegate measurement seam knows a parent hop was
+expected, so absence of `TANGLEBRAIN_TASK_ID` records the additive field `linkage_lost: true`.
+`--stats` and the GUI surface its lifetime count separately from the window-scoped parent tree.
+A top-level `kind: task` record with no parent is an ordinary root and never increments that count.
+Older parentless delegate rows predate the field but roll up as lost linkage by their `kind`, so the
+signal covers history and survives compaction without changing old records.
 
 ## Sensitive data
 
@@ -124,12 +121,11 @@ on not overclaiming it.
 
 ## Gaps
 
-Recorded, not fixed.
+No open measurement gap is currently recorded here.
 
-1. **No `unlinked` visibility.** A lost `TANGLEBRAIN_TASK_ID` hop and a genuinely parentless
-   sub-call land in the same bucket, so the count answers no question. Per the correlation
-   section above. [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123).
-Four former gaps here are closed. *No failure record at all* and *failover being unobservable* went
+Five former gaps here are closed. *Lost delegate linkage being indistinguishable from a top-level
+task* went with [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123). *No failure record at
+all* and *failover being unobservable* went
 with [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100): a task that fails at every
 backend is recorded as `kind: "failure"`, a failover success carries the attempts it lost, and
 `--stats` surfaces both. *Unbounded log growth* and *cache-tier placement* went with
