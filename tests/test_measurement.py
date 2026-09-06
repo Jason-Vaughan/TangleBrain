@@ -476,13 +476,17 @@ class PricingRevisionSpanTest(unittest.TestCase):
         self.assertIn("Cloud-equiv:  $0.50", out)
 
     def test_an_api_tier_task_widens_the_span_though_it_avoided_nothing(self):
-        # Real spend avoids nothing, so `spend_avoided_usd` is 0.0 — but the task's cloud-equiv is
-        # priced and summed, so its revision is behind a figure the summary carries.
+        # Real spend avoids nothing, so `spend_avoided_usd` is 0.0. The task is still a priced,
+        # counted task: it lands in the task count and the tier split, both rendered, so the
+        # revision it was priced under is behind figures the reader sees.
         out = format_rollup(rollup(self._rows("frontier-a") + [
             {"kind": "task", "tier": "api", "spend_avoided_usd": 0.0,
              "cloud_equiv_usd": 0.5, "pricing_ref": "frontier-b"},
         ]), FIXED)
         self.assertEqual(self._ref_line(out), "  Pricing ref:    2 revisions")
+        # Pinned like the delegate's, so the reason this test gives cannot rot unnoticed.
+        self.assertIn("Tasks routed:   2", out)
+        self.assertIn("api 1", out)
 
     def test_a_failure_only_history_names_no_revision(self):
         # A failed task priced nothing, so it never widens the span — `rollup` collects the ref

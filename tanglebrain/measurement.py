@@ -552,14 +552,15 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
             # Held out of the headline like delegates: a failed task avoided no spend (#100).
             summary["failures"] += 1
             continue
-        # Collected from here down, so a record widens the span exactly when it reaches a figure
-        # in this summary — every kind but a failure record, which is discarded above. A delegate's
-        # cloud-equiv is rendered in the block. An `api` task avoided nothing and its cloud-equiv is
-        # summed into `cloud_equiv_usd`, which no renderer prints today, but the task still lands in
-        # the task count, the tier split and the token estimates, all of which are rendered. A
-        # failure record enters none of them, so letting it contribute would caveat a figure it
-        # never touched. Over-inclusion is the safe direction for a caveat: one that stays silent
-        # over a mixed figure is the defect it exists to prevent.
+        # Collected from here down, so a record widens the span exactly when its priced money
+        # reaches a figure in this summary. That is every kind but a failure record, which is
+        # discarded above — it still reaches `failures` and `lost_attempts`, but those are counts,
+        # and a record that was never charged cannot caveat a dollar figure it never entered. A
+        # delegate's cloud-equiv is rendered in the block. An `api` task avoided nothing and its
+        # cloud-equiv is summed into `cloud_equiv_usd`, which no renderer prints today, though the
+        # task still lands in the rendered task count, tier split and token estimates.
+        # Over-inclusion is the safe direction for a caveat: one that stays silent over a mixed
+        # figure is the defect it exists to prevent.
         ref = r.get("pricing_ref")
         if ref not in (None, ""):
             pricing_refs.add(str(ref))
