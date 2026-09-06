@@ -29,8 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **A span witnesses an edit, not a rate change** — stated in `docs/design/data-model.md` rather
   than implied. A record carries the reference-model *label* and nothing else of a pricing revision,
   so a relabelling raises the caveat over unchanged rates, and rates edited under an unchanged label
-  are a span this line cannot see. Widening the record would close that gap and is not worth it: the
-  caveat exists to stop a single label being asserted over a mixed history.
+  are a span this line cannot see. Widening the record to carry the rates themselves would catch
+  both and is an accepted limit rather than open work: the caveat exists to stop one label being
+  asserted over a mixed history, which it does.
 
   Nothing stored changes and no figure moves. `totals.json` has carried the folded revision set
   since it was introduced, so the span survives compaction destroying the rows behind it.
