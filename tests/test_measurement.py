@@ -21,6 +21,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tanglebrain import measurement
+from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.cli import _parse_json_field
 from tanglebrain.measurement import (
     KEEP_RECENT_BYTES,
     LOG_FILENAME,
@@ -1859,5 +1861,66 @@ class CarryUnknownFieldsTest(unittest.TestCase):
         self.assertEqual((raw, totals), ({"future": 1}, {"tasks": 9}))
 
 
+class PersistedRecordCarriesNoResponseTextTest(unittest.TestCase):
+    """The usage log must never contain prompt or response text — enforced, not asserted.
+
+    `data-model.md` § Direction states this as a guarantee and grounds it in being structural:
+    "a redaction filter can be bypassed by the next code path that forgets it; there is nothing
+    to redact cannot". The norm registry lists its enforcement as Critic review, which is
+    invisible between reviews — and a real leak survived that way, through `failures`.
+
+    This drives the whole path an operator actually hits: a backend returns output the adapter
+    cannot parse, the router keeps `str(exc)` as a failure, and `record_task` persists it. The
+    test fails if any future adapter reintroduces a body into an error message, which is the
+    mechanism the guarantee was missing.
+    """
+
+    BODY = "Zaphod Beeblebrox ate the last Vogon poetry anthology"
+    PROMPT = "Marvin's diagnostic subroutine returned melancholy"
+
+    def _log_after_failed_parse(self, stdout: str) -> str:
+        """Route one unparseable backend response through to a persisted record.
+
+        Args:
+            stdout: What the backend returned and the adapter could not parse.
+
+        Returns:
+            The raw text of the usage log written for that task.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        log = Path(tmp) / "usage.jsonl"
+        try:
+            _parse_json_field(stdout, "text", label="local-ollama")
+        except AdapterError as exc:
+            # Exactly what router.py does when a candidate fails.
+            failures = [("local-ollama", str(exc))]
+        else:  # pragma: no cover - the fixture must actually reach a failure
+            self.fail("fixture did not produce an AdapterError")
+        record_task(
+            path="router", entry=None, prompt=self.PROMPT, response="",
+            kind="failure", failures=failures, log_path=log,
+        )
+        return log.read_text(encoding="utf-8")
+
+    def test_response_text_is_absent_from_the_persisted_record(self):
+        written = self._log_after_failed_parse(self.BODY)
+        self.assertNotIn(self.BODY, written)
+        self.assertNotIn("Zaphod", written)
+
+    def test_the_failure_is_still_recorded_and_still_diagnostic(self):
+        # The guarantee must not be bought by dropping the signal #100 added.
+        written = self._log_after_failed_parse(self.BODY)
+        record = json.loads(written.strip())
+        self.assertEqual(record["kind"], "failure")
+        self.assertEqual(record["failures"][0]["entry"], "local-ollama")
+        self.assertIn("not valid JSON", record["failures"][0]["error"])
+
+    def test_prompt_text_is_absent_from_the_persisted_record(self):
+        # Prompts reach only `estimate_tokens`, but assert it rather than trust it: this is the
+        # half of the guarantee with the most code paths feeding it.
+        written = self._log_after_failed_parse(self.BODY)
+        self.assertNotIn(self.PROMPT, written)
+        self.assertNotIn("Marvin", written)
 if __name__ == "__main__":
     unittest.main()

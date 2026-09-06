@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Backend response text no longer reaches `usage.jsonl`.** `docs/design/data-model.md` guarantees
+  that prompt and response text is never written to disk, and grounds that in being *structural* —
+  "there is nothing to redact". It was not. When a backend returned output an adapter could not
+  parse, the adapter put that raw output in its error message, the router kept the message
+  untruncated in the task's `failures`, and the record was written to the usage log. Reproduced
+  end-to-end: non-JSON prose from a backend landed verbatim in a record whose own docstring says it
+  carries derived counts only. Closes
+  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153).
+
+  **Fixed where the message is built, not where it is written.** Filtering at the persistence
+  boundary would be exactly the "redaction filter … bypassed by the next code path that forgets it"
+  that the guarantee's own rationale rejects. Eight sites across the CLI and OpenAI-compatible
+  adapters now describe the *shape* of what arrived instead of reproducing it.
+
+  **The errors got more useful, not less.** `response JSON missing 'text' field: object with keys
+  ['response', 'stats']` says immediately that the wrong parser is wired, which a dumped body never
+  did. Object keys are named only when they look like schema — identifier-shaped and short — so a
+  key that is really content is counted rather than shown. The failure signal #100 added is intact:
+  the reason and the entry id still persist.
+
+  **The guarantee now has a mechanism.** Its norm-registry entry lists enforcement as Critic review,
+  which is invisible between reviews — which is how this survived. A test now drives a real
+  unparseable response through the adapter, the router's failure shape, and `record_task`, and
+  fails if any future site reintroduces a body.
+
 - **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
   has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its
   own state root — and nothing said so, so a second laptop's small number read as a lost history

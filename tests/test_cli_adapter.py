@@ -6,6 +6,7 @@ session rather than an injected API key.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import unittest
@@ -14,6 +15,8 @@ from unittest.mock import patch
 from tanglebrain.adapters.base import AdapterError
 from tanglebrain.adapters.cli import (
     CliAdapter,
+    _parse_claude_json,
+    _parse_json_field,
     build_argv,
     scrubbed_env,
 )
@@ -380,5 +383,59 @@ class ConstructionTest(unittest.TestCase):
             CliAdapter.from_entry(entry)
 
 
+class ErrorMessagesCarryNoResponseTextTest(unittest.TestCase):
+    """A backend's output must not survive into the error raised about it.
+
+    `data-model.md` § Direction guarantees that prompt and response text is never written to
+    disk, and grounds that in being structural — "there is nothing to redact". Adapter errors
+    are persisted: the router collects `str(exc)` into `failures` and `record_task` writes that
+    into `usage.jsonl`. So an error that quotes the body it could not parse puts response text
+    on disk, and the guarantee becomes a redaction filter rather than a structural property.
+
+    These assert the message describes the SHAPE of what arrived and never reproduces it.
+    """
+
+    #: Distinctive enough that a substring check cannot pass by accident.
+    BODY = "Zaphod Beeblebrox ate the last Vogon poetry anthology"
+
+    def test_unparseable_stdout_is_described_not_quoted(self):
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_json_field(self.BODY, "text", label="local")
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        self.assertNotIn("Zaphod", msg)
+        # Still diagnostic: the reason and the size survive.
+        self.assertIn("not valid JSON", msg)
+        self.assertIn(str(len(self.BODY)), msg)
+
+    def test_missing_field_names_keys_not_values(self):
+        payload = json.dumps({"other": self.BODY})
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_json_field(payload, "text", label="local")
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        # Keys are the API's schema, not the model's words — they stay, and they are the
+        # thing that actually tells an operator which shape arrived.
+        self.assertIn("other", msg)
+
+    def test_non_text_field_value_is_not_quoted(self):
+        payload = json.dumps({"text": {"nested": self.BODY}})
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_json_field(payload, "text", label="local")
+        self.assertNotIn(self.BODY, str(ctx.exception))
+
+    def test_claude_unparseable_stdout_is_not_quoted(self):
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_claude_json(self.BODY)
+        self.assertNotIn(self.BODY, str(ctx.exception))
+
+    def test_claude_reported_error_does_not_quote_the_result(self):
+        payload = json.dumps({"is_error": True, "subtype": "overloaded", "result": self.BODY})
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_claude_json(payload)
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        # The subtype is claude's own enum, not model output, and it is the diagnostic.
+        self.assertIn("overloaded", msg)
 if __name__ == "__main__":
     unittest.main()

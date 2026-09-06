@@ -23,7 +23,7 @@ from typing import Any, Iterator, Mapping
 
 import httpx
 
-from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.base import AdapterError, describe_shape
 from tanglebrain.roster import RosterEntry
 
 # Re-exported for backwards-compatible imports; the canonical definition lives in
@@ -244,12 +244,14 @@ class OpenAICompatAdapter:
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise AdapterError(f"unexpected response shape from LiteLLM: {data!r}") from exc
+            raise AdapterError(
+                f"unexpected response shape from LiteLLM: {describe_shape(data)}"
+            ) from exc
 
         if content is None:
             raise AdapterError(
                 f"LiteLLM returned null content for model {self.model!r} "
-                f"(often a truncated response — try a larger max_tokens): {data!r}"
+                f"(often a truncated response — try a larger max_tokens): {describe_shape(data)}"
             )
         return content
 
@@ -368,7 +370,7 @@ class OpenAICompatAdapter:
                             event = json.loads(data)
                         except ValueError as exc:
                             raise AdapterError(
-                                f"malformed SSE data line from model {self.model!r}: {data!r}"
+                                f"malformed SSE data line from model {self.model!r}: {describe_shape(data)}"
                             ) from exc
                         if not isinstance(event, dict):
                             raise AdapterError(

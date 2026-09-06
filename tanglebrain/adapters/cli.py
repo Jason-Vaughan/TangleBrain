@@ -31,7 +31,7 @@ import os
 import subprocess
 from typing import Any, Callable, Mapping
 
-from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.base import AdapterError, describe_shape
 from tanglebrain.roster import RosterEntry
 
 PROMPT_TOKEN = "{prompt}"
@@ -75,14 +75,20 @@ def _parse_json_field(stdout: str, field: str, *, label: str) -> str:
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise AdapterError(f"{label}: stdout is not valid JSON: {exc}; got {stdout!r}") from exc
+        raise AdapterError(
+            f"{label}: stdout is not valid JSON: {exc}; got {describe_shape(stdout)}"
+        ) from exc
     if not isinstance(data, dict):
         raise AdapterError(f"{label}: expected a JSON object, got {type(data).__name__}")
     if field not in data:
-        raise AdapterError(f"{label}: response JSON missing {field!r} field: {data!r}")
+        raise AdapterError(
+            f"{label}: response JSON missing {field!r} field: {describe_shape(data)}"
+        )
     value = data[field]
     if not isinstance(value, str) or not value.strip():
-        raise AdapterError(f"{label}: {field!r} is not non-empty text: {value!r}")
+        raise AdapterError(
+            f"{label}: {field!r} is not non-empty text: {describe_shape(value)}"
+        )
     return value
 
 
@@ -104,12 +110,15 @@ def _parse_claude_json(stdout: str) -> str:
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise AdapterError(f"claude: stdout is not valid JSON: {exc}; got {stdout!r}") from exc
+        raise AdapterError(
+            f"claude: stdout is not valid JSON: {exc}; got {describe_shape(stdout)}"
+        ) from exc
     if not isinstance(data, dict):
         raise AdapterError(f"claude: expected a JSON object, got {type(data).__name__}")
     if data.get("is_error"):
         raise AdapterError(
-            f"claude reported an error (subtype={data.get('subtype')!r}): {data.get('result')!r}"
+            f"claude reported an error (subtype={data.get('subtype')!r}): "
+            f"{describe_shape(data.get('result'))}"
         )
     return _parse_json_field(stdout, "result", label="claude")
 
