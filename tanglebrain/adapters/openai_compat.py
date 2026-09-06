@@ -379,6 +379,10 @@ class OpenAICompatAdapter:
                                 f"{self.model!r}: {describe_shape(event)}"
                             )
                         if "error" in event:
+                            # The provider's own error envelope, kept verbatim for the same reason
+                            # as an HTTP error body: it is the diagnostic. Same accepted limit too
+                            # — an upstream may echo the request into it. See the residual block in
+                            # the chunk that introduced `describe_shape`.
                             raise AdapterError(
                                 f"in-stream error from model {self.model!r}: {event['error']!r}"
                             )

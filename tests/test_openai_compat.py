@@ -471,6 +471,14 @@ class ErrorMessagesCarryNoResponseTextTest(unittest.TestCase):
         self.assertNotIn(self.BODY, msg)
         self.assertIn("malformed SSE", msg)
 
+    def test_non_dict_sse_event_does_not_quote_the_event(self):
+        # `data: "some text"` is valid JSON that decodes to a str, so it fails the isinstance
+        # check and raises with the decoded value — which is response text. The sibling test for
+        # this raise feeds `data: 42` and asserts only the prefix, so it passes either way.
+        msg = self._stream_error(json.dumps(self.BODY))
+        self.assertNotIn(self.BODY, msg)
+        self.assertNotIn("Zaphod", msg)
+
     def test_broken_sse_event_shape_does_not_quote_the_event(self):
         # A spec-valid JSON event with a broken shape — the delta carries completion text.
         msg = self._stream_error(json.dumps({"choices": [{"delta": self.BODY}]}))

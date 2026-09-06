@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from tanglebrain.adapters.base import AdapterError, describe_shape
@@ -386,7 +387,7 @@ class ConstructionTest(unittest.TestCase):
 class ErrorMessagesCarryNoResponseTextTest(unittest.TestCase):
     """A backend's output must not survive into the error raised about it.
 
-    `data-model.md` § Direction guarantees that prompt and response text is never written to
+    `docs/design/data-model.md` § Invariants guarantees that prompt and response text is never written to
     disk, and grounds that in being structural — "there is nothing to redact". Adapter errors
     are persisted: the router collects `str(exc)` into `failures` and `record_task` writes that
     into `usage.jsonl`. So an error that quotes the body it could not parse puts response text
@@ -476,6 +477,46 @@ class DescribeShapeTest(unittest.TestCase):
         self.assertEqual(describe_shape(None), "null")
         self.assertEqual(describe_shape(1.5), "number")
         self.assertEqual(describe_shape(True), "boolean")
+
+
+class DescribeShapeSiteCensusTest(unittest.TestCase):
+    """Every `describe_shape` call site must have a test that pins its body out.
+
+    "The guard fails if any future site reintroduces a body" is a claim over a set that changes,
+    and twice now the thing recomputing it was a person who forgot: first the three
+    `openai_compat` sites shipped unpinned, then the site added while fixing *that* shipped
+    unpinned too. Both times the suite stayed green with the body restored.
+
+    So this counts the sites instead. It cannot prove a given site is pinned — only a per-site
+    assertion does that, and those live in this file and `test_openai_compat.py`. What it does is
+    fail the moment a site is added or removed, which is the moment the claim would silently stop
+    being true. Adding a site is then a two-line change: write its pin, bump the count here.
+    """
+
+    #: Call sites per module, excluding `base.py` where the helper is defined. Bump ONLY together
+    #: with a matching per-site pin test — that pairing is the whole point of this census.
+    EXPECTED = {"cli.py": 5, "openai_compat.py": 5}
+
+    def test_site_count_matches_the_pinned_inventory(self):
+        adapters = Path(__file__).resolve().parent.parent / "tanglebrain" / "adapters"
+        actual = {
+            path.name: path.read_text(encoding="utf-8").count("describe_shape(")
+            for path in sorted(adapters.glob("*.py"))
+            if path.name not in {"base.py", "__init__.py"}
+        }
+        actual = {name: n for name, n in actual.items() if n}
+        self.assertEqual(
+            actual,
+            self.EXPECTED,
+            "describe_shape call sites changed. Every site needs a test asserting the body it "
+            "was given does NOT appear in the message (see ErrorMessagesCarryNoResponseTextTest "
+            "in this file and in test_openai_compat.py). Add the pin, then update EXPECTED.",
+        )
+
+    def test_the_helper_module_is_excluded_deliberately(self):
+        # base.py contains the definition and its docstring, not call sites; counting it would
+        # make the census drift for reasons that have nothing to do with coverage.
+        self.assertNotIn("base.py", self.EXPECTED)
 
 
 if __name__ == "__main__":

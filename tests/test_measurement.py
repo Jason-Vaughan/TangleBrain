@@ -1864,7 +1864,7 @@ class CarryUnknownFieldsTest(unittest.TestCase):
 class PersistedRecordCarriesNoResponseTextTest(unittest.TestCase):
     """The usage log must never contain prompt or response text — enforced, not asserted.
 
-    `data-model.md` § Direction states this as a guarantee and grounds it in being structural:
+    `docs/design/data-model.md` § Invariants states this as a guarantee and grounds it in being structural:
     "a redaction filter can be bypassed by the next code path that forgets it; there is nothing
     to redact cannot". The norm registry lists its enforcement as Critic review, which is
     invisible between reviews — and a real leak survived that way, through `failures`.

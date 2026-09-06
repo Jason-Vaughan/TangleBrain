@@ -32,9 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **The guarantee now has a mechanism.** Its norm-registry entry listed enforcement as Critic
   review, which is invisible between reviews — which is how this survived. A test now drives a real
   unparseable response through the adapter, the router's failure shape, and `record_task`, and
-  fails if any future site reintroduces a body; each adapter additionally pins its own sites, and
-  the shape helper's key filter is tested directly. The registry entry now names those tests
-  instead of naming a review.
+  fails if a body comes back; each adapter pins its own sites, and the shape helper's key filter is
+  tested directly. A census test additionally fails the moment a call site is added or removed —
+  because "every site is pinned" is a claim over a set that changes, and twice during this work the
+  thing recomputing it was a person who forgot. The registry entry now names those tests instead of
+  naming a review.
 
   **What this does not cover, stated rather than implied.** Two error paths still pass third-party
   text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, and a failed CLI's
