@@ -102,11 +102,22 @@ is.** The log is one JSON object per line, so `cat a/usage.jsonl b/usage.jsonl` 
 rollup reads. How complete that is depends on whether either machine has compacted: a log too young
 to have crossed the size cap *is* that machine's lifetime, so concatenating two of them loses
 nothing; once a machine has folded rows away, the folded part lives in its `totals.json` — one
-object, which does not concatenate — and is absent from the combined file. Nothing de-duplicates
-either, which is the same gap that makes real merging a project rather than a flag.
+object, which does not concatenate — and is absent from the combined file.
 
-Treat the result as a report. Writing it back over a machine's own log makes that machine's
-`--stats` claim the other machine's work from then on.
+**Read it under a throwaway state root**, not by writing it back over a machine's own log — that
+would make that machine's `--stats` claim the other machine's work from then on:
+
+```sh
+mkdir -p /tmp/merged
+cat machine-a/usage.jsonl machine-b/usage.jsonl > /tmp/merged/usage.jsonl
+TANGLEBRAIN_STATE_DIR=/tmp/merged tanglebrain --stats
+```
+
+`TANGLEBRAIN_STATE_DIR` is the same override the Configuration table above documents, and it is
+safe here by construction: `--stats` returns before anything routes, so nothing is recorded and
+compaction — which only ever triggers from recording a task — cannot fire and prune the merged
+file. The override resolves the legacy cache-tier root to the same directory too, so the first-run
+migration finds source and destination identical and copies nothing in.
 
 ## Runbook — diagnosing common failures
 

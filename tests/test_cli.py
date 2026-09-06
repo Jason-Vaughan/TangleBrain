@@ -701,9 +701,6 @@ class MainTest(unittest.TestCase):
         run.assert_not_called()  # --version never routes
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class RosterHelpTextTest(unittest.TestCase):
     """``--help`` must describe the roster default that actually applies.
@@ -777,3 +774,5 @@ class StatsHelpTextTest(unittest.TestCase):
         # still pass if the scope were re-broadened alongside it.
         help_text = self._stats_help()
         self.assertNotIn("every routed task so far", help_text)
+if __name__ == "__main__":
+    unittest.main()

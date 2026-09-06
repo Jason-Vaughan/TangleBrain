@@ -22,12 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Stated as a decision, not an omission**, and so not tracked as a gap: `docs/design/README.md`
   reserves its gap table for open work and leaves ratified non-goals in the documents that own them.
 
-  **A combined view is still available.** The log is one JSON object per line so two of them
-  concatenate into a file the rollup reads, with the honest limit that a machine which has already
-  folded rows into its `totals.json` is short by whatever it folded — that file is one object and
-  does not concatenate.
+  **A combined view is still available, with a procedure.** The log is one JSON object per line so
+  two of them concatenate into a file the rollup reads — read it under a throwaway
+  `TANGLEBRAIN_STATE_DIR` rather than writing it back over a live log. The honest limit is that a
+  machine which has already folded rows into its `totals.json` is short by whatever it folded; that
+  file is one object and does not concatenate.
 
-  Nothing behaves differently. A test pins the help wording so the scope cannot drop out of
+  Stated in `README.md` as well as the two places the plan named: the README's own `--stats`
+  example carried the unscoped wording verbatim, above the command a first-time user actually runs,
+  so the surface most likely to teach the wrong assumption was the one still teaching it.
+
+  Nothing behaves differently. Three tests pin the help wording so the scope cannot drop out of
   `--help` silently.
 
 - **`--stats` no longer asserts one pricing revision over a history that spans several.** The
