@@ -210,6 +210,19 @@ class SafetyTest(RosterEditTestBase):
         # The backup holds the PRE-edit content.
         self.assertIn("can_orchestrate: true", backups[0].read_text())
 
+    def test_an_interrupted_backup_leaves_no_file_wearing_a_backup_name(self):
+        # This backup is the only copy of a roster the operator hand-edited, and it is read only
+        # once the original is gone — so a truncated file under a valid backup name is the worst
+        # possible outcome. The copy stages beside the target and renames.
+        def truncated_copy(_src, staging):
+            Path(staging).write_text("entries:\n  - id: cla", encoding="utf-8")
+            raise OSError("interrupted")
+
+        with mock.patch("tanglebrain.atomic.shutil.copy2", side_effect=truncated_copy):
+            with self.assertRaises(OSError):
+                save_roster_edits("claude", {"can_orchestrate": False}, path=self.path)
+        self.assertEqual(list((Path(self.tmp) / "backups").glob("roster-*.yaml")), [])
+
     def test_result_always_reparses(self):
         # After any accepted edit, the file is a valid roster (the editor re-parses before writing).
         save_roster_edits("gpt5", {"good_at": ["a", "b"], "enabled": False}, path=self.path)

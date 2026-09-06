@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import io
 import json
+import random
+import shutil
+import threading
 import tempfile
 import unittest
 from dataclasses import dataclass
@@ -16,12 +19,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tanglebrain.measurement import (
+    LOG_FILENAME,
+    CompactionRefusedError,
     PLACEHOLDER_PRICING,
     PRICING_HEADER,
     Pricing,
     cloud_equiv_usd,
+    compact_log,
     default_log_path,
     estimate_tokens,
+    fold_records_into_totals,
     format_rollup,
     load_pricing,
     record_task,
@@ -31,11 +38,14 @@ from tanglebrain.measurement import (
     validate_pricing,
 )
 from tanglebrain.totals import (
+    NOT_PERSISTED,
     TOTALS_FILENAME,
+    carry_unknown_fields,
     default_totals_path,
     empty_totals,
     normalize_totals,
     read_totals,
+    write_totals,
 )
 
 # A fixed, non-placeholder pricing so cost assertions are exact and the caveat is off.
@@ -257,6 +267,20 @@ class SavePricingTest(unittest.TestCase):
         save_pricing(Pricing("M", 1.0, 2.0, True), self.path)
         leftovers = list(self.path.parent.glob("*.tmp"))
         self.assertEqual(leftovers, [])
+
+    def test_an_interrupted_backup_leaves_no_file_wearing_a_backup_name(self):
+        # A backup is read exactly when the original is already gone, so a short one that carries a
+        # valid name is worse than no backup at all. The copy stages and renames for that reason.
+        def truncated_copy(_src, staging):
+            Path(staging).write_text("placeholder: fal", encoding="utf-8")
+            raise OSError("interrupted")
+
+        save_pricing(Pricing("First", 1.0, 2.0, False), self.path)
+        with patch("tanglebrain.atomic.shutil.copy2", side_effect=truncated_copy):
+            with self.assertRaises(OSError):
+                save_pricing(Pricing("Second", 9.0, 9.0, False), self.path)
+        backups = Path(self.tmp) / "state" / "backups"
+        self.assertEqual(list(backups.glob("pricing-*.yaml")), [])
 
     def test_backup_created_on_overwrite(self):
         save_pricing(Pricing("First", 1.0, 2.0, False), self.path)   # creates the file (no prior → no backup)
@@ -836,6 +860,415 @@ class WindowVersusLifetimeLabellingTest(unittest.TestCase):
                  / "tanglebrain" / "gui" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("(current row window)", panel)
         self.assertIn("(local rollup, lifetime)", panel)
+
+
+def _generated_records(rnd: random.Random, count: int) -> list[dict]:
+    """Build a batch of plausible usage records with every field the rollup reads.
+
+    Random rather than hand-written because the invariant under test — the figure does not move
+    when rows do — has to hold across mixtures of kinds, tiers, origins and pricing revisions, not
+    just the one arrangement an author happens to picture. Values are drawn from a seeded
+    generator so a failure is reproducible from the seed printed with it.
+    """
+    kinds = ["task", "task", "task", "task", "delegate", "failure"]
+    records = []
+    for i in range(count):
+        kind = rnd.choice(kinds)
+        in_tok, out_tok = rnd.randrange(0, 5000), rnd.randrange(0, 5000)
+        equiv = round(rnd.uniform(0, 0.5), 6)
+        record = {
+            "ts": f"2026-01-01T00:{i:02d}:00+00:00",
+            "kind": kind,
+            "path": rnd.choice(["router", "local", "model", "delegate"]),
+            "tier": rnd.choice(["local", "cli", "api"]),
+            "model": rnd.choice(["m1", "m2", "m3"]),
+            "in_tokens_est": in_tok,
+            "out_tokens_est": out_tok,
+            "cloud_equiv_usd": equiv,
+            "spend_avoided_usd": 0.0 if kind == "failure" else equiv,
+            "pricing_ref": rnd.choice(["frontier-a", "frontier-b"]),
+        }
+        if kind == "delegate" and rnd.random() < 0.7:
+            record["parent_task_id"] = rnd.choice(["t1", "t2", "t3"])
+        if kind == "task":
+            record["origin"] = rnd.choice(["cli", "gui", "serve"])
+        if rnd.random() < 0.2:
+            record["failures"] = [{"entry": "e1", "error": "boom"}]
+        records.append(record)
+    return records
+
+
+def _without_window_scope(summary: dict) -> dict:
+    """Drop the one figure compaction is *allowed* to change, so the rest can be compared exactly.
+
+    ``delegates.by_parent`` describes the rows currently on disk and nothing else — it is never
+    folded, because one key per parent task id is unbounded. Comparing it across a compaction would
+    assert the opposite of the design.
+    """
+    summary["delegates"].pop("by_parent", None)
+    return summary
+
+
+class CompactionTest(unittest.TestCase):
+    """`compact_log`: rows move into the totals, and the headline does not move with them."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.log = self.tmp / LOG_FILENAME
+        self.totals = self.tmp / TOTALS_FILENAME
+
+    def _write_log(self, records):
+        self.log.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+
+    def _append_log(self, records):
+        with self.log.open("a", encoding="utf-8") as fh:
+            for record in records:
+                fh.write(json.dumps(record) + "\n")
+
+    def _figure(self):
+        """The rendered figure as a reader sees it: stored totals plus whatever rows remain."""
+        return rollup(read_records(self.log), read_totals(self.totals))
+
+    def _compact(self, keep_recent):
+        return compact_log(
+            keep_recent=keep_recent, log_path=self.log, totals_path=self.totals
+        )
+
+    def test_the_figure_is_invariant_under_compaction(self):
+        """The property: over generated logs, folding rows away changes no rendered figure.
+
+        Exact equality, not approximate. The fold runs the same summation the read path runs, over
+        the same records in the same order, so the floats are bit-identical rather than merely
+        close — an assertion that would go soft the moment either side grew its own arithmetic.
+        """
+        for seed in range(30):
+            with self.subTest(seed=seed):
+                rnd = random.Random(seed)
+                records = _generated_records(rnd, rnd.randrange(0, 30))
+                self._write_log(records)
+                self.totals.unlink(missing_ok=True)
+                # Half the runs fold into a store that already holds history, half into a fresh
+                # one: an implementation that ignored the stored side would pass only the latter.
+                if seed % 2:
+                    write_totals(FULL_TOTALS, self.totals)
+                before = self._figure()
+                keep = rnd.randrange(0, len(records) + 1)
+                folded = self._compact(keep)
+                self.assertEqual(folded, len(records) - keep)
+                self.assertEqual(_without_window_scope(self._figure()),
+                                 _without_window_scope(before))
+
+    def test_the_figure_survives_many_folds_with_appends_between_them(self):
+        # One fold is a different test from many: rounding or an off-by-one in the split shows up
+        # only once a stored total is folded *into* rather than created.
+        rnd = random.Random(4242)
+        everything = []
+        for _ in range(6):
+            batch = _generated_records(rnd, 7)
+            everything.extend(batch)
+            self._append_log(batch)
+            self._compact(keep_recent=3)
+        self.assertEqual(len(read_records(self.log)), 3)  # the window really was bounded
+        self.assertEqual(_without_window_scope(self._figure()),
+                         _without_window_scope(rollup(everything)))
+
+    def test_totals_land_before_any_row_is_dropped(self):
+        """A torn compaction over-counts. This pins the direction, not merely that it is nonzero.
+
+        Over-counting is visible in the figure and reconcilable against rows still on disk.
+        Under-counting is a silent, permanent loss of the only claim the product makes about
+        itself, so the two writes are ordered — and a test that could not tell them apart would
+        leave the ordering free to be reversed by anyone tidying the function.
+        """
+        records = _generated_records(random.Random(7), 10)
+        self._write_log(records)
+        truth = self._figure()
+        folded_tasks = sum(1 for r in records[:9] if r["kind"] == "task")
+        with patch("tanglebrain.measurement._rewrite_log", side_effect=OSError("crash")):
+            with self.assertRaises(OSError):
+                self._compact(keep_recent=1)
+        torn = self._figure()
+        self.assertEqual(len(read_records(self.log)), 10)      # nothing was dropped
+        self.assertTrue(self.totals.exists())                  # the fold had already landed
+        self.assertEqual(torn["tasks"], truth["tasks"] + folded_tasks)
+        self.assertGreater(torn["spend_avoided_usd"], truth["spend_avoided_usd"])
+
+    def test_a_failed_totals_write_drops_no_rows(self):
+        # The other half of the ordering. If the log were rewritten first, this run would lose
+        # nine rows with nothing anywhere recording them.
+        records = _generated_records(random.Random(8), 10)
+        self._write_log(records)
+        before_bytes = self.log.read_bytes()
+        truth = self._figure()
+        with patch("tanglebrain.measurement.write_totals", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                self._compact(keep_recent=1)
+        self.assertEqual(self.log.read_bytes(), before_bytes)
+        self.assertFalse(self.totals.exists())
+        self.assertEqual(self._figure(), truth)
+
+    def test_an_empty_window_is_a_no_op(self):
+        self._write_log([])
+        self.assertEqual(self._compact(keep_recent=0), 0)
+        self.assertFalse(self.totals.exists())  # no zeroed file materialized beside the log
+
+    def test_an_absent_log_is_a_no_op(self):
+        self.assertEqual(self._compact(keep_recent=0), 0)
+        self.assertFalse(self.totals.exists())
+
+    def test_a_window_already_short_enough_is_a_no_op(self):
+        records = _generated_records(random.Random(9), 3)
+        self._write_log(records)
+        before_bytes = self.log.read_bytes()
+        self.assertEqual(self._compact(keep_recent=5), 0)
+        self.assertEqual(self.log.read_bytes(), before_bytes)
+        self.assertFalse(self.totals.exists())
+
+    def test_only_the_oldest_rows_are_folded(self):
+        records = _generated_records(random.Random(10), 4)
+        self._write_log(records)
+        self.assertEqual(self._compact(keep_recent=1), 3)
+        self.assertEqual(read_records(self.log), records[-1:])
+
+    def test_kept_rows_are_written_back_verbatim(self):
+        # Verbatim, not re-serialized: a field a newer TangleBrain added survives, and so does a
+        # line torn by an interrupted append — the rewrite must not be the thing that deletes it.
+        self.log.write_text(
+            '{"kind": "task", "tier": "local", "spend_avoided_usd": 1.0}\n'
+            '{"kind": "task", "tier": "local", "invented_later": 7,  "spacing": "odd"}\n'
+            '{"kind": "task", "tier": "loc\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(self._compact(keep_recent=2), 1)
+        self.assertEqual(
+            self.log.read_text(encoding="utf-8"),
+            '{"kind": "task", "tier": "local", "invented_later": 7,  "spacing": "odd"}\n'
+            '{"kind": "task", "tier": "loc\n',
+        )
+
+    def test_a_kept_row_keeps_its_own_whitespace(self):
+        # "Verbatim" has to mean the line as found, not the line re-spaced: the rewrite is not
+        # the place to normalize a row it was only asked to keep.
+        self.log.write_text(
+            '{"kind": "task", "spend_avoided_usd": 1.0}\n'
+            '   {"kind": "task", "spend_avoided_usd": 2.0}   \n',
+            encoding="utf-8",
+        )
+        self.assertEqual(self._compact(keep_recent=1), 1)
+        self.assertEqual(self.log.read_text(encoding="utf-8"),
+                         '   {"kind": "task", "spend_avoided_usd": 2.0}   \n')
+        self.assertEqual(self._figure()["tasks"], 2)  # and both rows still count
+
+    def test_pricing_refs_survive_the_fold(self):
+        # Folding destroys the per-row `pricing_ref` evidence, so the span has to be captured in
+        # the totals as the rows go — chunk 05 renders a caveat that would otherwise have no basis.
+        self._write_log([
+            {"kind": "task", "pricing_ref": "frontier-b", "spend_avoided_usd": 1.0},
+            {"kind": "task", "pricing_ref": "frontier-a", "spend_avoided_usd": 1.0},
+        ])
+        self._compact(keep_recent=0)
+        self.assertEqual(read_totals(self.totals)["pricing_refs"], ["frontier-a", "frontier-b"])
+        self.assertEqual(self._figure()["pricing_refs"], ["frontier-a", "frontier-b"])
+
+    def test_the_parent_tree_is_never_folded(self):
+        # Unbounded cardinality: one key per parent task id would grow the totals file forever.
+        self._write_log([
+            {"kind": "delegate", "model": "m1", "parent_task_id": f"t{i}"} for i in range(5)
+        ])
+        self._compact(keep_recent=0)
+        self.assertNotIn("by_parent", json.loads(self.totals.read_text(encoding="utf-8"))["delegates"])
+        self.assertEqual(self._figure()["delegates"]["by_parent"], {})
+        self.assertEqual(self._figure()["delegates"]["count"], 5)  # the countable part did fold
+
+    def test_a_field_written_by_a_newer_version_survives_the_fold(self):
+        # The round-trip half of the forward-compatibility contract. `normalize_totals` drops what
+        # it does not recognise, so without the carry-through an older TangleBrain would delete a
+        # newer one's fields the first time it compacted.
+        self.totals.write_text(
+            json.dumps({**FULL_TOTALS, "invented_by_a_later_version": 99,
+                        "delegates": {**FULL_TOTALS["delegates"], "invented_nested": 7}}),
+            encoding="utf-8",
+        )
+        self._write_log([{"kind": "task", "tier": "local", "spend_avoided_usd": 1.0}])
+        self._compact(keep_recent=0)
+        stored = json.loads(self.totals.read_text(encoding="utf-8"))
+        self.assertEqual(stored["invented_by_a_later_version"], 99)
+        self.assertEqual(stored["delegates"]["invented_nested"], 7)
+        self.assertEqual(stored["tasks"], 12)  # and the known fields still folded
+
+    def test_a_corrupt_totals_file_refuses_the_fold_rather_than_overwriting_it(self):
+        """The under-count the write ordering exists to prevent, reached without a crash.
+
+        A present-but-unparseable totals file reads as zeros. Folding onto zeros would replace the
+        damaged bytes and then delete the rows that could have reconciled them — bad-but-recoverable
+        becomes permanent. Refusing keeps both halves on disk, which is the whole point.
+        """
+        self.totals.write_text('{"tasks": 11, "spend_avoided_usd": 4.2', encoding="utf-8")
+        corrupt_bytes = self.totals.read_bytes()
+        records = _generated_records(random.Random(11), 8)
+        self._write_log(records)
+        log_bytes = self.log.read_bytes()
+        with self.assertRaises(CompactionRefusedError):
+            self._compact(keep_recent=2)
+        self.assertEqual(self.totals.read_bytes(), corrupt_bytes)  # damaged, not destroyed
+        self.assertEqual(self.log.read_bytes(), log_bytes)         # and every row still there
+
+    def test_an_absent_totals_file_still_folds(self):
+        # Absence is the normal first-compaction case and must not be confused with corruption.
+        self._write_log(_generated_records(random.Random(12), 8))
+        self.assertEqual(self._compact(keep_recent=2), 6)
+
+    def test_an_append_during_a_compaction_survives_it(self):
+        """`_LOG_LOCK` held across read-fold-truncate — the chunk's stated concurrency deliverable.
+
+        Without the lock the appending thread writes into the file `_rewrite_log` is about to
+        replace, and the row is gone with no error anywhere. Deleting `with _LOG_LOCK:` turns this
+        red, which is what makes the guarantee a contract rather than a comment.
+        """
+        self._write_log(_generated_records(random.Random(13), 6))
+        inside, release = threading.Event(), threading.Event()
+        real_write = write_totals
+
+        def block_mid_compaction(totals, path=None):
+            real_write(totals, path)
+            inside.set()
+            release.wait(5)
+
+        appended = {"kind": "task", "tier": "local", "spend_avoided_usd": 9.0,
+                    "pricing_ref": "arrived-mid-compaction"}
+        with patch("tanglebrain.measurement.write_totals", side_effect=block_mid_compaction):
+            compactor = threading.Thread(target=self._compact, args=(), kwargs={"keep_recent": 2})
+            compactor.start()
+            self.assertTrue(inside.wait(5), "compaction never reached its totals write")
+            appender = threading.Thread(
+                target=record_task,
+                kwargs={"path": "router", "entry": None, "prompt": "x", "response": "y",
+                        "log_path": self.log, "pricing": FIXED},
+            )
+            appender.start()
+            appender.join(0.5)          # blocked on the lock the compaction holds
+            release.set()
+            appender.join(5)
+            compactor.join(5)
+        rows = read_records(self.log)
+        self.assertEqual(len(rows), 3, "the appended row was written into the replaced file")
+        self.assertEqual(str(appended["kind"]), rows[-1]["kind"])
+
+    def test_a_negative_keep_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self._compact(keep_recent=-1)
+
+
+class FoldRecordsIntoTotalsTest(unittest.TestCase):
+    """The pure fold, without the file I/O around it."""
+
+    def test_reads_back_as_the_same_figure_the_rows_produced(self):
+        rows = [{"kind": "task", "tier": "local", "origin": "cli", "in_tokens_est": 10,
+                 "out_tokens_est": 20, "cloud_equiv_usd": 0.5, "spend_avoided_usd": 0.5,
+                 "pricing_ref": "test-frontier"}]
+        self.assertEqual(_without_window_scope(rollup([], fold_records_into_totals(rows))),
+                         _without_window_scope(rollup(rows)))
+
+    def test_drops_the_unbounded_parent_tree(self):
+        folded = fold_records_into_totals([{"kind": "delegate", "parent_task_id": "t1"}])
+        self.assertNotIn("by_parent", folded["delegates"])
+
+    def test_produces_exactly_the_stored_shape(self):
+        # A field the fold invents but `empty_totals` has no home for would be silently dropped on
+        # the next read — the figure would shrink with no error anywhere.
+        self.assertEqual(set(fold_records_into_totals([])), set(empty_totals()))
+
+    def test_does_not_mutate_the_totals_it_was_given(self):
+        totals = json.loads(json.dumps(FULL_TOTALS))
+        fold_records_into_totals([{"kind": "task", "tier": "local"}], totals)
+        self.assertEqual(totals, FULL_TOTALS)
+
+
+class TotalsWriterTest(unittest.TestCase):
+    """`write_totals`: atomic, and non-destructive of fields this version has never heard of."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.totals = self.tmp / TOTALS_FILENAME
+
+    def test_round_trips_through_the_reader(self):
+        write_totals(FULL_TOTALS, self.totals)
+        self.assertEqual(read_totals(self.totals), FULL_TOTALS)
+
+    def test_leaves_no_staging_file_behind(self):
+        write_totals(FULL_TOTALS, self.totals)
+        self.assertEqual([p.name for p in self.tmp.iterdir()], [TOTALS_FILENAME])
+
+    def test_a_failed_write_leaves_the_previous_totals_whole(self):
+        write_totals(FULL_TOTALS, self.totals)
+        with patch("tanglebrain.atomic.os.replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                write_totals({**FULL_TOTALS, "tasks": 999}, self.totals)
+        self.assertEqual(read_totals(self.totals), FULL_TOTALS)
+
+    def test_carries_unknown_fields_through_from_the_file_it_replaces(self):
+        self.totals.write_text(json.dumps({"tasks": 1, "from_the_future": {"a": 1}}),
+                               encoding="utf-8")
+        write_totals(empty_totals(), self.totals)
+        self.assertEqual(json.loads(self.totals.read_text(encoding="utf-8"))["from_the_future"],
+                         {"a": 1})
+
+    def test_a_corrupt_previous_file_is_simply_replaced(self):
+        self.totals.write_text("{not json", encoding="utf-8")
+        write_totals(FULL_TOTALS, self.totals)
+        self.assertEqual(read_totals(self.totals), FULL_TOTALS)
+
+
+class CarryUnknownFieldsTest(unittest.TestCase):
+    """The merge rule behind the round-trip, in isolation."""
+
+    def test_known_fields_take_the_computed_value(self):
+        self.assertEqual(carry_unknown_fields({"tasks": 1}, {"tasks": 9}), {"tasks": 9})
+
+    def test_unknown_fields_ride_through_at_any_depth(self):
+        got = carry_unknown_fields(
+            {"top": 1, "delegates": {"count": 1, "deep": {"deeper": 2}}},
+            {"delegates": {"count": 9}},
+        )
+        self.assertEqual(got, {"top": 1, "delegates": {"count": 9, "deep": {"deeper": 2}}})
+
+    def test_a_stored_garbage_value_is_not_carried_back_over_its_coerced_form(self):
+        # `normalize_totals` already turned this into a usable zero; restoring the garbage would
+        # undo the coercion the whole format depends on.
+        self.assertEqual(carry_unknown_fields({"by_tier": "not-a-map"}, {"by_tier": {}}),
+                         {"by_tier": {}})
+
+    def test_a_deliberately_unstored_key_is_dropped_rather_than_carried(self):
+        # `by_parent` holds one entry per parent task id. If a stored file ever carried it, a
+        # predicate that only asks "did this run compute it" would preserve it forever — unbounded
+        # growth in the one file whose size the totals/window split rests on.
+        self.assertEqual(NOT_PERSISTED[("delegates",)], frozenset({"by_parent"}))
+        got = carry_unknown_fields(
+            {"delegates": {"count": 1, "by_parent": {"t1": {"count": 1}}}},
+            {"delegates": {"count": 9}},
+        )
+        self.assertNotIn("by_parent", got["delegates"])
+
+    def test_a_fold_never_persists_the_parent_tree_even_if_the_file_had_one(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        totals = tmp / TOTALS_FILENAME
+        totals.write_text(json.dumps({"delegates": {"by_parent": {"t1": {"count": 1}}}}),
+                          encoding="utf-8")
+        write_totals(fold_records_into_totals([{"kind": "delegate", "parent_task_id": "t2"}]),
+                     totals)
+        self.assertNotIn("by_parent", json.loads(totals.read_text(encoding="utf-8"))["delegates"])
+
+    def test_a_non_object_prior_file_carries_nothing(self):
+        self.assertEqual(carry_unknown_fields([1, 2, 3], {"tasks": 1}), {"tasks": 1})
+        self.assertEqual(carry_unknown_fields(None, {"tasks": 1}), {"tasks": 1})
+
+    def test_neither_argument_is_mutated(self):
+        raw, totals = {"future": 1}, {"tasks": 9}
+        carry_unknown_fields(raw, totals)
+        self.assertEqual((raw, totals), ({"future": 1}, {"tasks": 9}))
 
 
 if __name__ == "__main__":

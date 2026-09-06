@@ -178,6 +178,18 @@ shrinking under it. An absent or corrupt totals file reads as zeros, so a log th
 compacted rolls up from its rows alone. The delegates' `by_parent` tree is the one figure that
 cannot be folded — one key per parent task id is unbounded — so it stays window-scoped and both
 renderers label it.
+
+**Compaction** (`compact_log`) moves rows across that seam: it adds the oldest rows into the totals
+and only then removes them from the log. The fold runs the *same* summation the read path runs, so
+a figure cannot change merely because rows moved, and the two writes are **ordered on purpose** — a
+compaction interrupted between them leaves the rows counted twice, so the figure reads too large.
+The opposite order would drop rows before anything recorded them: a smaller number, no evidence,
+nothing left to recompute from. Nothing yet records *which* rows were folded, so an inflated figure
+is not attributable and does not correct itself; what the ordering buys is that no row is destroyed
+before something records it. Rows that stay are copied through unparsed, so neither a field added by
+a newer version nor a line torn by an interrupted append is lost to the rewrite. Nothing triggers compaction automatically yet — it is an explicit call
+until the size cap lands ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response (the
 authenticated CLIs expose no usable counts), so one consistent approximate methodology applies to
 every tier. All measurement I/O is best-effort: logging never breaks routing, and a corrupt record

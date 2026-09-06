@@ -21,6 +21,12 @@ Design notes:
   two, so the rows behind the headline can be bounded without the headline moving. Only the
   delegates' ``by_parent`` tree is window-scoped — it has one key per parent task id, which is
   unbounded and so cannot be folded — and the renderers label it as such.
+- **Compaction moves rows across that seam** (:func:`compact_log`), and the *order* of its two
+  writes is its whole guarantee: totals first, rows dropped only after. A torn compaction then
+  **over-counts rather than losing rows** — the figure reads too large. Nothing yet identifies
+  *which* rows were double-counted, so that state is not self-correcting; what the ordering buys is
+  that no row is ever destroyed before something records it, which is the one failure this
+  product's central claim cannot survive.
 - **All I/O is fault-tolerant.** A logging failure must never break the user's actual answer, and a
   corrupt log line must never break the rollup. Reads return sensible defaults; the writer swallows
   every exception. This mirrors the router's state-file idiom (:mod:`tanglebrain.router`).
@@ -29,7 +35,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -37,8 +42,18 @@ from pathlib import Path
 
 import yaml
 
+from tanglebrain.atomic import atomic_copy, atomic_write
 from tanglebrain.router import state_root
-from tanglebrain.totals import BACKEND_INT_FIELDS, as_float, as_int, normalize_totals
+from tanglebrain.totals import (
+    BACKEND_INT_FIELDS,
+    as_float,
+    as_int,
+    default_totals_path,
+    normalize_totals,
+    read_raw_totals,
+    read_totals,
+    write_totals,
+)
 
 LOG_FILENAME = "usage.jsonl"
 
@@ -54,6 +69,18 @@ PARENT_TASK_ID_ENV = "TANGLEBRAIN_TASK_ID"
 # sub-tasks out across threads) can't interleave bytes mid-line. Per-process only; cross-process
 # appends rely on the OS's O_APPEND atomicity for short lines, as before.
 _LOG_LOCK = threading.Lock()
+
+
+class CompactionRefusedError(RuntimeError):
+    """Raised when compaction declines to run because folding would destroy recoverable state.
+
+    Distinct from an ``OSError``: nothing failed and nothing was written. The store is in a state
+    where the *safe* action is to leave both halves on disk, so the caller is told rather than
+    quietly given a smaller number. Callers that must not break a user's answer should treat it the
+    way :func:`record_task` treats a logging failure — the rows are intact, and a later run can
+    still fold them.
+    """
+
 
 # Chars per token for the uniform estimation heuristic. ~4 chars/token is the standard rough
 # approximation for English-ish text across modern BPE tokenizers; good enough for an *estimate*.
@@ -222,14 +249,6 @@ def _backup_dir() -> Path:
     return state_root() / "backups"
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    """Write ``text`` to ``path`` atomically (temp file in the same dir, then ``os.replace``)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
-
-
 def _render_pricing(pricing: Pricing, header: str) -> str:
     """Render a :class:`Pricing` to YAML text beneath ``header``.
 
@@ -267,8 +286,11 @@ def save_pricing(pricing: Pricing, path: str | os.PathLike[str] | None = None) -
         backup_dir = _backup_dir()
         backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")  # sub-second: no same-second collision
-        shutil.copy2(target, backup_dir / f"pricing-{stamp}.yaml")
-    _atomic_write(target, _render_pricing(pricing, header))
+        # Staged and renamed, not copied straight to the final name: an interrupted copy would
+        # otherwise leave a truncated file wearing a backup's name, and a backup is read exactly
+        # when the original is already gone.
+        atomic_copy(target, backup_dir / f"pricing-{stamp}.yaml")
+    atomic_write(target, _render_pricing(pricing, header))
 
 
 def estimate_tokens(text: str) -> int:
@@ -399,6 +421,41 @@ def record_task(
         return
 
 
+def _read_lines(log_path: str | os.PathLike[str] | None = None) -> list[tuple[str, dict | None]]:
+    """Read the log as ``(raw line, parsed record or None)`` pairs, in chronological order.
+
+    :func:`read_records` wants the records and :func:`compact_log` wants the lines — compaction
+    copies the rows it keeps through **unparsed**, so an unknown field and an unparseable line
+    alike survive in the retained window. A line before the cut is folded away with the rest of its
+    span whether or not it parsed. Both callers go through this so there is a single definition of
+    what counts as a row.
+
+    Args:
+        log_path: Override the usage-log path. Defaults to :func:`default_log_path`.
+
+    Returns:
+        One pair per non-blank line, the second element ``None`` when the line is not a JSON
+        object. An absent or unreadable log yields ``[]``.
+    """
+    target = Path(log_path) if log_path is not None else default_log_path()
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    lines: list[tuple[str, dict | None]] = []
+    for raw in text.splitlines():
+        if not raw.strip():  # blank lines are not rows; nothing carries them forward
+            continue
+        try:
+            # `json.loads` tolerates surrounding whitespace itself, so the line is parsed as
+            # found — stripping here would make the "verbatim" the rewrite promises a near-miss.
+            obj = json.loads(raw)
+        except json.JSONDecodeError:
+            obj = None
+        lines.append((raw, obj if isinstance(obj, dict) else None))
+    return lines
+
+
 def read_records(log_path: str | os.PathLike[str] | None = None) -> list[dict]:
     """Read all usage records from the log, skipping malformed lines.
 
@@ -408,62 +465,29 @@ def read_records(log_path: str | os.PathLike[str] | None = None) -> list[dict]:
     Returns:
         The parsed records in file (chronological) order. An absent log yields ``[]``.
     """
-    target = Path(log_path) if log_path is not None else default_log_path()
-    records: list[dict] = []
-    try:
-        text = target.read_text(encoding="utf-8")
-    except OSError:
-        return records
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict):
-            records.append(obj)
-    return records
+    return [record for _, record in _read_lines(log_path) if record is not None]
 
 
-def rollup(records: list[dict], totals: dict | None = None) -> dict:
-    """Aggregate stored lifetime totals plus the current row window into one summary.
+def _accumulate(records: list[dict], totals: dict | None) -> dict:
+    """Sum stored lifetime totals and a batch of records — the summation shared by both callers.
 
-    Every figure below is a lifetime figure — stored totals plus the rows still on disk — with the
-    single exception of the delegates' ``by_parent`` tree, which is unbounded and therefore
-    describes the window alone (see :mod:`tanglebrain.totals`). Rendering a window-scoped split
-    beside a lifetime headline without saying which is which is the contradiction this split
-    exists to avoid, so the renderers label it.
+    :func:`rollup` renders this for a reader and :func:`fold_records_into_totals` persists it, and
+    they must agree exactly or compaction would move the headline. One body is what makes that
+    true by construction rather than by a test that has to keep noticing.
+
+    Money is deliberately **not** rounded here. Rounding is presentation, and applying it to a
+    value that is about to be added to again turns each fold into a fresh 5e-5 of drift. Because
+    the fold takes the oldest rows first, the additions happen in the same order either way, so a
+    figure read straight from the rows and the same figure read after any number of folds are
+    bit-identical rather than merely close.
 
     Args:
-        records: The records from :func:`read_records` — the current row window.
-        totals: Stored lifetime aggregates from :func:`~tanglebrain.totals.read_totals`. Defaults
-            to all-zeros, which makes the result identical to a window-only rollup: a log with no
-            ``totals.json`` has had nothing folded away, so its rows *are* its lifetime.
+        records: The records to add — the current row window, or the batch being folded away.
+        totals: Stored lifetime aggregates, normalized here rather than trusted (see
+            :func:`rollup`). ``None`` reads as all-zeros.
 
     Returns:
-        A dict with: ``tasks`` (int), ``by_tier`` (tier → count), ``by_origin`` (origin → count,
-        where a record without an ``origin`` field counts as ``untagged`` — pre-#74 history is
-        never guessed at), ``in_tokens_est`` / ``out_tokens_est`` (summed estimates), and
-        ``cloud_equiv_usd`` / ``spend_avoided_usd``
-        (summed dollars) — all over **top-level tasks only** — plus ``delegates``, a separate
-        sub-rollup of delegated sub-calls ``{count, by_backend: {model: {count, in_tokens_est,
-        out_tokens_est}}, by_parent: {parent_task_id: {count, by_backend: {model: count}}},
-        in_tokens_est, out_tokens_est, cloud_equiv_usd}``. ``by_parent`` groups each delegate under
-        the top-level task that spawned it (via ``parent_task_id``); delegates with no
-        ``parent_task_id`` are grouped under the sentinel ``"unlinked"``. Delegate records are kept
-        out of the headline so a sub-call's saving is never double-counted against its parent task;
-        their cloud-equiv is informational. A record without a ``kind`` field counts as a task.
-
-        Also ``failures`` (count of ``kind: "failure"`` records — tasks no backend served) and
-        ``lost_attempts`` (total failed attempts across all records: every attempt on a failure
-        record plus the lost failovers behind eventual successes). Failure records are held out
-        of the headline like delegates — a failed task avoided no spend (#100).
-
-        Also ``pricing_refs``: the sorted, de-duplicated reference-pricing revisions this figure
-        spans, merged from the stored totals and from the rows that contributed money to it. It is
-        collected here rather than derived later because compaction destroys the per-row evidence.
+        The unrounded summary, including the window-scoped ``delegates.by_parent`` tree.
     """
     # Normalizing here rather than trusting the argument makes this function total for *any*
     # caller: `None`, a partial dict, a file written by a newer version. It is the function whose
@@ -524,12 +548,178 @@ def rollup(records: list[dict], totals: dict | None = None) -> dict:
         summary["out_tokens_est"] += out_tok
         summary["cloud_equiv_usd"] += as_float(r.get("cloud_equiv_usd"))
         summary["spend_avoided_usd"] += as_float(r.get("spend_avoided_usd"))
-    summary["cloud_equiv_usd"] = round(summary["cloud_equiv_usd"], 4)
-    summary["spend_avoided_usd"] = round(summary["spend_avoided_usd"], 4)
-    delegates["cloud_equiv_usd"] = round(delegates["cloud_equiv_usd"], 4)
     summary["pricing_refs"] = sorted(pricing_refs)
     summary["delegates"] = delegates
     return summary
+
+
+def rollup(records: list[dict], totals: dict | None = None) -> dict:
+    """Aggregate stored lifetime totals plus the current row window into one summary.
+
+    Every figure below is a lifetime figure — stored totals plus the rows still on disk — with the
+    single exception of the delegates' ``by_parent`` tree, which is unbounded and therefore
+    describes the window alone (see :mod:`tanglebrain.totals`). Rendering a window-scoped split
+    beside a lifetime headline without saying which is which is the contradiction this split
+    exists to avoid, so the renderers label it.
+
+    Args:
+        records: The records from :func:`read_records` — the current row window.
+        totals: Stored lifetime aggregates from :func:`~tanglebrain.totals.read_totals`. Defaults
+            to all-zeros, which makes the result identical to a window-only rollup: a log with no
+            ``totals.json`` has had nothing folded away, so its rows *are* its lifetime.
+
+    Returns:
+        A dict with: ``tasks`` (int), ``by_tier`` (tier → count), ``by_origin`` (origin → count,
+        where a record without an ``origin`` field counts as ``untagged`` — pre-#74 history is
+        never guessed at), ``in_tokens_est`` / ``out_tokens_est`` (summed estimates), and
+        ``cloud_equiv_usd`` / ``spend_avoided_usd``
+        (summed dollars) — all over **top-level tasks only** — plus ``delegates``, a separate
+        sub-rollup of delegated sub-calls ``{count, by_backend: {model: {count, in_tokens_est,
+        out_tokens_est}}, by_parent: {parent_task_id: {count, by_backend: {model: count}}},
+        in_tokens_est, out_tokens_est, cloud_equiv_usd}``. ``by_parent`` groups each delegate under
+        the top-level task that spawned it (via ``parent_task_id``); delegates with no
+        ``parent_task_id`` are grouped under the sentinel ``"unlinked"``. Delegate records are kept
+        out of the headline so a sub-call's saving is never double-counted against its parent task;
+        their cloud-equiv is informational. A record without a ``kind`` field counts as a task.
+
+        Also ``failures`` (count of ``kind: "failure"`` records — tasks no backend served) and
+        ``lost_attempts`` (total failed attempts across all records: every attempt on a failure
+        record plus the lost failovers behind eventual successes). Failure records are held out
+        of the headline like delegates — a failed task avoided no spend (#100).
+
+        Also ``pricing_refs``: the sorted, de-duplicated reference-pricing revisions this figure
+        spans, merged from the stored totals and from the rows that contributed money to it. It is
+        collected here rather than derived later because compaction destroys the per-row evidence.
+    """
+    summary = _accumulate(records, totals)
+    # Rounded once, at the edge: these figures are read by `format_rollup` and by the GUI
+    # panel's JSON, and neither wants a float's full tail. The fold reads `_accumulate`
+    # directly so no stored value is ever rounded before it is added to again.
+    summary["cloud_equiv_usd"] = round(summary["cloud_equiv_usd"], 4)
+    summary["spend_avoided_usd"] = round(summary["spend_avoided_usd"], 4)
+    summary["delegates"]["cloud_equiv_usd"] = round(summary["delegates"]["cloud_equiv_usd"], 4)
+    return summary
+
+
+def fold_records_into_totals(records: list[dict], totals: dict | None = None) -> dict:
+    """Add a batch of rows into the lifetime totals, returning the new totals.
+
+    The fold performs the *same* summation :func:`rollup` performs, through the same body, so a
+    figure cannot change simply because rows moved from the window into the store. The one
+    difference is the delegates' ``by_parent`` tree, which is dropped: it holds one key per parent
+    task id, so folding it would grow the totals file without bound. That tree is window-scoped by
+    definition, and every renderer says so.
+
+    Pure — no file is read or written. :func:`compact_log` is what persists the result.
+
+    Args:
+        records: The rows being folded away.
+        totals: The stored totals to add them to. ``None`` reads as all-zeros.
+
+    Returns:
+        A new totals dict in the shape :mod:`tanglebrain.totals` defines.
+    """
+    folded = _accumulate(records, totals)
+    folded["delegates"].pop("by_parent", None)
+    return folded
+
+
+def _rewrite_log(log_path: Path, lines: list[str]) -> None:
+    """Replace the usage log with exactly ``lines`` — the second, destructive half of a compaction.
+
+    Its own function because the *ordering* around it is the guarantee compaction makes, and a
+    seam that can be made to fail is what lets a test prove rows are never dropped before the
+    totals that replace them have landed.
+
+    Args:
+        log_path: The usage log to replace.
+        lines: The rows to keep, verbatim, without trailing newlines.
+    """
+    atomic_write(log_path, "".join(line + "\n" for line in lines))
+
+
+def compact_log(
+    *,
+    keep_recent: int,
+    log_path: str | os.PathLike[str] | None = None,
+    totals_path: str | os.PathLike[str] | None = None,
+) -> int:
+    """Fold every row but the most recent ``keep_recent`` into the lifetime totals, then drop them.
+
+    **The order of the two writes is the whole point.** The totals file is written first and the
+    rows are removed only once that write has landed. An interrupted compaction therefore leaves
+    rows counted in *both* halves, so the figure reads **too large**. The opposite order would drop
+    rows before anything recorded them: a smaller figure, no evidence, nothing left to recompute
+    from. Over-counting is a bug; under-counting is the loss of the only claim this product makes
+    about itself, so the recoverable direction is the only one reachable.
+
+    **What that does not buy, stated because five surfaces used to imply otherwise:** a folded row
+    is byte-identical to an unfolded one, and nothing here records a watermark, a fold count or a
+    timestamp — so an inflated figure is not *attributable* and does not correct itself. Whoever
+    wires the automatic trigger has to decide whether a persisted watermark is owed before an
+    unattended crash can inflate the headline (it is additive under the format contract).
+
+    Nothing is written at all when there is nothing to fold, so a short log leaves both files
+    exactly as they were rather than materializing a zeroed totals file beside it.
+
+    Rows that are kept are written back **verbatim**, so neither a field added by a newer
+    TangleBrain nor a line left torn by an interrupted append is lost to the operation that
+    rewrites the file.
+
+    **Concurrency.** ``_LOG_LOCK`` is held across the whole read-fold-truncate, so an append from
+    another thread of this process (``delegate_many`` fans out) cannot land between the read and
+    the rewrite. It cannot cover *another process*, in two ways: a second TangleBrain appending
+    during those milliseconds writes to the file being replaced and that row is lost, and two
+    compactions overlapping read the same totals and the later write discards the earlier fold
+    wholesale. Accepted for a single-operator local tool, and stated rather than papered over — an
+    advisory lock would buy a guarantee on POSIX only, and a guarantee that silently does not hold
+    on one supported platform is worse than a limitation written down. The window is one explicit
+    maintenance call today; a caller that makes compaction automatic has to weigh it again.
+
+    Args:
+        keep_recent: How many of the newest rows to leave in the log. ``0`` folds everything.
+        log_path: Override the usage-log path. Defaults to :func:`default_log_path`.
+        totals_path: Override the totals path. Defaults to
+            :func:`~tanglebrain.totals.default_totals_path`.
+
+    Returns:
+        The number of rows removed from the log — ``0`` when the window was already short enough.
+        A line too malformed to parse is removed with the rest of its span and counted here; it
+        contributed nothing to any figure, so nothing is folded in its place.
+
+    Raises:
+        ValueError: If ``keep_recent`` is negative.
+        CompactionRefusedError: If the totals file exists but does not parse. Nothing is written — the
+            damaged file and every row are left where they are.
+        OSError: If either write fails. A failed totals write leaves both files untouched; a failed
+            log rewrite leaves the over-counting state described above, never a lossy one.
+    """
+    if keep_recent < 0:
+        raise ValueError("keep_recent must be >= 0")
+    log = Path(log_path) if log_path is not None else default_log_path()
+    totals_file = Path(totals_path) if totals_path is not None else default_totals_path()
+    with _LOG_LOCK:
+        lines = _read_lines(log)
+        if keep_recent >= len(lines):
+            return 0
+        # A totals file that is present but unparseable reads as zeros, and folding onto zeros
+        # would overwrite the damaged bytes and *then* delete the rows that could have reconciled
+        # them — turning a bad-but-recoverable store into a permanent under-count without a crash.
+        # Reading as zeros is right for a rollup, which only renders; it is wrong for a writer,
+        # which destroys. Refusing keeps both halves on disk. The log grows meanwhile, which is a
+        # smaller problem than a wrong headline.
+        if totals_file.exists() and not isinstance(read_raw_totals(totals_file), dict):
+            raise CompactionRefusedError(
+                f"{totals_file} exists but does not parse as a totals object; refusing to fold "
+                f"{len(lines) - keep_recent} row(s) onto it. Move or repair the file first — the "
+                f"rows are still in {log} and no figure has been lost."
+            )
+        cut = len(lines) - keep_recent
+        folding = [record for _, record in lines[:cut] if record is not None]
+        keeping = [raw for raw, _ in lines[cut:]]
+        write_totals(fold_records_into_totals(folding, read_totals(totals_file)), totals_file)
+        _rewrite_log(log, keeping)
+    return cut
 
 
 def format_rollup(summary: dict, pricing: Pricing) -> str:

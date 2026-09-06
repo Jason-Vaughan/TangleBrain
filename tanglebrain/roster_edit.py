@@ -24,11 +24,11 @@ from __future__ import annotations
 import math
 import os
 import re
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tanglebrain.measurement import _atomic_write, _backup_dir
+from tanglebrain.atomic import atomic_copy, atomic_write, staging_path
+from tanglebrain.measurement import _backup_dir
 from tanglebrain.roster import RosterError, default_roster_path, load_roster
 
 # The only fields this editor will touch (entry-level scalars). Everything else — id, tier, the
@@ -172,8 +172,11 @@ def save_roster_edits(
     candidate = "\n".join(lines)
 
     # Validate by re-parsing with the real loader before any write — a surgical slip can never land
-    # a malformed roster. Use a sibling temp file so the parse sees exactly what we'd write.
-    check = target.with_name(target.name + ".check.tmp")
+    # a malformed roster. Use a sibling temp file so the parse sees exactly what we'd write, and a
+    # unique name: the panel runs on a threading server, so two concurrent saves sharing one fixed
+    # staging name would interleave into it and validate a mixture, or unlink it out from under
+    # each other. Same reasoning as the writes below, so the same helper names it.
+    check = staging_path(target)
     try:
         check.write_text(candidate, encoding="utf-8")
         try:
@@ -197,5 +200,8 @@ def save_roster_edits(
     backup_dir = _backup_dir()
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-    shutil.copy2(target, backup_dir / f"roster-{stamp}.yaml")
-    _atomic_write(target, candidate)
+    # Staged and renamed rather than copied to the final name: an interrupted copy would leave a
+    # truncated file wearing a backup's name, and this backup is the only copy of a roster the
+    # operator hand-edited.
+    atomic_copy(target, backup_dir / f"roster-{stamp}.yaml")
+    atomic_write(target, candidate)

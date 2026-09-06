@@ -13,12 +13,12 @@ from __future__ import annotations
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import run_once
 from tanglebrain.measurement import load_pricing, read_records, rollup, save_pricing, validate_pricing
-from tanglebrain.totals import read_totals
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.roster_edit import RosterEditError, save_roster_edits
 from tanglebrain.router import RouterError
 from tanglebrain.selector import SelectionError
 from tanglebrain.settings import load_settings
+from tanglebrain.totals import read_totals
 
 # Default panel port (3250).
 DEFAULT_PORT = 3250

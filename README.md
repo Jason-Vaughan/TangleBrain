@@ -173,7 +173,15 @@ Every routed task is logged as one JSON line in an append-only usage log
 (`~/.local/share/tanglebrain/usage.jsonl`, or under `XDG_DATA_HOME` /
 `TANGLEBRAIN_STATE_DIR`): path, tier, model,
 estimated tokens, and the **cloud-equivalent cost it avoided** — what the work would have cost on a
-paid frontier API. `tanglebrain --stats` rolls those records up into a single figure.
+paid frontier API.
+
+`tanglebrain --stats` reports a **lifetime** figure, summed from two files: `totals.json` beside
+the log holds permanent aggregates, and the log holds the recent rows. Compaction folds the oldest
+rows into the totals and then drops them, which is what will let the log stay a bounded window
+without the lifetime figure shrinking as it shrinks — the size trigger that invokes it is still to
+come ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)), so the log grows unbounded
+for now. Delete either file and the figure falls back to whatever the other one holds — a smaller
+number, never an error.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is

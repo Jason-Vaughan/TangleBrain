@@ -9,13 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Old rows fold into the lifetime totals, and the totals are written first** — a compaction that
+  adds the oldest rows into `totals.json` and only then removes them from `usage.jsonl`. This is
+  the write half of the measurement store; nothing triggers it automatically yet, so no install
+  changes behaviour on upgrade.
+
+  **The order of the two writes is the whole feature.** Interrupted between them, a compaction
+  leaves rows counted in both halves and the figure reads too large. The opposite order would drop
+  rows before anything recorded them — a smaller figure, no evidence, nothing left to recompute
+  from. Over-counting is a bug; under-counting is the loss of the only claim this product makes
+  about itself, so both directions are pinned by tests that force the interruption rather than
+  waiting for one. What the ordering does *not* buy: nothing is persisted to mark which rows were
+  folded, so an inflated figure is not attributable and does not correct itself — the automatic
+  trigger has to settle whether a watermark is owed before an unattended crash can inflate it.
+
+  Writes are **durable**, not merely atomic: the staging file is fsynced before the rename and the
+  directory after, because `os.replace` orders the two writes against a killed process but not
+  against a power loss. A totals file that is present but unparseable is **not folded onto** —
+  reading it as zeros is right for a rollup, which renders, and wrong for a writer, which destroys,
+  so compaction refuses and leaves both halves on disk.
+
+  The fold runs the **same summation** the read path runs, so a figure cannot change merely because
+  rows moved across the seam — a property test asserts exact equality across generated logs, and
+  across six successive folds with appends between them. Rows that stay are copied
+  through unparsed, so a field added by a newer TangleBrain, or a line left torn by an interrupted
+  append, survives the rewrite that keeps it.
+
+  Writing the totals also completes their forward-compatibility contract, which until now existed
+  only on the read side. Ignoring an unknown key on read would have *deleted* it on write, so the
+  first compaction run by an older TangleBrain would have permanently destroyed fields a newer one
+  wrote. The writer now carries unrecognised fields through at any depth. Carrying is not
+  maintaining — an older version cannot add the folded rows to a field it does not know, so such a
+  value goes stale rather than being lost — and that limit is stated in `data-model.md` and
+  `boundaries.md` rather than implied.
+
+  A process-level lock covers the whole read-fold-truncate. It cannot cover a second TangleBrain
+  process: an append during a compaction is written to the file being replaced and lost, and two
+  overlapping compactions read the same stored totals so the later write discards the earlier fold.
+  Accepted for a single-operator local tool and written down: an advisory file lock would hold on
+  POSIX only, and a guarantee that silently does not hold on a supported platform is worse than a
+  stated limitation.
+
 - **Lifetime totals are a file of their own** — `totals.json`, written beside the usage log in the
   state root and read by `tanglebrain --stats` and the GUI panel. The spend-avoided headline is now
   the sum of stored lifetime aggregates and the per-task rows still on disk, rather than a re-read
-  of every row ever written. This is the read half only: nothing writes the file yet, and an absent
-  one reads as zeros, so today's figure is byte-for-byte the figure of the previous release —
-  verified against the live 36-record log, where every shared figure is identical and only the two
-  labels below differ.
+  of every row ever written. This was the read half; the fold that writes it is the entry above.
+  An absent file reads as zeros, so on a log that has never been compacted the figure is
+  byte-for-byte the figure of the previous release — verified against the live 36-record log, where
+  every shared figure is identical and only the two labels below differ.
 
   Splitting the two is what lets a later release bound the row window without the lifetime claim
   shrinking underneath it — and it is what makes a wrong figure attributable, since a discrepancy is
@@ -167,6 +208,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every fresh resolve with no announcement and no commit to blame.
 
 ### Fixed
+
+- **A backup is never left short under a valid name.** The pricing and roster saves copied
+  straight to their final backup path, so an interrupted copy left a truncated file that a later
+  restore would read as whole — and a backup is consulted exactly when the original is already
+  gone. Both now stage the copy beside the target and rename it into place, the same way the writes
+  themselves have always worked. Staging names also carry a unique suffix, so two writers racing on
+  one target can no longer interleave their bytes into a shared `.tmp` and rename the mixture in.
 
 - **The GUI panel's colour layer now meets WCAG 2.1 AA, and is asserted rather than audited once
   (#115).** Nine of twenty-seven pairs failed, all of them muted text or control outlines. Two

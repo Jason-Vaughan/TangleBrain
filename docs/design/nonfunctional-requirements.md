@@ -64,7 +64,7 @@ Explicitly bounded, and the bounds are the design:
 - **Roster size** is expected in the tens. Selection is a linear scan and that is appropriate;
   anything cleverer would be unjustified.
 
-**Known unbounded quantity:** `usage.jsonl` grows forever. No rotation, no cap, no pruning.
+**Known unbounded quantity:** `usage.jsonl` grows forever. No rotation, no cap, no *automatic* pruning — compaction exists, but nothing invokes it yet.
 Slow-moving for one operator, but it is the one place the system has no scaling story at all —
 [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101).
 
@@ -81,6 +81,9 @@ ladder:
 | All orchestrators fail, paid gate **on** | Fall through to enabled `api` entries in roster order; a paid success does **not** advance the rotation cursor | `tests/test_router.py` |
 | Measurement raises | Swallowed; answer still returns | `tests/test_measurement.py`, `tests/test_delegate.py` |
 | A usage record is corrupt | Skipped; rollup still produced | `tests/test_measurement.py` |
+| `totals.json` is absent or corrupt | Reads as zeros; the figure falls back to the rows still on disk | Less information, never an error. `tests/test_measurement.py` |
+| A compaction is interrupted between its two writes | The rows it was folding are counted twice — the figure over-states, never under-states | The writes are ordered so the recoverable direction is the only one reachable. `tests/test_measurement.py` |
+| A compaction starts against a corrupt `totals.json` | Refused; neither file is touched | Folding onto zeros would destroy the damaged bytes *and* the rows that could reconcile them. `tests/test_measurement.py` |
 | Roster missing | Falls back to the packaged local-only example | `tests/test_roster.py` |
 | A `delegate_many` item fails | Per-item `status`; batch completes | `tests/test_delegate.py` |
 | Rotation cursor lost | Rotation restarts from the beginning | Harmless — a fairness hint, not correctness. |
