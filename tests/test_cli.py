@@ -561,6 +561,15 @@ class RunOnceStreamTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
+    def setUp(self):
+        # Isolate the state root: these tests read the measurement store, and a suite that reads
+        # (or migrates) the operator's real one is not hermetic and its results depend on the
+        # machine it ran on.
+        self.state = tempfile.mkdtemp()
+        env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.state}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_success_prints_and_returns_zero(self):
         with patch("tanglebrain.cli.run_once", return_value="the answer"):
             out = io.StringIO()

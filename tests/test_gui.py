@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -100,6 +101,15 @@ class ViewPricingTest(unittest.TestCase):
 
 
 class ViewStatsTest(unittest.TestCase):
+    def setUp(self):
+        # Isolate the state root: these tests read the measurement store, and a suite that reads
+        # (or migrates) the operator's real one is not hermetic and its results depend on the
+        # machine it ran on.
+        self.state = tempfile.mkdtemp()
+        env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.state}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_rolls_up_records(self):
         recs = [
             {"tier": "local", "in_tokens_est": 10, "out_tokens_est": 20,
@@ -228,6 +238,15 @@ class SaveRosterViewTest(unittest.TestCase):
 
 
 class DispatchTest(unittest.TestCase):
+    def setUp(self):
+        # Isolate the state root: these tests read the measurement store, and a suite that reads
+        # (or migrates) the operator's real one is not hermetic and its results depend on the
+        # machine it ran on.
+        self.state = tempfile.mkdtemp()
+        env = patch.dict(os.environ, {"TANGLEBRAIN_STATE_DIR": self.state}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_get_index_is_html(self):
         status, ctype, body = server.dispatch("GET", "/")
         self.assertEqual(status, 200)

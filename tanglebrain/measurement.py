@@ -16,6 +16,11 @@ Design notes:
 - **State lives in the XDG data tier**, not ``~/.cache`` (see
   :func:`~tanglebrain.router.state_root`). The usage log is not reconstructible, so a
   cache-tier home would have made every historical figure deletable by any cleanup tool.
+- **The store has two halves**: permanent lifetime aggregates in ``totals.json``
+  (:mod:`tanglebrain.totals`) and a window of per-task rows in the log. :func:`rollup` sums the
+  two, so the rows behind the headline can be bounded without the headline moving. Only the
+  delegates' ``by_parent`` tree is window-scoped — it has one key per parent task id, which is
+  unbounded and so cannot be folded — and the renderers label it as such.
 - **All I/O is fault-tolerant.** A logging failure must never break the user's actual answer, and a
   corrupt log line must never break the rollup. Reads return sensible defaults; the writer swallows
   every exception. This mirrors the router's state-file idiom (:mod:`tanglebrain.router`).
@@ -33,6 +38,7 @@ from pathlib import Path
 import yaml
 
 from tanglebrain.router import state_root
+from tanglebrain.totals import as_float, as_int, empty_totals
 
 LOG_FILENAME = "usage.jsonl"
 
@@ -393,22 +399,6 @@ def record_task(
         return
 
 
-def _as_int(value: object) -> int:
-    """Coerce a stored numeric field to int, defaulting to 0 on any bad value."""
-    try:
-        return int(value)  # type: ignore[call-overload]  # guarded by the except below
-    except (ValueError, TypeError):
-        return 0
-
-
-def _as_float(value: object) -> float:
-    """Coerce a stored numeric field to float, defaulting to 0.0 on any bad value."""
-    try:
-        return float(value)  # type: ignore[arg-type]
-    except (ValueError, TypeError):
-        return 0.0
-
-
 def read_records(log_path: str | os.PathLike[str] | None = None) -> list[dict]:
     """Read all usage records from the log, skipping malformed lines.
 
@@ -437,11 +427,20 @@ def read_records(log_path: str | os.PathLike[str] | None = None) -> list[dict]:
     return records
 
 
-def rollup(records: list[dict]) -> dict:
-    """Aggregate usage records into a summary.
+def rollup(records: list[dict], totals: dict | None = None) -> dict:
+    """Aggregate stored lifetime totals plus the current row window into one summary.
+
+    Every figure below is a lifetime figure — stored totals plus the rows still on disk — with the
+    single exception of the delegates' ``by_parent`` tree, which is unbounded and therefore
+    describes the window alone (see :mod:`tanglebrain.totals`). Rendering a window-scoped split
+    beside a lifetime headline without saying which is which is the contradiction this split
+    exists to avoid, so the renderers label it.
 
     Args:
-        records: The records from :func:`read_records`.
+        records: The records from :func:`read_records` — the current row window.
+        totals: Stored lifetime aggregates from :func:`~tanglebrain.totals.read_totals`. Defaults
+            to all-zeros, which makes the result identical to a window-only rollup: a log with no
+            ``totals.json`` has had nothing folded away, so its rows *are* its lifetime.
 
     Returns:
         A dict with: ``tasks`` (int), ``by_tier`` (tier → count), ``by_origin`` (origin → count,
@@ -461,35 +460,55 @@ def rollup(records: list[dict]) -> dict:
         ``lost_attempts`` (total failed attempts across all records: every attempt on a failure
         record plus the lost failovers behind eventual successes). Failure records are held out
         of the headline like delegates — a failed task avoided no spend (#100).
+
+        Also ``pricing_refs``: the sorted, de-duplicated reference-pricing revisions this figure
+        spans, merged from the stored totals and from the rows that contributed money to it. It is
+        collected here rather than derived later because compaction destroys the per-row evidence.
     """
+    stored = totals if totals is not None else empty_totals()
+    stored_delegates = stored.get("delegates") or {}
+    # Seeded from the stored lifetime aggregates, then the window's rows are added on top. The
+    # maps are copied rather than aliased: a caller's totals dict is theirs, and this function
+    # has no business mutating what it was handed.
     summary: dict = {
-        "tasks": 0,
-        "failures": 0,
-        "lost_attempts": 0,
-        "by_tier": {},
-        "by_origin": {},
-        "in_tokens_est": 0,
-        "out_tokens_est": 0,
-        "cloud_equiv_usd": 0.0,
-        "spend_avoided_usd": 0.0,
+        "tasks": as_int(stored.get("tasks")),
+        "failures": as_int(stored.get("failures")),
+        "lost_attempts": as_int(stored.get("lost_attempts")),
+        "by_tier": dict(stored.get("by_tier") or {}),
+        "by_origin": dict(stored.get("by_origin") or {}),
+        "in_tokens_est": as_int(stored.get("in_tokens_est")),
+        "out_tokens_est": as_int(stored.get("out_tokens_est")),
+        "cloud_equiv_usd": as_float(stored.get("cloud_equiv_usd")),
+        "spend_avoided_usd": as_float(stored.get("spend_avoided_usd")),
     }
+    pricing_refs: set[str] = {str(ref) for ref in (stored.get("pricing_refs") or [])}
     delegates: dict = {
-        "count": 0,
-        "by_backend": {},
+        "count": as_int(stored_delegates.get("count")),
+        "by_backend": {
+            str(model): dict(info) for model, info in (stored_delegates.get("by_backend") or {}).items()
+        },
+        # Window-scoped, and the only thing here that is: one key per parent task id is unbounded,
+        # so it is never folded into the stored totals and always starts empty.
         "by_parent": {},
-        "in_tokens_est": 0,
-        "out_tokens_est": 0,
-        "cloud_equiv_usd": 0.0,
+        "in_tokens_est": as_int(stored_delegates.get("in_tokens_est")),
+        "out_tokens_est": as_int(stored_delegates.get("out_tokens_est")),
+        "cloud_equiv_usd": as_float(stored_delegates.get("cloud_equiv_usd")),
     }
     for r in records:
-        in_tok = _as_int(r.get("in_tokens_est"))
-        out_tok = _as_int(r.get("out_tokens_est"))
+        in_tok = as_int(r.get("in_tokens_est"))
+        out_tok = as_int(r.get("out_tokens_est"))
         lost = r.get("failures")
         summary["lost_attempts"] += len(lost) if isinstance(lost, list) else 0
         if str(r.get("kind", "task")) == "failure":
             # Held out of the headline like delegates: a failed task avoided no spend (#100).
             summary["failures"] += 1
             continue
+        # Collected from here down, so only the records that put money into a rendered figure
+        # widen the span. A failure record priced nothing, and letting it contribute a revision
+        # would caveat a figure it never touched.
+        ref = r.get("pricing_ref")
+        if ref not in (None, ""):
+            pricing_refs.add(str(ref))
         if str(r.get("kind", "task")) == "delegate":
             delegates["count"] += 1
             model = str(r.get("model", "unknown"))
@@ -508,7 +527,7 @@ def rollup(records: list[dict]) -> dict:
             parent["by_backend"][model] = parent["by_backend"].get(model, 0) + 1
             delegates["in_tokens_est"] += in_tok
             delegates["out_tokens_est"] += out_tok
-            delegates["cloud_equiv_usd"] += _as_float(r.get("cloud_equiv_usd"))
+            delegates["cloud_equiv_usd"] += as_float(r.get("cloud_equiv_usd"))
             continue
         summary["tasks"] += 1
         tier = str(r.get("tier", "unknown"))
@@ -517,11 +536,12 @@ def rollup(records: list[dict]) -> dict:
         summary["by_origin"][origin] = summary["by_origin"].get(origin, 0) + 1
         summary["in_tokens_est"] += in_tok
         summary["out_tokens_est"] += out_tok
-        summary["cloud_equiv_usd"] += _as_float(r.get("cloud_equiv_usd"))
-        summary["spend_avoided_usd"] += _as_float(r.get("spend_avoided_usd"))
+        summary["cloud_equiv_usd"] += as_float(r.get("cloud_equiv_usd"))
+        summary["spend_avoided_usd"] += as_float(r.get("spend_avoided_usd"))
     summary["cloud_equiv_usd"] = round(summary["cloud_equiv_usd"], 4)
     summary["spend_avoided_usd"] = round(summary["spend_avoided_usd"], 4)
     delegates["cloud_equiv_usd"] = round(delegates["cloud_equiv_usd"], 4)
+    summary["pricing_refs"] = sorted(pricing_refs)
     summary["delegates"] = delegates
     return summary
 
@@ -537,8 +557,11 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
     Returns:
         A multi-line string suitable for printing.
     """
+    # "lifetime" is in the heading because it is the claim the whole block makes: the figures are
+    # stored totals plus the rows still on disk, not a report on whatever rows survived compaction.
+    # It also gives the one window-scoped line below something to be the exception to.
     lines = [
-        "TangleBrain — spend avoided (cloud-equivalent)",
+        "TangleBrain — spend avoided (cloud-equivalent, lifetime)",
         f"  Tasks routed:   {summary.get('tasks', 0)}",
     ]
     failed = summary.get("failures", 0)
@@ -588,7 +611,10 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
                     tree += f", {unlinked} unlinked"
             else:
                 tree = f"{unlinked} unlinked"  # all sub-calls ran outside a propagated task
-            lines.append(f"    Linked to:    {tree}")
+            # The one window-scoped line in a lifetime block, and it says so. The parent tree has
+            # one key per parent task id, so it cannot be folded into the permanent totals; an
+            # unlabelled window split sitting under a lifetime headline reads as a lifetime count.
+            lines.append(f"    Linked to:    {tree} (within the current row window)")
         lines.append(
             f"    Est. tokens:  in {delegates.get('in_tokens_est', 0):,} / "
             f"out {delegates.get('out_tokens_est', 0):,}"

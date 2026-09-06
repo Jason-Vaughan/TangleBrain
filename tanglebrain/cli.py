@@ -33,6 +33,7 @@ from tanglebrain.roster import RosterEntry, RosterError, load_roster
 from tanglebrain.router import Router, RouterError, migrate_state_root
 from tanglebrain.selector import SelectionError, build_adapter, select_by_id, select_local
 from tanglebrain.settings import load_settings
+from tanglebrain.totals import read_totals
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -446,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.stats:
-        print(format_rollup(rollup(read_records()), load_pricing()))
+        print(format_rollup(rollup(read_records(), read_totals()), load_pricing()))
         return 0
 
     if args.prompt is None:

@@ -86,7 +86,7 @@
     <div id="runResult"></div>
   </div>
 
-  <h2>Spend avoided <span class="muted">(local rollup)</span></h2>
+  <h2>Spend avoided <span class="muted">(local rollup, lifetime)</span></h2>
   <div class="card" id="statsCard"><span class="muted">loading…</span></div>
 
   <h2>Roster</h2>
@@ -131,7 +131,9 @@ async function loadStats() {
     if (dg.count) {
       const backends = Object.entries(dg.by_backend || {}).map(([k, v]) => `${esc(k)} ${v.count || 0}`).join(", ") || "—";
       // Parent-task tree: how many top-level tasks the sub-calls link back to. Mirrors the CLI's
-      // "Linked to: N parent task(s)" line; sub-calls run outside a propagated task are "unlinked".
+      // "Linked to" line; sub-calls run outside a propagated task are "unlinked". Labelled as
+      // window-scoped because it is the one figure here that is: one key per parent task id is
+      // unbounded, so it is never folded into the permanent totals every other figure includes.
       const byParent = dg.by_parent || {};
       const linked = Object.keys(byParent).filter((k) => k !== "unlinked").length;
       const unlinked = (byParent.unlinked || {}).count || 0;
@@ -141,7 +143,7 @@ async function loadStats() {
       <div class="stat-grid">
         <div class="stat"><div class="label">Sub-tasks</div><div class="value">${dg.count}</div></div>
         <div class="stat"><div class="label">By backend</div><div class="value mono" style="font-size:.95rem">${backends}</div></div>
-        <div class="stat"><div class="label">Linked to</div><div class="value mono" style="font-size:.95rem">${esc(tree)}</div></div>
+        <div class="stat"><div class="label">Linked to</div><div class="value mono" style="font-size:.95rem">${esc(tree)} <span class="muted">(current row window)</span></div></div>
         <div class="stat"><div class="label">Est. tokens (in / out)</div><div class="value mono" style="font-size:.95rem">${(dg.in_tokens_est||0).toLocaleString()} / ${(dg.out_tokens_est||0).toLocaleString()}</div></div>
         <div class="stat"><div class="label">Cloud-equiv</div><div class="value mono" style="font-size:.95rem">${money(dg.cloud_equiv_usd)}</div></div>
       </div>

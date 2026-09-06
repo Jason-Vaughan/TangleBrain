@@ -13,6 +13,7 @@ from __future__ import annotations
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import run_once
 from tanglebrain.measurement import load_pricing, read_records, rollup, save_pricing, validate_pricing
+from tanglebrain.totals import read_totals
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.roster_edit import RosterEditError, save_roster_edits
 from tanglebrain.router import RouterError
@@ -97,12 +98,18 @@ def view_pricing() -> dict:
 def view_stats() -> dict:
     """Build the spend-avoided rollup view (the local ``--stats`` data).
 
+    Reads both halves of the measurement store, like the CLI: stored lifetime totals plus the
+    current row window. Reading rows alone would leave the panel showing a shrinking figure once
+    rows are compacted, which is the exact failure the totals file exists to prevent.
+
     Returns:
-        ``{summary, pricing_ref, is_placeholder}`` where ``summary`` is :func:`rollup`'s dict.
+        ``{summary, pricing_ref, is_placeholder}`` where ``summary`` is :func:`rollup`'s dict —
+        lifetime throughout, except the delegates' ``by_parent`` tree, which the panel labels as
+        covering the current window only.
     """
     pricing = load_pricing()
     return {
-        "summary": rollup(read_records()),
+        "summary": rollup(read_records(), read_totals()),
         "pricing_ref": pricing.reference_model,
         "is_placeholder": pricing.is_placeholder,
     }
