@@ -122,7 +122,7 @@ never clobber it. It's auto-discovered in order: `$TANGLEBRAIN_ROSTER` →
 # Route to the free local backend directly — works out of the box once a local server is running:
 .venv/bin/tanglebrain --local "Write a haiku about local inference."
 
-# Show the cost-avoided rollup across every routed task so far:
+# Show the cost-avoided rollup for every task this machine has routed:
 .venv/bin/tanglebrain --stats
 ```
 
@@ -175,12 +175,33 @@ Every routed task is logged as one JSON line in an append-only usage log
 estimated tokens, and the **cloud-equivalent cost it avoided** — what the work would have cost on a
 paid frontier API.
 
-`tanglebrain --stats` reports a **lifetime** figure, summed from two files: `totals.json` beside
-the log holds permanent aggregates, and the log holds the recent rows. Compaction folds the oldest
-rows into the totals and then drops them, so the log stays a bounded window without the lifetime
-figure shrinking as it shrinks. It runs on a size cap (5 MiB, roughly 15,000 records) — no
-maintenance, and nothing to schedule. Delete either file and the figure falls back to whatever the
-other one holds — a smaller number, never an error.
+`tanglebrain --stats` reports a **lifetime** figure for **this machine**, summed from two files:
+`totals.json` beside the log holds permanent aggregates, and the log holds the recent rows.
+Compaction folds the oldest rows into the totals and then drops them, so the log stays a bounded
+window without the lifetime figure shrinking as it shrinks. It runs on a size cap (5 MiB, roughly
+15,000 records) — no maintenance, and nothing to schedule. Delete either file and the figure falls
+back to whatever the other one holds — a smaller number, never an error.
+
+**Lifetime, not fleet-wide.** Each machine keeps its own log and totals, and nothing merges them —
+merging is a decided non-goal rather than a missing feature, because a combined figure would need
+stable machine identity, cross-host de-duplication and a conflict rule for compaction running
+independently on each. A second machine starting at zero is the design working. If you do want a
+combined view, the format is one JSON object per line so the logs concatenate. Read the result
+under a throwaway state root rather than writing it back over a live log:
+
+```sh
+mkdir -p /tmp/merged
+cat machine-a/usage.jsonl machine-b/usage.jsonl > /tmp/merged/usage.jsonl
+TANGLEBRAIN_STATE_DIR=/tmp/merged .venv/bin/tanglebrain --stats
+```
+
+**Use `TANGLEBRAIN_STATE_DIR` specifically, not `XDG_DATA_HOME`.** Every entry point migrates a
+pre-0.21 cache-tier state root forward before it reads anything, `--stats` included.
+`TANGLEBRAIN_STATE_DIR` is the one override the migration reads too, so it resolves source and
+destination to the same directory and copies nothing; point `XDG_DATA_HOME` at a scratch root
+instead and the migration copies `~/.cache/tanglebrain` into it, so the "merged" view silently
+carries a third machine's history. See
+[`docs/design/operations.md`](docs/design/operations.md) for what that view does and does not cover.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is

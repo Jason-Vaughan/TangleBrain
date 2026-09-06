@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
+  has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its
+  own state root — and nothing said so, so a second laptop's small number read as a lost history
+  rather than as the design working. The `--stats` help text and
+  [`docs/design/operations.md`](docs/design/operations.md) now state the scope with its reasoning
+  attached: a combined figure needs a stable machine identity, de-duplication of task ids across
+  hosts, and a conflict rule for compaction running independently on each machine — a
+  distributed-systems problem inside a router whose whole premise is local-first and
+  single-operator.
+
+  **Stated as a decision, not an omission**, and so not tracked as a gap: `docs/design/README.md`
+  reserves its gap table for open work and leaves ratified non-goals in the documents that own them.
+
+  **A combined view is still available, with a procedure.** The log is one JSON object per line so
+  two of them concatenate into a file the rollup reads — read it under a throwaway
+  `TANGLEBRAIN_STATE_DIR` rather than writing it back over a live log. It has to be that override
+  specifically: every entry point migrates a pre-0.21 cache-tier state root forward before reading
+  anything, `--stats` included, and `TANGLEBRAIN_STATE_DIR` is the one override the migration reads
+  too, so source and destination collapse and it copies nothing. `XDG_DATA_HOME` does not, so a
+  scratch root pointed at by it quietly acquires `~/.cache/tanglebrain`'s history. The honest limit
+  on the view itself is that a machine which has already folded rows into its `totals.json` is short
+  by whatever it folded; that file is one object and does not concatenate.
+
+  Stated in `README.md` as well as the two places the plan named: the README's own `--stats`
+  example carried the unscoped wording verbatim, above the command a first-time user actually runs,
+  so the surface most likely to teach the wrong assumption was the one still teaching it.
+
+  Nothing behaves differently. Three tests pin the help wording so the scope cannot drop out of
+  `--help` silently.
+
 - **`--stats` no longer asserts one pricing revision over a history that spans several.** The
   `Pricing ref:` line described the *current* `config/pricing.yaml` while the figure beside it
   summed tasks priced under whatever revision was in force when each one ran. It now describes the

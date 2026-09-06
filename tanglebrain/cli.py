@@ -122,8 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--stats",
         action="store_true",
         help=(
-            "Print the 'spend avoided' rollup (cloud-equivalent cost of every routed task so far) "
-            "and exit. No prompt needed."
+            "Print the 'spend avoided' rollup (cloud-equivalent cost of every task this machine "
+            "has routed) and exit. The usage log is per-machine and merging across machines is a "
+            "non-goal, so a second machine keeps its own figure. No prompt needed."
         ),
     )
     return parser
