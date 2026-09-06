@@ -80,6 +80,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a failing disk to put a few hundred bytes back than to rewrite a megabyte of log, so it is
   much the less likely of the two, and it is stated rather than rounded away.
 
+### Internal
+
+- **Repository hygiene sweep.** `FEATURES.md` carried ten auto-stubbed `TBD` entries recording
+  only that a file had been touched — which git already records — and not one of them named a
+  feature, which is the file's entire subject. Eight named a design document; the other two named
+  `PROJECT-MAP.md` and `CONTRIBUTING.md`. Removed. `PROJECT-MAP.md` had an entry that stopped mid-sentence
+  and an unfilled `docs/` placeholder; both now describe the tree as it is. Coverage output
+  (`.coverage`, `htmlcov/`) is gitignored — it had reached a branch once already. No behaviour
+  changes and no source files touched.
+
+
 ## [0.21.0] - 2026-09-06
 
 ### Added

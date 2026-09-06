@@ -10,9 +10,15 @@ to file paths — this maps the layout itself.
 
 ## Structure
 
-- `docs/` — <!-- describe -->
+- `docs/` — the published design documents (`docs/design/`), covering the architecture, data
+  model, API contract, security model, boundaries, observability, operations, non-functional
+  requirements and deprecation policy, with a README indexing them.
 - `plugins/` — the Claude Code plugin this repo's own marketplace publishes
-- `tanglebrain/` — the package. Routing core at the top level (`router.py`, `selector.py`,
+- `tanglebrain/` — the package. `cli.py` is the primary surface; the routing core sits beside
+  it (`router.py`, `selector.py`, `classifier.py`) with the roster in `roster.py` /
+  `roster_edit.py` and measurement in `measurement.py` + `totals.py`. One subpackage per
+  remaining surface: `adapters/` (backends), `gui/` (knob panel), `serve/` (HTTP), plus
+  `config/` (packaged defaults). `mcp_server.py` and `delegate.py` are the MCP delegate surface.
 - `tanglebrain.egg-info/` — build detritus from an editable install. Gitignored; ignore it.
 - `tests/` — the unittest suite (`make test`), roughly one file per module, plus meta-tests
 
