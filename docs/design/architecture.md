@@ -75,9 +75,10 @@ If parent-task attribution ever becomes load-bearing rather than informational, 
 ## Persistence boundaries
 
 Fully specified in [`data-model.md`](data-model.md) — see its "Persistence boundaries" table, which
-is canonical. The one-line summary: **nothing in-flight is durable**, both mutable state files live
-in the cache tier, and one of them (`usage.jsonl`) holds irreplaceable history that the cache tier
-does not promise to keep.
+is canonical. The one-line summary: **nothing in-flight is durable**, and everything that is durable
+lives under one state root in the XDG *data* tier — the rotation cursor, the usage log, the lifetime
+totals, and config backups. None of them is a cache, and `usage.jsonl` plus `totals.json` hold
+history that is not reconstructible from anything else.
 
 ## Failure and degradation
 

@@ -38,7 +38,7 @@ from pathlib import Path
 import yaml
 
 from tanglebrain.router import state_root
-from tanglebrain.totals import as_float, as_int, empty_totals
+from tanglebrain.totals import as_float, as_int, normalize_totals
 
 LOG_FILENAME = "usage.jsonl"
 
@@ -465,35 +465,18 @@ def rollup(records: list[dict], totals: dict | None = None) -> dict:
         spans, merged from the stored totals and from the rows that contributed money to it. It is
         collected here rather than derived later because compaction destroys the per-row evidence.
     """
-    stored = totals if totals is not None else empty_totals()
-    stored_delegates = stored.get("delegates") or {}
-    # Seeded from the stored lifetime aggregates, then the window's rows are added on top. The
-    # maps are copied rather than aliased: a caller's totals dict is theirs, and this function
-    # has no business mutating what it was handed.
-    summary: dict = {
-        "tasks": as_int(stored.get("tasks")),
-        "failures": as_int(stored.get("failures")),
-        "lost_attempts": as_int(stored.get("lost_attempts")),
-        "by_tier": dict(stored.get("by_tier") or {}),
-        "by_origin": dict(stored.get("by_origin") or {}),
-        "in_tokens_est": as_int(stored.get("in_tokens_est")),
-        "out_tokens_est": as_int(stored.get("out_tokens_est")),
-        "cloud_equiv_usd": as_float(stored.get("cloud_equiv_usd")),
-        "spend_avoided_usd": as_float(stored.get("spend_avoided_usd")),
-    }
-    pricing_refs: set[str] = {str(ref) for ref in (stored.get("pricing_refs") or [])}
-    delegates: dict = {
-        "count": as_int(stored_delegates.get("count")),
-        "by_backend": {
-            str(model): dict(info) for model, info in (stored_delegates.get("by_backend") or {}).items()
-        },
-        # Window-scoped, and the only thing here that is: one key per parent task id is unbounded,
-        # so it is never folded into the stored totals and always starts empty.
-        "by_parent": {},
-        "in_tokens_est": as_int(stored_delegates.get("in_tokens_est")),
-        "out_tokens_est": as_int(stored_delegates.get("out_tokens_est")),
-        "cloud_equiv_usd": as_float(stored_delegates.get("cloud_equiv_usd")),
-    }
+    # Normalizing here rather than trusting the argument makes this function total for *any*
+    # caller: `None`, a partial dict, a file written by a newer version. It is the function whose
+    # failure blanks the product's headline, so it does not get to depend on being handed a
+    # well-formed dict. `normalize_totals` also builds a fresh structure, which is what keeps the
+    # window's rows from accumulating into a caller's own totals dict below.
+    stored = normalize_totals(totals)
+    summary: dict = {k: v for k, v in stored.items() if k not in ("pricing_refs", "delegates")}
+    pricing_refs: set[str] = set(stored["pricing_refs"])
+    delegates: dict = dict(stored["delegates"])
+    # Window-scoped, and the only figure here that is: one key per parent task id is unbounded, so
+    # it is never folded into the stored totals and always starts empty.
+    delegates["by_parent"] = {}
     for r in records:
         in_tok = as_int(r.get("in_tokens_est"))
         out_tok = as_int(r.get("out_tokens_est"))

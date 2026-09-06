@@ -1,9 +1,9 @@
-"""Tests for the measurement / spend-avoided layer (tanglebrain/measurement.py).
+"""Tests for the measurement / spend-avoided layer (`tanglebrain/measurement.py`, `totals.py`).
 
-Fully hermetic: the usage log is a temp path and pricing is injected, so nothing touches the real
-the operator's real state root or the packaged config. Covers the estimation/cost math, the
-fault-tolerant log I/O, and
-the rollup/format.
+Fully hermetic: the usage log and the totals file are temp paths and pricing is injected, so
+nothing touches the operator's real state root or the packaged config. Covers the estimation and
+cost math, the fault-tolerant log I/O, the `totals.json` format, and the rollup/format path that
+sums stored lifetime totals with the current row window.
 """
 from __future__ import annotations
 
@@ -781,6 +781,14 @@ class RollupReadsTotalsPlusRowsTest(unittest.TestCase):
         tmp.write_text("{broken", encoding="utf-8")
         rows = self._rows()
         self.assertEqual(rollup(rows, read_totals(tmp)), rollup(rows))
+
+    def test_a_malformed_totals_argument_degrades_to_the_window_figure(self):
+        # `rollup` normalizes what it is handed rather than trusting it: it is the function whose
+        # failure blanks the headline, so no caller can crash it with a bad shape.
+        rows = self._rows()
+        self.assertEqual(
+            rollup(rows, {"tasks": "x", "by_tier": "nope", "delegates": 7}), rollup(rows)
+        )
 
     def test_totals_from_a_newer_version_still_sum(self):
         raw = {**FULL_TOTALS, "some_future_field": 5}
