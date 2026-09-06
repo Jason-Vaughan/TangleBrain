@@ -112,7 +112,7 @@ class LiveGeneralizedDelegateTest(unittest.TestCase):
 
     def test_fan_out_writes_delegate_usage_records(self):
         # Observability: the fan-out meters each sub-call as a kind='delegate' usage record. Pin a
-        # temp state dir so the real ~/.cache log is untouched.
+        # temp state dir so the operator's real usage log is untouched.
         import tempfile
         from tanglebrain.measurement import read_records, rollup
 

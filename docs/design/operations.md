@@ -110,12 +110,14 @@ The tool description enumerating the target menu is built **once at server start
 is invisible to a running server. Restart it.
 
 **"Stats look wrong / spend-avoided dropped."**
-Most likely the usage log was deleted; it is **not reconstructible**. Check the state root above,
-and check stderr from the last run: a migration that could not copy the log forward says so and
-names both paths.
+Most likely one of the two measurement files was deleted; neither is **reconstructible**. The
+figure is `totals.json` plus the rows in `usage.jsonl`, so losing either shrinks it — losing the
+totals discards everything already folded, losing the log discards everything not yet folded.
+Check the state root above, and check stderr from the last run: a migration that could not copy
+the log forward says so and names both paths.
 
 **Only if that notice appeared and the new log is absent or empty:** the pre-move
-`~/.cache/tanglebrain/usage.jsonl` is still there and can be moved across by hand. **Never copy it
+`~/.cache/tanglebrain/usage.jsonl` is still there and can be copied across by hand. **Never copy it
 over a log that already has rows** — the legacy file is frozen at migration time, so overwriting
 discards everything recorded since. Append instead (`cat old >> new`), and only after checking the
 two do not overlap.
@@ -126,7 +128,7 @@ two do not overlap.
 |---|---|---|
 | Roster | **Operator's responsibility — nothing does this automatically.** The GUI writes a timestamped backup on *its* edits only; a hand-edit is unprotected. | Rewrite by hand, or fall back to the packaged example. |
 | Settings | Same | Recreate; defaults are safe (both gates off). |
-| Usage log | **None** | **None.** Historical spend-avoided is permanently lost — the rows still carry the whole lifetime figure. `totals.json` exists and `--stats` reads it, but nothing folds rows into it yet ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)); until that lands, losing this file loses everything. |
+| Usage log | **None** | **Partial, and only as far as the log has been compacted.** Whatever has been folded into `totals.json` survives; every row not yet folded is permanently lost. Nothing triggers compaction automatically yet ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)), so on an install where it has never been invoked, losing this file still loses the whole lifetime figure. |
 | Rotation cursor | None needed | Regenerates; rotation restarts. |
 
 **Stated plainly:** the two assets that matter — the operator's hand-authored roster and the
@@ -135,9 +137,11 @@ a directory conventionally treated as disposable.
 
 ## Maintenance
 
-- **The usage log grows without bound.** No rotation, no cap, no pruning. Currently manual: truncate
-  or archive it — but note that **today truncating it discards the lifetime spend-avoided figure**,
-  because nothing has folded those rows into `totals.json` yet. Tracked in
+- **The usage log grows without bound.** No rotation, no cap, no automatic pruning. Compaction —
+  folding the oldest rows into `totals.json` and then dropping them — exists, but nothing invokes
+  it yet, so pruning is still manual. **Truncating the log by hand discards every row that has not
+  been folded**, which on an install where compaction has never run is the entire lifetime
+  spend-avoided figure. Tracked in
   [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101), whose cache-tier half is already
   closed.
 - **Dependency drift is the demonstrated operational risk.** v0.20.1 was a hotfix for a live

@@ -131,6 +131,42 @@ and additive-only exists so that one never has to be.
 never been compacted rolls up exactly as it did before this file existed, and a damaged one yields a
 smaller number rather than an error.
 
+**Writing is non-destructive.** Ignoring an unknown key on read would delete it on write, so the
+writer carries every field it does not recognise straight through from the file it is replacing, at
+any depth. Without that, the first compaction performed by an older TangleBrain would permanently
+destroy fields a newer one wrote — and "every version of TangleBrain that shares the file" is a
+named consumer of this format ([`boundaries.md`](boundaries.md)). *Carrying a field is not
+maintaining it:* a version that does not know a field cannot add the folded rows' contribution to
+it, so the value goes stale rather than being lost. Stale and recoverable beats absent, which is
+why the round-trip preserves rather than drops.
+
+**Writing is atomic.** The file is staged beside itself and renamed over, so a crash mid-write
+leaves the previous totals whole and a reader never sees half an object.
+
+### Compaction — how a row becomes a total
+
+Compaction reads the oldest rows, adds them into `totals.json`, and only then removes them from the
+log. Nothing triggers it automatically yet; it is an explicit call until the size cap lands
+([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+
+**The order of those two writes is the whole guarantee.** Interrupted between them, the rows are
+counted in both halves: the figure is too large, which is visible and reconcilable against the rows
+still on disk. The opposite order drops rows before anything records them — a smaller figure, no
+evidence, no recovery. Over-counting is a bug; under-counting is the loss of the only claim this
+product makes about itself, so the writes are ordered rather than merely both performed.
+
+The fold runs the **same summation** the read path runs, over the same rows in the same order, so a
+figure cannot change merely because rows moved across the seam. Rows that stay are written back
+**byte-for-byte**, so neither a field added by a newer version nor a line left torn by an
+interrupted append is lost to the rewrite that keeps it.
+
+**Concurrency is bounded, not solved.** A process-level lock covers the whole read-fold-truncate,
+so no thread of the compacting process can append into the gap. It cannot cover a *second*
+TangleBrain process: a row appended during those milliseconds is written to the file being
+replaced, and is lost. Accepted for a single-operator local tool, and written down rather than
+implied — an advisory file lock would hold on POSIX only, and a guarantee that silently does not
+hold on one supported platform is worse than a stated limitation.
+
 ## Persistence boundaries
 
 The question the architecture documents do not answer outright: **what survives a crash, and what
@@ -142,7 +178,7 @@ does not.**
 | Settings | `config/settings.yaml` | Durable | Both gates read as off. Fails safe. |
 | Pricing reference | `config/pricing.yaml` | Durable, packaged | Cost figures unavailable; routing unaffected. |
 | Rotation cursor | `<state root>/router-state.json` | **Durable, data-tier** | Rotation restarts from the beginning. Harmless — it is a fairness hint, not correctness. |
-| Usage log (row window) | `<state root>/usage.jsonl` | **Durable, data-tier** | **Today: the entire lifetime spend-avoided figure, permanently.** Nothing folds rows into `totals.json` yet, so the rows still carry the whole figure. Once the fold lands ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)) this becomes recent per-task detail only. See below. |
+| Usage log (row window) | `<state root>/usage.jsonl` | **Durable, data-tier** | Every row not yet folded into `totals.json`, permanently. Because nothing triggers compaction automatically yet ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)), that is still the entire lifetime figure on an install where it has never been invoked. Once the trigger lands this becomes recent per-task detail only. See below. |
 | Lifetime totals | `<state root>/totals.json` | **Durable, data-tier** | The lifetime figure falls back to whatever the surviving rows sum to — a smaller number, never an error. |
 | Config backups | `<state root>/backups/` | **Durable, data-tier** | The only copy of a hand-edited roster or pricing file the GUI replaced. |
 | In-flight request | memory | None | No retry, no queue, no journal. A crash mid-route loses the request and the caller sees a failure. Deliberate — this is a router, not a job system. |
@@ -159,9 +195,10 @@ is copied forward, **the originals are left in place** so a downgrade still find
 one notice on stderr names both directories. The copy is per-entry and skips what is already
 there, so an interrupted migration completes on the next run.
 
-**Still open:** the log is unbounded. The permanent total the rows can be folded into now exists
-and `--stats` already reads it, but nothing folds into it and nothing prunes the log, so it still
-grows without limit ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
+**Still open:** the log is unbounded. The permanent total exists, `--stats` reads it, and the fold
+that moves rows into it exists — but nothing *triggers* the fold, so no install prunes its log on
+its own and the file still grows without limit
+([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101)).
 
 ## Concurrency
 
@@ -172,6 +209,11 @@ grows without limit ([#101](https://github.com/Jason-Vaughan/TangleBrain/issues/
   atomically in the common case; the format is line-oriented and the reader skips unparseable lines,
   so the worst realistic outcome is one corrupt record rather than a corrupt file. Stated because it
   is a real gap in the guarantee, not because it is currently hurting anything.
+- The same lock covers a **compaction** end to end, so no thread of the compacting process appends
+  into the gap between reading the rows and rewriting the file. Across processes the gap is real: a
+  row appended by another TangleBrain during a compaction goes to the file being replaced and is
+  lost. Accepted for a single-operator tool — see "Compaction" above for why an advisory lock was
+  not the answer.
 
 ## Validation
 

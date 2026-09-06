@@ -23,6 +23,14 @@ schema-version field**. A version number advertises that a breaking revision is 
 additive-only contract exists precisely so that one never has to be, and a field nothing reads is a
 value waiting to rot.
 
+Ignoring an unknown key on *read* would destroy it on *write*, so :func:`write_totals` carries
+every field it does not recognise straight through from the file it replaces. Without that, the
+first fold performed by an older TangleBrain would permanently delete fields a newer one wrote —
+and "every version of TangleBrain that shares the file" is a named consumer of this format
+(`boundaries.md`). **Carrying a field is not maintaining it:** a version that does not know a field
+cannot add the folded rows' contribution to it, so the value goes stale rather than being lost.
+Stale-and-recoverable beats absent, which is why the round-trip preserves rather than drops.
+
 **The delegates' ``by_parent`` tree is absent on purpose.** It carries one key per parent task id,
 so its cardinality grows without bound and it cannot be folded into a file that has to stay small.
 It is inherently window-scoped, and every renderer of the rollup says so.
@@ -33,6 +41,7 @@ import json
 import os
 from pathlib import Path
 
+from tanglebrain.atomic import atomic_write
 from tanglebrain.router import state_root
 
 TOTALS_FILENAME = "totals.json"
@@ -236,11 +245,87 @@ def read_totals(path: str | os.PathLike[str] | None = None) -> dict:
         The normalized totals (see :func:`normalize_totals`), or :func:`empty_totals` when the
         file is absent or unusable.
     """
+    return normalize_totals(read_raw_totals(path))
+
+
+def read_raw_totals(path: str | os.PathLike[str] | None = None) -> object:
+    """Read the totals file as parsed JSON, *unprojected* — every key, including unrecognised ones.
+
+    :func:`read_totals` is what the rollup wants: the format's own shape, with anything foreign
+    projected away. This is what the *writer* wants: the fields a newer TangleBrain may have added,
+    so they can ride through a round-trip instead of being deleted by a version that never knew
+    them (see :func:`write_totals`).
+
+    Args:
+        path: Override the totals path. Defaults to :func:`default_totals_path`.
+
+    Returns:
+        Whatever ``json.loads`` produced — not necessarily an object — or ``None`` when the file is
+        absent or unusable, which the callers treat the same way an empty file would be treated.
+    """
     target = Path(path) if path is not None else default_totals_path()
     try:
         # `json.JSONDecodeError` and `UnicodeDecodeError` are both `ValueError` subclasses, so the
         # unreadable-bytes and unparseable-text cases are covered by the one entry.
-        raw = json.loads(target.read_text(encoding="utf-8"))
+        return json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return empty_totals()
-    return normalize_totals(raw)
+        return None
+
+
+def carry_unknown_fields(raw: object, totals: dict) -> dict:
+    """Overlay ``totals`` onto ``raw``, keeping any field ``totals`` has no opinion about.
+
+    The inverse of :func:`normalize_totals`, and the reason a round-trip through an older
+    TangleBrain is not destructive: every key this version knows takes its freshly-computed value,
+    and every key it does not know survives untouched at whatever depth it was found. Nested maps
+    are merged the same way, so a field invented inside ``delegates`` — or inside one backend's
+    entry — is preserved as readily as a top-level one.
+
+    A key present in both wins for ``totals`` even when the stored value was garbage, because
+    :func:`normalize_totals` has already turned that garbage into a usable zero; carrying it back
+    would undo the coercion this format relies on.
+
+    Args:
+        raw: The parsed prior file (see :func:`read_raw_totals`). A non-object is ignored.
+        totals: The computed totals to write.
+
+    Returns:
+        A new dict — ``totals``, plus whatever only ``raw`` had. Neither argument is mutated.
+    """
+    if not isinstance(raw, dict):
+        return dict(totals)
+    merged = dict(totals)
+    for key, value in raw.items():
+        key = str(key)
+        if key not in merged:
+            merged[key] = value
+        elif isinstance(value, dict) and isinstance(merged[key], dict):
+            merged[key] = carry_unknown_fields(value, merged[key])
+    return merged
+
+
+def write_totals(totals: dict, path: str | os.PathLike[str] | None = None) -> None:
+    """Replace the lifetime totals file atomically, preserving fields this version does not know.
+
+    Two properties, both load-bearing and both unconditional — a knob to disable either would be a
+    knob for corrupting the store:
+
+    - **Atomic.** The file is staged beside itself and renamed over (:func:`~tanglebrain.atomic.
+      atomic_write`), so a crash mid-write leaves the previous totals whole. A reader never sees a
+      half-written object, and the compaction that calls this can therefore treat a raised
+      exception as "nothing happened".
+    - **Non-destructive.** Unknown keys are carried through from the file being replaced
+      (:func:`carry_unknown_fields`), read at the last moment rather than taken from the caller, so
+      no writer can forget to preserve them.
+
+    Args:
+        totals: The totals to persist. Only the fields this version computes need be present.
+        path: Override the totals path. Defaults to :func:`default_totals_path`.
+
+    Raises:
+        OSError: If the directory cannot be created, or the staging write or rename fails. The
+            existing file is untouched in every failing case.
+    """
+    target = Path(path) if path is not None else default_totals_path()
+    merged = carry_unknown_fields(read_raw_totals(target), totals)
+    atomic_write(target, json.dumps(merged, indent=2, sort_keys=True) + "\n")

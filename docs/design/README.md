@@ -53,7 +53,7 @@ not backlog.
 
 | Gap | Issue |
 |---|---|
-| `usage.jsonl` grows without bound — nothing prunes it or folds old rows into a permanent total | [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) |
+| `usage.jsonl` grows without bound — the fold into `totals.json` exists, but nothing triggers it | [#101](https://github.com/Jason-Vaughan/TangleBrain/issues/101) |
 | A lost delegate hop is indistinguishable from a parentless record | [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123) |
 | Capability routing ranks by cost only — it routes down, never up | [#97](https://github.com/Jason-Vaughan/TangleBrain/issues/97) |
 | The GUI panel is audited for contrast only — keyboard, screen reader, motion and reflow are not | [#131](https://github.com/Jason-Vaughan/TangleBrain/issues/131) |

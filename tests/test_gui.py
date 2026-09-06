@@ -155,7 +155,6 @@ class ViewStatsTest(unittest.TestCase):
         self.assertEqual({k for k in by_parent if k != "unlinked"}, {"p1", "p2"})
         self.assertEqual(by_parent["unlinked"]["count"], 1)
 
-
     def test_stats_view_reads_stored_lifetime_totals_not_just_rows(self):
         # The panel's half of the same pin. `/api/stats` returns `rollup`'s dict verbatim, so the
         # panel is a second renderer of the figure; with only rows read it would silently show a

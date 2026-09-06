@@ -73,12 +73,17 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 
 ### Lifetime totals file — `totals.json` *(internal, forward-compatible)*
 
-- **Producer:** `tanglebrain/totals.py` — the format and its reader; the writer lands with the fold.
+- **Producer:** `tanglebrain/totals.py` — the format, its reader and its writer.
 - **Consumer:** `rollup()` in `tanglebrain/measurement.py`, reached by both `--stats` and the GUI
   panel, **and every version of TangleBrain that shares the file.**
 - **Contract:** an unknown key is ignored, a missing key reads as zero, and an absent or corrupt
   file reads as all-zeros — never an error. There is deliberately no schema-version field, so
   additive-only is the whole compatibility story and nothing else can arbitrate a conflict.
+  Because of that, the **write** side is non-destructive: a field this version does not recognise
+  is carried through from the file being replaced, at any depth, so an older TangleBrain's
+  compaction cannot delete what a newer one wrote. It cannot *maintain* such a field either — the
+  value goes stale rather than being lost, and that is the contract's stated limit, not an
+  oversight. Every write is atomic (staged beside the target, then renamed).
 - **Crossing it means:** removing or repurposing a field, or folding a value whose cardinality is
   unbounded — the delegates' `by_parent` tree is excluded for exactly that reason, and a figure
   moving between lifetime and window scope has to land in both renderers or the panel and the CLI
