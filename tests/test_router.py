@@ -299,9 +299,7 @@ class MigrateStateRootTest(unittest.TestCase):
                 f.read_bytes(), original.read_bytes(),
                 f"{f.name} is at its real path but truncated; every later run will skip it",
             )
-        self.assertFalse(
-            list(self.new.glob(".*.incoming")), "staging entries must not survive a failure"
-        )
+        self.assertFalse(list(self.new.glob(".*.tmp")), "staging entries must not survive a failure")
         # And the retry the notice promises actually works.
         migrate_state_root(stream=io.StringIO())
         self.assertEqual(
@@ -333,6 +331,35 @@ class MigrateStateRootTest(unittest.TestCase):
         self.assertNotIn("could not move state", out.getvalue())
         self.assertEqual(sorted(migrated), ["router-state.json", "usage.jsonl"])
         self.assertTrue((self.new / "backups" / "pricing-x.yaml").is_file())
+
+    def test_a_failing_concurrent_copy_cannot_delete_another_process_staging_file(self):
+        """A rival's failed staging cleanup must not remove this process's complete copy."""
+        self.legacy.mkdir(parents=True)
+        source = self.legacy / "usage.jsonl"
+        source.write_text('{"kind": "task"}\n', encoding="utf-8")
+        copy_calls = 0
+        rival_out = io.StringIO()
+
+        def copy_while_rival_fails(src, dst, *args, **kwargs):
+            nonlocal copy_calls
+            copy_calls += 1
+            if copy_calls == 1:
+                Path(dst).write_bytes(Path(src).read_bytes())
+                migrate_state_root(stream=rival_out)
+                return dst
+            Path(dst).write_text("partial", encoding="utf-8")
+            raise OSError("rival copy stopped")
+
+        out = io.StringIO()
+        with patch("tanglebrain.router.shutil.copy2", side_effect=copy_while_rival_fails):
+            migrated = migrate_state_root(stream=out)
+
+        self.assertEqual(migrated, ["usage.jsonl"])
+        self.assertIn("state moved", out.getvalue())
+        self.assertNotIn("could not move state", out.getvalue())
+        self.assertIn("rival copy stopped", rival_out.getvalue())
+        self.assertEqual((self.new / "usage.jsonl").read_bytes(), source.read_bytes())
+        self.assertEqual(list(self.new.glob(".*.tmp")), [])
 
     def test_the_notice_never_goes_to_stdout(self):
         # stdout carries the routed answer and gets piped; a notice there corrupts it.

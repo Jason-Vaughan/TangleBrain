@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a failing disk to put a few hundred bytes back than to rewrite a megabyte of log, so it is
   much the less likely of the two, and it is stated rather than rounded away.
 
+### Fixed
+
+- First-run state migration now gives each concurrent process its own staging path, so one failed
+  copy cannot delete another process's complete staged file before it is moved into place. Closes
+  [#139](https://github.com/Jason-Vaughan/TangleBrain/issues/139).
+
 ## [0.21.0] - 2026-09-06
 
 ### Added
