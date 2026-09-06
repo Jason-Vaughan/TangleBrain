@@ -7,6 +7,7 @@ sums stored lifetime totals with the current row window.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import io
 import json
@@ -135,9 +136,130 @@ class RecordTaskTest(unittest.TestCase):
         blocker = Path(self.tmp) / "blocker"
         blocker.write_text("i am a file")
         bad = blocker / "nested" / "usage.jsonl"
-        # Must not raise despite the unwritable path.
-        record_task(path="local", entry=FakeEntry("x", "local"), prompt="p", response="r",
-                    log_path=bad, pricing=FIXED)
+        # Must not raise despite the unwritable path. The stderr note is this path's own contract
+        # (`LostWriteNoticeTest`); swallow it here so the suite's output stays clean.
+        with contextlib.redirect_stderr(io.StringIO()):
+            record_task(path="local", entry=FakeEntry("x", "local"), prompt="p", response="r",
+                        log_path=bad, pricing=FIXED)
+
+
+class LostWriteNoticeTest(unittest.TestCase):
+    """`record_task` still swallows a failed append, and now says once that it happened.
+
+    The swallow is a ratified invariant — measurement never breaks the answer — and its cost is
+    that the spend-avoided headline can quietly go on understating. These pin the other half: the
+    operator is told, once, and the telling can never become the failure it reports.
+    """
+
+    def setUp(self):
+        """Isolate each test from the process-wide once-per-run flag."""
+        measurement._LOST_WRITE_NOTED = False
+        self.addCleanup(setattr, measurement, "_LOST_WRITE_NOTED", False)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.log = Path(self.tmp) / "sub" / "usage.jsonl"
+        # A file standing where a directory has to be created: every append fails, none partially.
+        blocker = Path(self.tmp) / "blocker"
+        blocker.write_text("i am a file")
+        self.bad = blocker / "nested" / "usage.jsonl"
+
+    def record(self, log_path, times=1):
+        """Record `times` tasks against `log_path`, returning what reached stderr.
+
+        Args:
+            log_path: Where to point the usage log.
+            times: How many tasks to record in this one process.
+
+        Returns:
+            The captured stderr text.
+        """
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            for _ in range(times):
+                record_task(path="local", entry=FakeEntry("x", "local"), prompt="p",
+                            response="r", log_path=log_path, pricing=FIXED)
+        return err.getvalue()
+
+    def test_successful_write_says_nothing(self):
+        """The healthy path is the common one; a notice on it would be pure noise."""
+        self.assertEqual(self.record(self.log, times=3), "")
+        self.assertEqual(len(read_records(self.log)), 3)
+
+    def test_lost_write_is_noted(self):
+        """A dropped append is invisible in the answer, so it has to be visible somewhere."""
+        err = self.record(self.bad)
+        self.assertIn("could not be recorded to the usage log", err)
+        self.assertIn("--stats", err, "the note must name the figure the loss distorts")
+        self.assertIn("understates", err, "and the direction it moves it in")
+
+    def test_note_carries_the_diagnosis(self):
+        """A write failure the operator cannot act on is a notice they cannot use."""
+        err = self.record(self.bad)
+        # The blocked path is a file used as a directory: the errno and the path are the fix.
+        self.assertIn("Error", err, "the exception type reaches the reader")
+        self.assertIn(str(self.bad.parent.parent), err, "as does the path that could not be made")
+
+    def test_note_fires_once_across_many_failures(self):
+        """Per-task would run on every routed request and train the reader to skip it."""
+        err = self.record(self.bad, times=25)
+        self.assertEqual(err.count("could not be recorded"), 1)
+
+    def test_note_disclaims_being_a_count(self):
+        """Once-per-run means one line can stand for any number of losses. Say so."""
+        err = self.record(self.bad, times=5)
+        self.assertIn("once per run", err)
+
+    def test_note_fires_once_across_threads(self):
+        """`delegate_many` loses appends across threads; the operator still gets one line.
+
+        Pins what the operator experiences, not the mechanism: the flag is an unguarded
+        test-and-set, and a lock-free version was mutation-checked to pass this — a genuinely
+        raced double print is a duplicated line, which is the cost the flag is allowed to have.
+        """
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            threads = [
+                threading.Thread(
+                    target=record_task,
+                    kwargs={"path": "delegate", "entry": FakeEntry("x", "local"), "prompt": "p",
+                            "response": "r", "log_path": self.bad, "pricing": FIXED},
+                )
+                for _ in range(16)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(err.getvalue().count("could not be recorded"), 1)
+
+    def test_a_failing_note_does_not_escape(self):
+        """The notice runs inside the swallow; anything it raises reaches the user's answer."""
+        class BrokenStderr(io.StringIO):
+            def write(self, _data):
+                raise OSError("stderr is gone")
+
+        with contextlib.redirect_stderr(BrokenStderr()):
+            # Must return normally: a broken stream is not allowed to become a broken answer.
+            record_task(path="local", entry=FakeEntry("x", "local"), prompt="p", response="r",
+                        log_path=self.bad, pricing=FIXED)
+
+    def test_a_failure_after_the_append_is_not_a_lost_write(self):
+        """The note claims a row was dropped, so it must not fire over a row that landed."""
+        with patch.object(measurement, "_compact_if_oversized",
+                          side_effect=OSError("boom")):
+            err = self.record(self.log)
+        self.assertEqual(err, "")
+        self.assertEqual(len(read_records(self.log)), 1, "the row is on disk, nothing was lost")
+
+    def test_note_never_carries_prompt_or_response_text(self):
+        """The one hard rule on this path: no prompt or response text leaves the process."""
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            record_task(path="local", entry=FakeEntry("x", "local"),
+                        prompt="SECRETPROMPT", response="SECRETRESPONSE",
+                        log_path=self.bad, pricing=FIXED)
+        self.assertNotIn("SECRETPROMPT", err.getvalue())
+        self.assertNotIn("SECRETRESPONSE", err.getvalue())
 
 
 class ReadRecordsTest(unittest.TestCase):

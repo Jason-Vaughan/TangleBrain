@@ -38,6 +38,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A lost measurement write now says so, once per run.** `record_task` swallows every exception
+  because measurement must never break the answer, and the cost was that the usage log could stop
+  recording with nobody told — leaving `--stats` understating a figure still labelled *lifetime*.
+  The exception is still swallowed; the first lost append of a process now also prints a warning to
+  stderr naming the error — which for the disk failures that dominate carries the errno and the
+  path — and which direction the figure moves.
+
+  **Once per process, not once per task.** The recording path runs on every routed request, so a
+  per-task warning is a stream the operator learns to scroll past — the same reasoning that fires
+  the loose-key-file warning once per file. The message says so itself, so one line is never read
+  as one lost task.
+
+  **The notice cannot become the failure it reports.** It runs inside the handler that guarantees
+  the answer, so it swallows its own errors: an unusable stderr costs the notice, never the
+  response. The honest consequence is that a broken stderr leaves the loss unannounced.
+
+  It fires only when the row genuinely did not land. A failure *after* the append lost no row, and
+  compaction — the one thing that runs after it — catches its own failures at their own site.
+
 - **The usage log now prunes itself, capped by size** — recording a task checks the log, and
   crossing `MAX_LOG_BYTES` (5 MiB, roughly 15,000 records) folds the oldest rows into `totals.json`
   and drops them until what remains fits `KEEP_RECENT_BYTES` (~1 MiB). The lifetime spend-avoided
