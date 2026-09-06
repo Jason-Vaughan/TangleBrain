@@ -101,8 +101,13 @@ methodology applies to every tier — deliberately, so tiers stay comparable eve
 exact.
 
 `cloud_equiv_usd` and `spend_avoided_usd` are **counterfactuals**: what the same work would have
-cost on a paid frontier API at the reference price in `config/pricing.yaml`. They are not bills.
-`spend_avoided_usd` is `0.0` for `tier: api`, since real spend avoids nothing.
+cost on a paid frontier API at the reference price that was in force **when the task ran**. They are
+not bills. `spend_avoided_usd` is `0.0` for `tier: api`, since real spend avoids nothing.
+
+Each record is priced once, at write time, and editing `config/pricing.yaml` never restates it —
+otherwise a self-reported saving could be inflated retroactively by editing a config file, which is
+what makes such a figure worthless. A lifetime figure can therefore span revisions, and `--stats`
+says so instead of labelling it with whichever one is configured today.
 
 Documentation consistently calls these estimates. Keep it that way — the number's credibility rests
 on not overclaiming it.

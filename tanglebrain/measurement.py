@@ -552,9 +552,15 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
             # Held out of the headline like delegates: a failed task avoided no spend (#100).
             summary["failures"] += 1
             continue
-        # Collected from here down, so only the records that put money into a rendered figure
-        # widen the span. A failure record priced nothing, and letting it contribute a revision
-        # would caveat a figure it never touched.
+        # Collected from here down, so a record widens the span exactly when its priced money
+        # reaches a figure in this summary. That is every kind but a failure record, which is
+        # discarded above — it still reaches `failures` and `lost_attempts`, but those are counts,
+        # and a record that was never charged cannot caveat a dollar figure it never entered. A
+        # delegate's cloud-equiv is rendered in the block. An `api` task avoided nothing and its
+        # cloud-equiv is summed into `cloud_equiv_usd`, which no renderer prints today, though the
+        # task still lands in the rendered task count, tier split and token estimates.
+        # Over-inclusion is the safe direction for a caveat: one that stays silent over a mixed
+        # figure is the defect it exists to prevent.
         ref = r.get("pricing_ref")
         if ref not in (None, ""):
             pricing_refs.add(str(ref))
@@ -935,10 +941,30 @@ def _compact_if_oversized(log: Path) -> None:
 def format_rollup(summary: dict, pricing: Pricing) -> str:
     """Render a rollup summary as a human-readable block for the CLI.
 
+    **The reference-pricing label describes the figure, not the configuration.** Each record was
+    priced when it ran and a ``config/pricing.yaml`` edit never restates history, so a figure summed
+    across an edit genuinely has no single revision behind it. The line reports the revision the
+    summary actually spans, or how many it spans when that is more than one, with a note saying why
+    a span is expected rather than wrong. Current pricing labels the line only when the summary
+    carries no revision evidence at all — an empty log, or rows written before ``pricing_ref``
+    existed — where there is nothing truer to print.
+
+    The revisions are counted, never listed. A reader wants one number with an honest caveat on it;
+    a headline partitioned by pricing revision is correct and unreadable.
+
+    **What a span is evidence of, exactly.** ``pricing_ref`` records the reference-model *label*,
+    which is the only part of a pricing revision a record carries, so a span proves the pricing
+    config was edited — not that the rates moved. Editing the label alone raises the caveat over a
+    figure nothing changed underneath, and editing the rates while leaving the label alone moves a
+    figure this line cannot see. Hence the wording below: it reports an edit, not a rate change,
+    and the absence of a span is not a claim that the rates held. Widening the record to carry the
+    rates would catch both and is an accepted limit rather than open work — this line exists to stop
+    one label being asserted over a mixed history, which it does.
+
     Args:
         summary: The aggregate from :func:`rollup`.
-        pricing: The currently-configured pricing (for the reference-model label + placeholder
-            caveat). Per-record costs were computed when each task ran; this only labels the figure.
+        pricing: The currently-configured pricing — the placeholder caveat, and the fallback
+            reference-model label described above.
 
     Returns:
         A multi-line string suitable for printing.
@@ -969,7 +995,20 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
         f"out {summary.get('out_tokens_est', 0):,}"
     )
     lines.append(f"  Spend avoided:  ${summary.get('spend_avoided_usd', 0.0):,.2f}")
-    lines.append(f"  Pricing ref:    {pricing.reference_model}")
+    # `pricing_refs` is collected by `rollup` from the rows and merged with the set the stored
+    # totals carry, so a span survives compaction destroying the per-row evidence behind it.
+    refs = summary.get("pricing_refs") or []
+    if len(refs) > 1:
+        lines.append(f"  Pricing ref:    {len(refs)} revisions")
+        # Deliberately not a warning: spanning revisions is what any long-lived log does the first
+        # time its operator tunes the reference price, and flagging normal history as a fault
+        # teaches the reader to discount the caveats that do mean something.
+        lines.append(
+            "  ℹ pricing: this history spans an edit to the reference pricing — each task "
+            "keeps the figure it was priced at."
+        )
+    else:
+        lines.append(f"  Pricing ref:    {refs[0] if refs else pricing.reference_model}")
     if pricing.is_placeholder:
         lines.append(
             "  ⚠ pricing: PLACEHOLDER — figures are illustrative; set real rates in "

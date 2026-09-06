@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`--stats` no longer asserts one pricing revision over a history that spans several.** The
+  `Pricing ref:` line described the *current* `config/pricing.yaml` while the figure beside it
+  summed tasks priced under whatever revision was in force when each one ran. It now describes the
+  figure: the revision the rollup actually spans when there is one, or how many it spans when there
+  are more, with a note saying that each task keeps the figure it was priced at. Current pricing
+  labels the line only when the history carries no revision evidence at all — an empty log, or rows
+  written before the per-record field existed — so an ordinary single-revision install renders
+  exactly as before.
+
+  **The revisions are counted, never listed.** Partitioning the headline by revision is correct and
+  unreadable, and the width of the list is unbounded in the number of times the rates have been
+  tuned. One number with an honest caveat on it is what the line is for.
+
+  **The note is not a warning.** Spanning revisions is what any long-lived log does the first time
+  its operator tunes the reference price; borrowing the glyph the PLACEHOLDER caveat owns would
+  teach the reader to discount the caveat that does mean something.
+
+  **A span witnesses an edit, not a rate change** — stated in `docs/design/data-model.md` rather
+  than implied. A record carries the reference-model *label* and nothing else of a pricing revision,
+  so a relabelling raises the caveat over unchanged rates, and rates edited under an unchanged label
+  are a span this line cannot see. Widening the record to carry the rates themselves would catch
+  both and is an accepted limit rather than open work: the caveat exists to stop one label being
+  asserted over a mixed history, which it does.
+
+  Nothing stored changes and no figure moves. `totals.json` has carried the folded revision set
+  since it was introduced, so the span survives compaction destroying the rows behind it.
+
 ### Added
 
 - **The usage log now prunes itself, capped by size** — recording a task checks the log, and
