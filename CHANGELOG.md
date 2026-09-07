@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A security report had nowhere correct to go.** `CONTRIBUTING.md` forbade opening a public issue
+  for a vulnerability and pointed at the contact in `CODE_OF_CONDUCT.md` — which is the
+  *conduct-enforcement* address, offered there for harassment reports. A reporter who followed the
+  trail landed on the wrong channel; if they guessed it doubled as security, the report arrived as
+  plain email rather than a private advisory, with no embargo and no acknowledgement path. Worse
+  than an empty pointer, because it looks answered. The private route now lives in the mirrored
+  security rules and that line points at it.
+
+### Internal
+
+- **`CONTRIBUTING.md` carries the account-wide security rules**, byte-identical to the copy in the
+  other repositories and extracted programmatically rather than retyped, between the
+  `mirrored-security-rules` markers a drift checker
+  ([`.github#1`](https://github.com/Jason-Vaughan/.github/issues/1)) reads.
+
+  A repository shipping its own `CONTRIBUTING.md` inherits **none** of the account-wide one —
+  GitHub's community-health fallback is per-file and all-or-nothing — so without this the standards
+  reached every repository except the ones that take pull requests.
+
 ## [0.22.0] - 2026-09-07
 
 ### Changed
