@@ -139,10 +139,13 @@ the rows still on disk, and — because compaction refuses to fold onto a totals
 — the log has also stopped being pruned. One condition, two consequences, and the wording names
 both.
 
-**Absence is not damage.** A machine that has never routed a task has no log directory, and a log
-that has never crossed the compaction cap has no `totals.json`. Both are ordinary states of a fresh
-install, and reporting them would fire the signal on every clean machine until the reader learned to
-ignore it.
+**Absence is not damage — but an absence that cannot be repaired is.** A machine that has never
+routed a task has no log directory, and a log that has never crossed the compaction cap has no
+`totals.json`. Both are ordinary states of a fresh install, and reporting them would fire the signal
+on every clean machine until the reader learned to ignore it. What *is* reported is a missing log
+directory that also cannot be created: recording appends through `mkdir(parents=True)`, so the check
+is write permission on the nearest **existing** ancestor, not on the directory itself. A read-only
+state root would otherwise stay silent while every append raised.
 
 **It degrades to a finding, never to silence.** A probe that cannot run reports that it could not
 run. Silence renders identically to a healthy store, so swallowing would make "I could not tell"

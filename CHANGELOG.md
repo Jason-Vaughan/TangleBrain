@@ -26,9 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own refusal predicate, shared rather than restated, so the health line cannot tell an operator the
   store is fine while compaction silently declines to prune it.
 
-  **Absence is not damage.** A fresh install has no log directory and an uncompacted log has no
-  `totals.json`; reporting either would fire on every clean machine until the reader learned to
-  ignore the line. An all-green store renders byte-identically to before.
+  **Absence is not damage — unless it cannot be repaired.** A fresh install has no log directory and
+  an uncompacted log has no `totals.json`; reporting either would fire on every clean machine until
+  the reader learned to ignore the line. A missing log directory that also cannot be *created* does
+  report: recording appends through `mkdir(parents=True)`, so the probe checks write permission on
+  the nearest existing ancestor. Checking the directory itself left a read-only state root silent
+  while every append raised. An all-green store renders byte-identically to before.
 
   **It degrades to a finding, never to silence.** A probe that cannot run says so — silence renders
   exactly like a healthy store, so swallowing would make "I could not tell" indistinguishable from

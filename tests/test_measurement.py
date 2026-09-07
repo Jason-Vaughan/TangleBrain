@@ -1949,8 +1949,6 @@ class PersistedRecordCarriesNoResponseTextTest(unittest.TestCase):
         self.assertNotIn("Marvin", written)
 
 
-
-
 @unittest.skipIf(
     hasattr(os, "geteuid") and os.geteuid() == 0,
     "root ignores the mode bits this probe reads, so every unwritable case would read as healthy",
