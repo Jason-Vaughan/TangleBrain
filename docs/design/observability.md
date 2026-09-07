@@ -141,9 +141,8 @@ describe it, and a trial write would race the appends it is meant to characteris
 check with its limit stated is the trade — which is the same stance the rest of this page takes,
 since a signal that overclaims is worse than one that is explicit about its edge.
 
-**Conditions are reported separately, because they fail independently.** The set is not fixed and
-this page does not enumerate it — `probe_measurement_health` is the list, and a page that copied it
-would fall behind the next state added. Two are worth stating because their *consequences* differ
+**Conditions are reported separately, because they fail independently.** `probe_measurement_health`
+is the authority on which ones exist; two are worth stating here because their *consequences* differ
 and neither implies the other:
 
 A **log that cannot be appended to** means tasks routed *now* are not being recorded; it says

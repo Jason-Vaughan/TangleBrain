@@ -186,8 +186,8 @@ window without the lifetime figure shrinking as it shrinks. It runs on a size ca
 15,000 records) — no maintenance, and nothing to schedule. Delete either file and the figure falls
 back to whatever the other one holds — a smaller number, never an error. When the store cannot do
 its job at all — a log that is not writable, or a `totals.json` that is present and unreadable —
-`--stats` says so on a `⚠ measurement:` line rather than printing a confident short figure; what it
-checks, and the limits of that check, are in
+`--stats` prints a `⚠ measurement:` line beside the figure, so a short number is never presented as
+a confident one; what it checks, and the limits of that check, are in
 [`docs/design/observability.md`](docs/design/observability.md) § Store health.
 
 **Lifetime, not fleet-wide.** Each machine keeps its own log and totals, and nothing merges them —
