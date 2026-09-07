@@ -117,9 +117,20 @@ PAIRS = [
     ("table column header (muted)", "text-muted", "card-bg", NORMAL_TEXT),
     ("served-by line and .muted text", "text-muted", "card-bg", NORMAL_TEXT),
     ("stat label (muted, on the elevated tile)", "text-muted", "elevated-bg", NORMAL_TEXT),
-    # header h1 is 1.5rem = 24px = 18pt exactly, which is the large-scale threshold. Shrink it
-    # and this row needs NORMAL_TEXT.
-    ("wordmark accent", "primary", "bg", LARGE_TEXT),
+    # The wordmark moved into the sidebar when the panel split into views, so it is now read
+    # against --card-bg at 1.05rem — normal-scale text, not the 24px that let the old centred
+    # header claim the 3:1 large-scale threshold. The row moved with it rather than being kept
+    # for a surface that no longer exists.
+    ("sidebar wordmark accent", "primary", "card-bg", NORMAL_TEXT),
+    # --- the sidebar. No new tokens; these are existing colours on surfaces that did not exist
+    # before, which this module's docstring requires a row for: a new *pairing* is exactly what
+    # the two structural tests cannot see.
+    ("sidebar nav link at rest", "text-muted", "card-bg", NORMAL_TEXT),
+    ("sidebar nav link on hover", "text", "elevated-bg", NORMAL_TEXT),
+    ("sidebar nav link, active view", "primary", "elevated-bg", NORMAL_TEXT),
+    ("nav link focus ring against the sidebar", "primary-bright", "card-bg", UI_COMPONENT),
+    ("skip link, visible only while focused", "primary", "elevated-bg", NORMAL_TEXT),
+    ("skip link outline", "primary-dark", "elevated-bg", UI_COMPONENT),
     # 1.3rem = 20.8px at normal weight, which is NOT WCAG large-scale text (that starts at
     # 24px, or 18.67px bold). Asserting 3:1 here would have passed a sub-AA palette.
     ("big stat value", "primary", "elevated-bg", NORMAL_TEXT),

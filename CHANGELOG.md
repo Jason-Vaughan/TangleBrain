@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The knob panel is two views behind a sidebar, not one scrolling column** ([#166](https://github.com/Jason-Vaughan/TangleBrain/issues/166)).
+  **Chat** holds the run box; **Settings** holds the spend-avoided rollup, the roster table and the
+  pricing reference. Views are addressable (`#/chat`, `#/settings`), so the browser's back button
+  and a bookmarked view both work.
+
+  The single column was the right shape for a read-only dashboard and is the wrong one for what
+  comes next — a chat feed, roster modals, execution traces. Nothing about what the cards contain
+  changed and no endpoint moved; this is layout, and the panel is still one packaged file served by
+  a stdlib handler with no framework, no CDN and no build step, so it still renders with the machine
+  offline.
+
+  The nav is the panel's first interactive navigation surface, so it ships keyboard-operable: real
+  anchors, a visible focus ring, a skip link, and `aria-current` on the active view rather than
+  colour alone.
+
 ### Fixed
 
 - **A security report had nowhere correct to go.** `CONTRIBUTING.md` forbade opening a public issue

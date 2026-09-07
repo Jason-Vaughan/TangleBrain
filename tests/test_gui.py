@@ -488,5 +488,91 @@ class LiveHandlerTest(unittest.TestCase):
         run.assert_not_called()
 
 
+PANEL = Path(__file__).resolve().parents[1] / "tanglebrain" / "gui" / "static" / "index.html"
+
+
+class PanelLayoutTest(unittest.TestCase):
+    """The panel's shell: two views behind a sidebar, keyboard-reachable, nothing dropped.
+
+    Asserted against the shipped source, which is the same technique
+    `test_the_panel_actually_renders_the_health_findings` uses and for the same reason: there is
+    no JS engine in this suite, and the alternative to reading the file is asserting nothing about
+    the surface an operator actually looks at.
+
+    The restructure these tests guard moved four cards between containers. The failure mode that
+    matters is not a broken selector — it is a card quietly not arriving, which every other test
+    in this module would sail past because they all exercise the *views*, never the page.
+    """
+
+    def setUp(self):
+        self.panel = PANEL.read_text(encoding="utf-8")
+
+    def test_both_views_ship(self):
+        self.assertIn('id="view-chat"', self.panel)
+        self.assertIn('id="view-settings"', self.panel)
+
+    def test_the_sidebar_links_to_every_view(self):
+        # The nav is the only way to reach a view, so a view without a link is unreachable.
+        self.assertIn('id="nav-chat"', self.panel)
+        self.assertIn('href="#/chat"', self.panel)
+        self.assertIn('id="nav-settings"', self.panel)
+        self.assertIn('href="#/settings"', self.panel)
+
+    def test_navigation_uses_real_links(self):
+        # Anchors, not click-handled divs: keyboard focus, Enter, browser back/forward and
+        # "open in a new tab" all come free from the element and are lost the moment it stops
+        # being one.
+        for view in ("chat", "settings"):
+            self.assertIn(f'<a class="navlink" id="nav-{view}" href="#/{view}">', self.panel)
+
+    def test_chat_is_the_default_view_and_settings_starts_hidden(self):
+        # An unknown or absent hash must land somewhere rather than showing two views or none.
+        self.assertIn('const DEFAULT_VIEW = "chat";', self.panel)
+        settings = self.panel[self.panel.index('id="view-settings"'):]
+        self.assertIn("hidden", settings[: settings.index(">")])
+
+    def test_hidden_is_enforced_against_the_container_display_rule(self):
+        # `.view` sits inside a flex/grid shell; a display rule on it would beat the bare `hidden`
+        # attribute and render both views at once.
+        self.assertIn(".view[hidden] { display: none; }", self.panel)
+
+    def test_the_active_view_is_announced_not_just_painted(self):
+        # A colour change alone tells a screen-reader user nothing about which view they are in.
+        self.assertIn('setAttribute("aria-current", "page")', self.panel)
+        self.assertIn('removeAttribute("aria-current")', self.panel)
+
+    def test_a_hash_change_switches_view(self):
+        self.assertIn('window.addEventListener("hashchange"', self.panel)
+
+    def test_landmarks_and_a_skip_link_exist(self):
+        self.assertIn('<nav class="sidebar" aria-label="Primary">', self.panel)
+        self.assertIn('<main class="main" id="main">', self.panel)
+        self.assertIn('<a class="skip" href="#main">', self.panel)
+
+    def test_every_card_survived_the_restructure(self):
+        # The regression this class exists for. Each of these is a distinct operator surface that
+        # was on the single-column page before the split; losing one is silent everywhere else.
+        for card in ("runResult", "statsCard", "rosterCard", "pricingCard"):
+            with self.subTest(card=card):
+                self.assertIn(f'id="{card}"', self.panel)
+
+    def test_the_run_box_lives_in_the_chat_view(self):
+        chat = self.panel[self.panel.index('id="view-chat"') : self.panel.index('id="view-settings"')]
+        for control in ('id="prompt"', 'id="task"', 'id="local"', 'id="run"'):
+            with self.subTest(control=control):
+                self.assertIn(control, chat)
+
+    def test_the_knobs_live_in_the_settings_view(self):
+        settings = self.panel[self.panel.index('id="view-settings"') :]
+        for card in ('id="statsCard"', 'id="rosterCard"', 'id="pricingCard"'):
+            with self.subTest(card=card):
+                self.assertIn(card, settings)
+
+    def test_both_views_still_load_their_data_at_startup(self):
+        # Splitting the page did not make any card's fetch conditional on its view being open.
+        # `view_stats`'s docstring states the panel fetches on load; that stays true.
+        self.assertIn("loadStats(); loadRoster(); loadPricing();", self.panel)
+
+
 if __name__ == "__main__":
     unittest.main()

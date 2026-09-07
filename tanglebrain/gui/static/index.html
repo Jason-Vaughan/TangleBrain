@@ -10,10 +10,10 @@
     --primary: #8BC34A; --primary-bright: #9CCC65; --primary-dark: #558B2F;
     --bg: #000; --card-bg: #0D0D0D; --elevated-bg: #1A1A1A;
     --text: #E8E8E8; --text-muted: #888; --danger: #EF5350; --amber: #FFA726;
-    /* --border is decorative only (cards, table rules, pills): WCAG 1.4.11 governs what is
-       needed to *identify a component*, and none of those are. The outlines that DO identify a
-       control carry the 3:1 the SC requires: --field-border on text inputs, --primary-dark on
-       buttons, --primary-bright on focus. Ratios are asserted in
+    /* --border is decorative only (cards, table rules, pills, the sidebar's edge): WCAG 1.4.11
+       governs what is needed to *identify a component*, and none of those are. The outlines that
+       DO identify a control carry the 3:1 the SC requires: --field-border on text inputs,
+       --primary-dark on buttons, --primary-bright on focus. Ratios are asserted in
        tests/test_gui_contrast.py — change a value here and it will tell you what it broke. */
     --border: #222; --field-border: #666;
   }
@@ -21,14 +21,62 @@
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
-    line-height: 1.5; padding: 24px 16px 64px;
+    line-height: 1.5;
   }
+
+  /* ---- shell ---------------------------------------------------------------------------- */
+  /* Two panes: a persistent nav and one visible view. The views are siblings rather than
+     separate pages so the panel stays a single packaged file served by a stdlib handler — the
+     offline guarantee (a default install reaches nothing off-machine) rules out a build step or
+     a client router, and there is no server route to add. */
+  .app { display: flex; align-items: flex-start; min-height: 100vh; }
+
+  .skip {
+    position: absolute; left: -9999px; top: 8px;
+    background: var(--elevated-bg); color: var(--primary); border: 1px solid var(--primary-dark);
+    border-radius: 8px; padding: 8px 14px; text-decoration: none; z-index: 10;
+  }
+  /* Visible only while focused — a keyboard user's first stop, invisible to everyone else. */
+  .skip:focus { left: 16px; }
+
+  .sidebar {
+    flex: 0 0 200px; align-self: stretch; background: var(--card-bg);
+    border-right: 1px solid var(--border); padding: 20px 12px; position: sticky; top: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
+  .brand .logo { width: 32px; height: 32px; display: block; }
+  .brand .name { font-size: 1.05rem; letter-spacing: .3px; }
+  .brand .accent { color: var(--primary); }
+  .nav { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .navlink {
+    display: block; padding: 9px 12px; border-radius: 8px; text-decoration: none;
+    color: var(--text-muted); font-size: .9rem;
+  }
+  .navlink:hover { background: var(--elevated-bg); color: var(--text); }
+  .navlink.active { background: var(--elevated-bg); color: var(--primary); }
+  .navlink:focus-visible { outline: 2px solid var(--primary-bright); outline-offset: 1px; }
+
+  .main { flex: 1 1 auto; min-width: 0; padding: 24px 20px 64px; }
   .wrap { max-width: 920px; margin: 0 auto; }
-  header { text-align: center; padding: 8px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
-  header .logo { width: 72px; height: 72px; display: block; margin: 0 auto 10px; }
-  header h1 { margin: 0; font-size: 1.5rem; letter-spacing: .5px; }
-  header h1 .accent { color: var(--primary); }
-  header .sub { color: var(--text-muted); font-size: .8rem; margin-top: 4px; }
+  /* `hidden` alone loses to any display rule, and the view container carries one. */
+  .view[hidden] { display: none; }
+  .view-title { font-size: 1.3rem; margin: 0 0 4px; letter-spacing: .3px; }
+  .view-sub { color: var(--text-muted); font-size: .8rem; margin-bottom: 20px; }
+
+  /* Narrow viewports: the nav becomes a row above the content rather than a squeezed column. */
+  @media (max-width: 720px) {
+    .app { flex-direction: column; }
+    .sidebar {
+      flex: none; width: 100%; position: static; padding: 14px 12px;
+      border-right: none; border-bottom: 1px solid var(--border);
+    }
+    .brand { padding-bottom: 12px; }
+    .nav { flex-direction: row; }
+    .navlink { padding: 8px 14px; }
+    .main { width: 100%; padding: 20px 16px 48px; }
+  }
+
+  /* ---- content -------------------------------------------------------------------------- */
   h2 { font-size: .95rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 28px 0 10px; }
   .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   table { width: 100%; border-collapse: collapse; font-size: .85rem; }
@@ -68,32 +116,53 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <img class="logo" src="/logo.png" alt="TangleBrain logo">
-    <h1>Tangle<span class="accent">Brain</span> · knob panel</h1>
-    <div class="sub">roster &amp; pricing config · local spend-avoided rollup</div>
-  </header>
-
-  <h2>Run a prompt</h2>
-  <div class="card">
-    <textarea id="prompt" rows="3" placeholder="Ask the router something…"></textarea>
-    <div class="row">
-      <input type="text" id="task" placeholder="task hint (optional: code, reasoning, long-context)" style="flex:1; min-width:220px;">
-      <label class="chk"><input type="checkbox" id="local"> force local ($0)</label>
-      <button id="run">Run</button>
+<a class="skip" href="#main">Skip to main content</a>
+<div class="app">
+  <nav class="sidebar" aria-label="Primary">
+    <div class="brand">
+      <!-- Decorative: the wordmark beside it carries the name, so alt="" keeps a screen reader
+           from announcing it twice. -->
+      <img class="logo" src="/logo.png" alt="">
+      <span class="name">Tangle<span class="accent">Brain</span></span>
     </div>
-    <div id="runResult"></div>
-  </div>
+    <ul class="nav">
+      <li><a class="navlink" id="nav-chat" href="#/chat">Chat</a></li>
+      <li><a class="navlink" id="nav-settings" href="#/settings">Settings</a></li>
+    </ul>
+  </nav>
 
-  <h2>Spend avoided <span class="muted">(local rollup, lifetime)</span></h2>
-  <div class="card" id="statsCard"><span class="muted">loading…</span></div>
+  <main class="main" id="main">
+   <div class="wrap">
+    <section class="view" id="view-chat" aria-labelledby="chat-title">
+      <h1 class="view-title" id="chat-title">Chat playground</h1>
+      <div class="view-sub">run a prompt through the router and see which tier served it</div>
 
-  <h2>Roster</h2>
-  <div class="card" id="rosterCard"><span class="muted">loading…</span></div>
+      <div class="card">
+        <textarea id="prompt" rows="3" placeholder="Ask the router something…"></textarea>
+        <div class="row">
+          <input type="text" id="task" placeholder="task hint (optional: code, reasoning, long-context)" style="flex:1; min-width:220px;">
+          <label class="chk"><input type="checkbox" id="local"> force local ($0)</label>
+          <button id="run">Run</button>
+        </div>
+        <div id="runResult"></div>
+      </div>
+    </section>
 
-  <h2>Pricing reference</h2>
-  <div class="card" id="pricingCard"><span class="muted">loading…</span></div>
+    <section class="view" id="view-settings" aria-labelledby="settings-title" hidden>
+      <h1 class="view-title" id="settings-title">Settings</h1>
+      <div class="view-sub">roster &amp; pricing config · local spend-avoided rollup</div>
+
+      <h2>Spend avoided <span class="muted">(local rollup, lifetime)</span></h2>
+      <div class="card" id="statsCard"><span class="muted">loading…</span></div>
+
+      <h2>Roster</h2>
+      <div class="card" id="rosterCard"><span class="muted">loading…</span></div>
+
+      <h2>Pricing reference</h2>
+      <div class="card" id="pricingCard"><span class="muted">loading…</span></div>
+    </section>
+   </div>
+  </main>
 </div>
 
 <script>
@@ -102,6 +171,34 @@ const $ = (id) => document.getElementById(id);
 // (e.g. the editable pricing inputs' value="..."), so quotes MUST be escaped too.
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// ---- view routing ---------------------------------------------------------------------------
+// Hash routing rather than JS-only show/hide: the fragment never reaches the server, so
+// `dispatch()` needs no new route and the panel stays one packaged file, while the browser's
+// back/forward and a bookmarked view both work. An unknown or absent hash falls back to chat.
+const VIEWS = { chat: "view-chat", settings: "view-settings" };
+const DEFAULT_VIEW = "chat";
+
+function currentView() {
+  const name = (window.location.hash || "").replace(/^#\/?/, "");
+  return Object.prototype.hasOwnProperty.call(VIEWS, name) ? name : DEFAULT_VIEW;
+}
+
+function showView(name) {
+  for (const key of Object.keys(VIEWS)) {
+    const active = key === name;
+    $(VIEWS[key]).hidden = !active;
+    const link = $("nav-" + key);
+    link.classList.toggle("active", active);
+    // aria-current is the state a screen reader announces; the class is only paint. Removed
+    // rather than set to "false" — the attribute's absence is what "not current" means.
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+window.addEventListener("hashchange", () => showView(currentView()));
+
+// ---- data -----------------------------------------------------------------------------------
 async function getJSON(url) {
   const r = await fetch(url);
   return r.json();
@@ -307,6 +404,12 @@ $("rosterCard").addEventListener("click", (ev) => {
   const cell = btn.closest(".cfg");
   if (cell) saveRoster(cell, btn);
 });
+
+showView(currentView());
+// Both views' data is fetched at startup regardless of which one is showing. The alternative,
+// loading a view's data when it is first opened, saves two localhost fetches and buys a class of
+// "this view says loading… forever" bugs; it would also falsify view_stats's docstring, which
+// states the panel fetches on load, after a run, and after a pricing save.
 loadStats(); loadRoster(); loadPricing();
 </script>
 </body>
