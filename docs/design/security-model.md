@@ -211,13 +211,14 @@ Recorded, not fixed. Each is a decision someone should make deliberately.
      the same class as the first.
    - `describe_shape`'s **identifier-shaped-key heuristic**. A key is named when it is
      identifier-shaped and short, which keeps free text out of key position but reproduces a single
-     token like `patient_name_zaphod`. Unlike the three above this does not close: telling a schema
-     field name from content is not decidable, so it is a judgement by construction. Pinned as a
-     known limit by `tests/test_cli_adapter.py`.
+     token like `patient_name_zaphod`. Unlike the diagnostic paths above this one does not close:
+     telling a schema field name from content is not decidable, so it is a judgement by
+     construction. Pinned as a known limit by `tests/test_cli_adapter.py`.
 
-   The first three share one fix: an `AdapterError` carrying a separately **constructed** summary
-   for persistence, distinct from the rich message shown on stderr. That keeps the guarantee
-   structural rather than adding the redaction filter the invariant's rationale rejects. Sizing it
+   The diagnostic paths above share one fix: an `AdapterError` carrying a separately
+   **constructed** summary for persistence, distinct from the rich message shown on stderr. That
+   keeps the guarantee structural rather than adding the redaction filter the invariant's rationale
+   rejects. Sizing it
    needs evidence of what a real provider returns on a 400, so it is recorded rather than scheduled.
    Tracked as [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156).
    (A CLI's own error `subtype` is also kept verbatim; it is a fixed enum, not free text, and
