@@ -207,11 +207,18 @@ instead and the migration copies `~/.cache/tanglebrain` into it, so the "merged"
 carries a third machine's history. See
 [`docs/design/operations.md`](docs/design/operations.md) for what that view does and does not cover.
 
+Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
+authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is
+applied to every tier. The reference frontier price lives in
+[`tanglebrain/config/pricing.yaml`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/tanglebrain/config/pricing.yaml) — tune it to whatever frontier
+model you want to compare against. A `placeholder` flag makes the rollup render a PLACEHOLDER caveat
+when the rates are rough. Logging is best-effort and never affects the returned answer.
+
 **What the log never contains: your prompts, and the model's replies.** Each task's text is run
 through the `chars/4` estimate and then discarded — only the derived counts and the routing metadata
-are written. That is what makes the log safe to keep forever, safe to render in a browser, and safe
-to paste into an issue. It is a property of the shape of the code rather than a filter you have to
-trust: there is no redaction step because nothing that would need redacting ever reaches the writer.
+are written. That is what makes the log safe to keep forever and safe to render in a browser. It is
+a property of the shape of the code rather than a filter you have to trust: there is no redaction
+step because nothing that would need redacting ever reaches the writer.
 
 **The exception, stated plainly: backend error messages.** When a backend fails, the diagnostic
 explaining why is persisted next to the failed attempt, because a router that hides why it fell back
@@ -225,13 +232,6 @@ gut the diagnostic for the single most common setup failure there is. An upstrea
 request back inside one of them — a 400, a content-filter rejection — would put that text in the
 log; that turns on what the provider returns, not on TangleBrain.
 [`docs/design/security-model.md`](docs/design/security-model.md) carries the full accounting.
-
-Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
-authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is
-applied to every tier. The reference frontier price lives in
-[`tanglebrain/config/pricing.yaml`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/tanglebrain/config/pricing.yaml) — tune it to whatever frontier
-model you want to compare against. A `placeholder` flag makes the rollup render a PLACEHOLDER caveat
-when the rates are rough. Logging is best-effort and never affects the returned answer.
 
 **Editing the price never restates history.** Each task is priced when it runs and keeps that
 figure, so tuning `pricing.yaml` cannot retroactively inflate what you have already saved. The

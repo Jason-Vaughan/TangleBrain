@@ -37,7 +37,7 @@ The highest-consequence rules in the project. These bind.
 
   *Why:* structural beats procedural. A redaction filter can be bypassed by the next code path that
   forgets it; "there is nothing to redact" cannot. This is also what makes the usage log safe to
-  keep forever, safe to render in a browser, and safe to attach to an issue.
+  keep forever and safe to render in a browser.
 
   **Where it is structural, and where it is a judgement — because the difference is the whole
   claim.** On the success path nothing carries the text far enough to be written. The pressure is
