@@ -221,31 +221,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- **The closed-linkage claim was restated on six surfaces; three were left stale.**
-  [#147](https://github.com/Jason-Vaughan/TangleBrain/pull/147) gave a lost `TANGLEBRAIN_TASK_ID`
-  hop a positive signal and updated `ARCHITECTURE.md`, `docs/design/observability.md` and
-  `docs/design/data-model.md`. The other three still asserted that the hop "degrades silently" with
-  "nothing anywhere reports that linkage was lost", which had just stopped being true.
+- **The closed-linkage claim was restated on eight surfaces, and correcting three of them was not
+  enough.** [#147](https://github.com/Jason-Vaughan/TangleBrain/pull/147) gave a lost
+  `TANGLEBRAIN_TASK_ID` hop a positive signal and updated `ARCHITECTURE.md`,
+  `docs/design/data-model.md` and `docs/design/observability.md`. Five surfaces were untouched and
+  went on asserting that the hop "degrades silently" with "nothing anywhere reports that linkage was
+  lost" — and `observability.md`, one of the three it *did* update, still called the shipped signal
+  future work in its own rationale.
 
-  **`docs/design/README.md` is the one that mattered most**, and it is the design docs' index: its
+  **`docs/design/README.md` is the one that mattered**, being the index of the design docs: its
   Known-gaps table still listed [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123) as
   open work under a preamble promising every row is open. An out-of-date weakness reads as a current
-  one, which is exactly what `CLAUDE.md`'s parity rule exists to prevent, and it was sitting on the
-  most-read page of the set.
+  one — which is what `CLAUDE.md`'s parity rule exists to prevent — and it sat on the most-read page
+  of the set. Chunk 10's acceptance criterion named that file explicitly, so the chunk was ticked
+  with half its criterion unmet.
 
   `docs/design/operations.md` is the troubleshooting entry for this symptom and told an operator the
   condition was undiagnosable while `--stats` was printing its count. `docs/design/boundaries.md`
   fails the other way — it is read *before* renaming the variable or adding it to an orchestrator's
-  `invoke.scrub_env`, and promised the resulting breakage would be undetectable. `delegate.py`'s
-  own LOAD-BEARING ASSUMPTION comment sat three lines above the call that writes the signal, still
-  calling the degradation silent.
+  `invoke.scrub_env`, and promised the resulting breakage would be undetectable.
+  `tanglebrain/delegate.py`'s LOAD-BEARING ASSUMPTION comment called the degradation silent three
+  lines above the call that writes the signal. `docs/design/architecture.md` — the page this change
+  makes the owner of the claim — was itself one of the stale five, and is the source of the sentence
+  quoted above.
 
-  **The fix is a single owner, not six correct copies.** `docs/design/architecture.md` states the
-  behavior; `boundaries.md` now links there rather than restating it, so the next change to this
-  behavior has one page to update instead of six chances to miss one. The architecture page's
-  cross-reference is also corrected from
-  [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100), which covered failure records, to
-  [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123), which covered this.
+  **The fix is a single owner, not eight correct copies.** `docs/design/architecture.md` states the
+  behavior and `boundaries.md` now links there rather than restating it, so the next change to this
+  behavior has one page to update instead of eight chances to miss one. That page's cross-reference
+  is also corrected from [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100), which
+  covered failure records, to [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123), which
+  covered this.
 
 - **CI now tests Python 3.13 and 3.14.** `requires-python` admits both, so pip installs
   TangleBrain on them while the matrix stopped at 3.12 — the two newest interpreters the package

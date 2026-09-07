@@ -100,7 +100,7 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 - **Contract:** the env var name, and that a missing value degrades rather than raising.
 - **Crossing it means:** renaming the variable — or adding it to an orchestrator's
   `invoke.scrub_env` — unparents every delegation, and nothing raises. What that costs, and what
-  now reports it, is stated once in [`architecture.md`](architecture.md); read it there rather than
+  reports it, is stated once in [`architecture.md`](architecture.md); read it there rather than
   trusting a summary here.
 
 ### GUI panel endpoints *(internal, localhost-only)*
