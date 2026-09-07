@@ -492,10 +492,16 @@ class LiveHandlerTest(unittest.TestCase):
 PANEL = Path(__file__).resolve().parents[1] / "tanglebrain" / "gui" / "static" / "index.html"
 
 #: A URL that would leave this machine: any absolute or scheme-relative reference inside an
-#: attribute or a `url(...)`. Anchored on the opening quote/paren so a bare `//` — a JS comment or
-#: a division, both of which the panel contains — is not mistaken for one. Shared with the test
-#: that proves it fires, so the guard and its proof cannot drift apart.
-OFF_MACHINE_URL = r"""["'(]\s*(?:https?:)?//[^"')\s]+"""
+#: attribute, a `url(...)`, or a template literal — the panel is full of the last, so a
+#: ``fetch(`https://…`)`` is the likeliest way one would arrive. Anchored on the opening
+#: quote/backtick/paren so a bare `//` — a JS comment or a division, both of which the panel
+#: contains — is not mistaken for one. Shared with the test that proves it fires, so the guard and
+#: its proof cannot drift apart.
+#:
+#: **Not total, stated so nobody reads it as total:** an unquoted `<script src=https://…>` slips
+#: it. Closing that means parsing HTML; the quoted and templated forms are the ones a person
+#: actually writes.
+OFF_MACHINE_URL = r"""["'(`]\s*(?:https?:)?//[^"')`\s]+"""
 
 
 class PanelLayoutTest(unittest.TestCase):
@@ -543,9 +549,11 @@ class PanelLayoutTest(unittest.TestCase):
         # satisfy assertIn while hiding the view from assistive tech only, leaving it painted.
         self.assertRegex(opening_tag, r"(?:^|\s)hidden(?:\s|$)")
 
-    def test_hidden_is_enforced_against_the_container_display_rule(self):
-        # `.view` sits inside a flex/grid shell; a display rule on it would beat the bare `hidden`
-        # attribute and render both views at once.
+    def test_hidden_survives_a_later_display_rule(self):
+        # Nothing sets `display` on a view or its ancestors today — `.app` is the flex container
+        # and `.main`/`.wrap` carry none. The rule is defensive: whichever chunk first gives a
+        # view or its container a display rule would otherwise beat the bare `hidden` attribute
+        # and paint both views at once. Chunk 02's banner is the near occasion.
         self.assertIn(".view[hidden] { display: none; }", self.panel)
 
     def test_the_active_view_is_announced_not_just_painted(self):
@@ -564,8 +572,8 @@ class PanelLayoutTest(unittest.TestCase):
         whole fragment namespace reads that as an unroutable view and falls back to the default,
         so the keyboard user it exists for is thrown out of the view they were reading — and the
         address bar keeps `#main`, so a reload lands them there too. The same shape returns with
-        chunk 02's banner anchors and chunk 03's modals, which is why the fix is a prefix the
-        router owns rather than a special case for `#main`.
+        chunk 02's banner anchors and #164's roster modals, which is why the fix is a prefix
+        the router owns rather than a special case for `#main`.
 
         Asserted against the source, like every other test in this class: there is no JS engine
         here, so this pins the construction that makes the bug unexpressible rather than
@@ -581,6 +589,12 @@ class PanelLayoutTest(unittest.TestCase):
         # Without tabindex the skip link scrolls but leaves focus behind in Safari, so the next
         # Tab resumes from the link rather than entering the content.
         self.assertIn('<main class="main" id="main" tabindex="-1">', self.panel)
+
+    def test_the_skip_link_becomes_visible_when_focused(self):
+        # The link is parked off-screen at left:-9999px and only this rule brings it back. Delete
+        # it and the skip link is permanently invisible while every other assertion about it —
+        # that it exists, that its target is focusable — still passes.
+        self.assertIn(".skip:focus { left: 16px; }", self.panel)
 
     def test_focus_is_visible_on_the_nav(self):
         # An acceptance criterion of this chunk: the nav is the panel's first navigation surface
@@ -618,6 +632,10 @@ class PanelLayoutTest(unittest.TestCase):
 
     def test_the_knobs_live_in_the_settings_view(self):
         settings = self.panel[self.panel.index('id="view-settings"') :]
+        # Bounded at the section's end, like its chat-view twin: an unbounded slice runs to the
+        # end of the file and would be satisfied by an id appearing anywhere below, including in
+        # the script block.
+        settings = settings[: settings.index("</section>")]
         for card in ('id="statsCard"', 'id="rosterCard"', 'id="pricingCard"'):
             with self.subTest(card=card):
                 self.assertIn(card, settings)
@@ -650,6 +668,7 @@ class PanelLayoutTest(unittest.TestCase):
             "<script src='http://example.com/x.js'></script>",
             '<script src="//cdn.example.com/c.js"></script>',
             "@import url(https://fonts.googleapis.com/css?family=Inter);",
+            "const r = await fetch(`https://api.example.com/v1/chart`);",
         ]
         allowed = [
             '<img src="/logo.png" alt="">',
