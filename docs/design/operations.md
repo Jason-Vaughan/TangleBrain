@@ -148,8 +148,10 @@ confidently and wrongly rather than erroring. Use `--no-gate` to bypass for a ru
 `classifier_gate_enabled` if it keeps happening.
 
 **"Delegations are not linked to their parent task."**
-The `TANGLEBRAIN_TASK_ID` environment hop was not forwarded by the orchestrator. Records show
-`unlinked`. This degrades silently by design and is not recoverable after the fact — see
+The `TANGLEBRAIN_TASK_ID` environment hop was not forwarded by the orchestrator. Those records carry
+`linkage_lost: true`, and `--stats` and the GUI panel both show the lifetime count on a
+"Linkage lost" line — so the condition is diagnosable even though it still degrades rather than
+raising. The linkage itself is not recoverable after the fact — see
 [`architecture.md`](architecture.md).
 
 **"The delegate server offers a target that does not exist."**
