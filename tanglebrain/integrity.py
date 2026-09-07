@@ -169,42 +169,24 @@ def _rows(path: Path) -> list[str] | None:
     Args:
         path: The usage log to read.
 
+    **A trailing fragment is not a row**, and dropping it here rather than at the call sites is
+    what keeps the rule in one place: :func:`_newest_row` applies the same test to the tail block,
+    and this applies it to a full read — the path taken when a row is longer than
+    :data:`BOUNDARY_BYTES`. A complete migration copies a mid-record fragment forward and the next
+    append writes onto it, so counting it makes an intact store look short.
+
     Returns:
-        One entry per row, ``[]`` for a log with no rows, or ``None`` when the file could not be
-        read or decoded.
+        One entry per complete row, ``[]`` for a log with no complete rows, or ``None`` when the
+        file could not be read or decoded.
     """
     try:
-        path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    return [raw for raw, _ in _read_lines(path)]
-
-
-def _drop_torn_tail(path: Path, rows: list[str]) -> list[str]:
-    """Drop a trailing fragment from ``rows`` when the file does not end in a newline.
-
-    :func:`_newest_row` applies this rule to the tail block; this applies it to a full read, which
-    is the path taken when a row is longer than :data:`BOUNDARY_BYTES`. Both need it for the same
-    reason — a file ending mid-record ends on something that is not a row, and a complete migration
-    copies that fragment forward and then appends onto it, so treating it as a row makes an intact
-    store look short.
-
-    Args:
-        path: The log the rows came from.
-        rows: Its rows, in order.
-
-    Returns:
-        ``rows`` without a trailing fragment.
-    """
-    if not rows:
-        return rows
-    try:
-        with path.open("rb") as handle:
-            handle.seek(-1, 2)
-            ends_clean = handle.read(1) == b"\n"
-    except OSError:
-        return rows
-    return rows if ends_clean else rows[:-1]
+    rows = [raw for raw, _ in _read_lines(path)]
+    if rows and not text.endswith("\n"):
+        rows.pop()  # the log stops mid-record; that fragment is not a row
+    return rows
 
 
 def _contains_row(path: Path, row: str) -> bool | None:
@@ -336,7 +318,6 @@ def probe_migration_integrity(
         legacy_rows = _rows(legacy_log)
         if legacy_rows is None:
             return _finding(legacy_log, UNREADABLE)
-        legacy_rows = _drop_torn_tail(legacy_log, legacy_rows)
         if not legacy_rows:
             return None
         anchor = legacy_rows[-1]
@@ -349,10 +330,11 @@ def probe_migration_integrity(
         return None
 
     legacy_rows = _rows(legacy_log)
-    current_rows = _rows(current_log)
-    if legacy_rows is None or current_rows is None:
+    if legacy_rows is None:
         return _finding(legacy_log, UNREADABLE)
-    legacy_rows = _drop_torn_tail(legacy_log, legacy_rows)
+    current_rows = _rows(current_log)
+    if current_rows is None:
+        return _finding(current_log, UNREADABLE)
     if not legacy_rows:
         return None
     present = set(current_rows)
@@ -371,7 +353,10 @@ def _finding(legacy_log: Path, verdict: str) -> str:
     is the only thing an operator can act on before the repair exists.
 
     Args:
-        legacy_log: The legacy usage log holding the records in question.
+        legacy_log: The legacy usage log holding the records in question — except under
+            :data:`UNREADABLE`, where it is whichever file could not be read, so the operator is
+            sent to check the permissions of the file that actually failed rather than its
+            neighbour.
         verdict: :data:`SHORT`, :data:`INCONCLUSIVE`, or :data:`UNREADABLE`.
 
     Returns:
@@ -385,8 +370,8 @@ def _finding(legacy_log: Path, verdict: str) -> str:
         )
     elif verdict == UNREADABLE:
         head = (
-            f"tanglebrain: could not read {legacy_log}, so whether your current log still accounts "
-            "for its records is unknown — check that file's permissions and encoding."
+            f"tanglebrain: could not read {legacy_log}, so whether your usage records survived the "
+            "v0.21.0 state move is unknown — check that file's permissions and encoding."
         )
     else:
         head = (

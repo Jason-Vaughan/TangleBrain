@@ -294,6 +294,41 @@ class TornLegacyTailTest(IntegrityTestBase):
             "holds usage records your current log does not", probe_migration_integrity()
         )
 
+    def test_a_fragment_longer_than_the_tail_block_is_still_not_a_row(self):
+        """The full-read path needs the fragment rule too, and only a huge row reaches it.
+
+        `_newest_row` cannot answer when the tail block holds no complete row — a record longer
+        than `BOUNDARY_BYTES` does that — so the probe falls back to reading the log. That fallback
+        is the one place the rule could have been forgotten, and forgetting it makes the anchor the
+        fragment, which the current log can never contain because it was appended onto.
+        """
+        rows = [row(n) for n in range(6)]
+        fragment = "{" + "x" * (integrity.BOUNDARY_BYTES + 4000)
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        (self.legacy / "usage.jsonl").write_text(
+            "".join(f"{r}\n" for r in rows) + fragment, encoding="utf-8"
+        )
+        legacy_size = (self.legacy / "usage.jsonl").stat().st_size
+        self.assertGreater(legacy_size, integrity.BOUNDARY_BYTES,
+                           "the tail block would hold a complete row — this reaches the wrong path")
+        # Migrated in full, then used: the fragment is copied verbatim and appended onto.
+        self.new.mkdir(parents=True, exist_ok=True)
+        (self.new / "usage.jsonl").write_text(
+            "".join(f"{r}\n" for r in rows) + fragment, encoding="utf-8"
+        )
+        self.append_current([row(n) for n in range(100, 110)])
+        self.assertEqual(self.fold_current(keep_recent=11), 5)  # folds past the oldest migrated rows
+        self.assertIsNone(probe_migration_integrity())
+
+    def test_a_legacy_log_of_nothing_but_a_fragment_has_no_rows_to_miss(self):
+        """A log that never completed a record holds nothing a comparison can find missing."""
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        (self.legacy / "usage.jsonl").write_text('{"kind": "task", "ts": "2026', encoding="utf-8")
+        self.write_current([row(n) for n in range(20)])
+        self.fold_current(keep_recent=10)
+        self.assertTrue((self.new / "totals.json").exists(), "no fold — this tests the wrong branch")
+        self.assertIsNone(probe_migration_integrity())
+
 
 class UnreadableStoreTest(IntegrityTestBase):
     """A check that could not run says so; it never renders as a healthy store."""
