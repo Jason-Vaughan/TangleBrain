@@ -44,3 +44,8 @@ they rot.
 - **TBD** — touched in this session: `docs/design/observability.md`. <!-- describe -->
 - **TBD** — touched in this session: `docs/design/operations.md`. <!-- describe -->
 - **TBD** — touched in this session: `docs/design/security-model.md`. <!-- describe -->
+
+## TODO (auto-stubbed 2026-09-06)
+
+- **TBD** — touched in this session: `ARCHITECTURE.md`. <!-- describe -->
+- **TBD** — touched in this session: `docs/design/deprecation-policy.md`. <!-- describe -->
