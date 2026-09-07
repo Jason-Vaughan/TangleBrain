@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-07
+
 ### Changed
 
 - **`--stats` now says when the measurement store cannot do its job.** A read-only usage log and
