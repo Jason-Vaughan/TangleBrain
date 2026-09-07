@@ -212,6 +212,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a failing disk to put a few hundred bytes back than to rewrite a megabyte of log, so it is
   much the less likely of the two, and it is stated rather than rounded away.
 
+### Internal
+
+- **CI now tests Python 3.13 and 3.14.** `requires-python` admits both, so pip installs
+  TangleBrain on them while the matrix stopped at 3.12 — the two newest interpreters the package
+  claims to support were the ones CI never exercised, and the interpreter the project is
+  developed on was among them. A version floor only helps if something notices; nothing tested
+  the promise at its upper end. The trove classifiers are widened to match, so `requires-python`,
+  the CI matrix and the advertised classifiers now agree. Closes
+  [#145](https://github.com/Jason-Vaughan/TangleBrain/issues/145).
+
 ## [0.21.0] - 2026-09-06
 
 ### Added
@@ -497,7 +507,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
-- **CI now tests Python 3.13 and 3.14.** `requires-python` admits both, so pip installs TangleBrain on them while the matrix stopped at 3.12 — the interpreter I develop on was the one CI never exercised. Closes #145.
 
 - **Filed [#131](https://github.com/Jason-Vaughan/TangleBrain/issues/131) for the accessibility
   surface #115 did not cover.** The new Accessibility section names keyboard traversal,
