@@ -23,7 +23,7 @@ from typing import Any, Iterator, Mapping
 
 import httpx
 
-from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.base import AdapterError, describe_shape
 from tanglebrain.roster import RosterEntry
 
 # Re-exported for backwards-compatible imports; the canonical definition lives in
@@ -232,6 +232,10 @@ class OpenAICompatAdapter:
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:
+            # The provider's error body, kept verbatim: it is what distinguishes a bad key from a
+            # missing model from a quota stop, and a shape would make the commonest setup failure
+            # undiagnosable. Accepted limit: a 400 can echo the request, so this is one of the
+            # points where the never-on-disk guarantee is a judgement rather than structural.
             body = exc.response.text
             raise AdapterError(
                 f"LiteLLM returned {exc.response.status_code} for model {self.model!r}: {body}"
@@ -244,12 +248,14 @@ class OpenAICompatAdapter:
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise AdapterError(f"unexpected response shape from LiteLLM: {data!r}") from exc
+            raise AdapterError(
+                f"unexpected response shape from LiteLLM: {describe_shape(data)}"
+            ) from exc
 
         if content is None:
             raise AdapterError(
                 f"LiteLLM returned null content for model {self.model!r} "
-                f"(often a truncated response — try a larger max_tokens): {data!r}"
+                f"(often a truncated response — try a larger max_tokens): {describe_shape(data)}"
             )
         return content
 
@@ -353,6 +359,10 @@ class OpenAICompatAdapter:
                 with client.stream("POST", url, headers=headers, json=payload) as response:
                     if response.status_code >= 400:
                         # Read the body before .text — on a stream it is not buffered yet.
+                        # Kept verbatim for the same reason as the non-streaming error body: it is
+                        # what distinguishes a bad key from a missing model. Same accepted limit —
+                        # a 400 can echo the request — so this is one of the points where the
+                        # never-on-disk guarantee is a judgement rather than structural.
                         body = response.read().decode("utf-8", errors="replace")
                         raise AdapterError(
                             f"LiteLLM returned {response.status_code} for model "
@@ -368,13 +378,19 @@ class OpenAICompatAdapter:
                             event = json.loads(data)
                         except ValueError as exc:
                             raise AdapterError(
-                                f"malformed SSE data line from model {self.model!r}: {data!r}"
+                                f"malformed SSE data line from model {self.model!r}: "
+                                f"{describe_shape(data)}"
                             ) from exc
                         if not isinstance(event, dict):
                             raise AdapterError(
-                                f"unexpected SSE event shape from model {self.model!r}: {event!r}"
+                                f"unexpected SSE event shape from model "
+                                f"{self.model!r}: {describe_shape(event)}"
                             )
                         if "error" in event:
+                            # The provider's own error envelope, kept verbatim for the same reason
+                            # as the HTTP error bodies: it is the diagnostic, and an upstream
+                            # may echo the request into it. One of the accepted limits on the
+                            # never-on-disk guarantee, named in CHANGELOG.md.
                             raise AdapterError(
                                 f"in-stream error from model {self.model!r}: {event['error']!r}"
                             )
@@ -389,7 +405,8 @@ class OpenAICompatAdapter:
                             # to AdapterError like every other decode failure (S2's mid-stream
                             # error framing catches AdapterError, not raw AttributeError).
                             raise AdapterError(
-                                f"unexpected SSE event shape from model {self.model!r}: {event!r}"
+                                f"unexpected SSE event shape from model "
+                                f"{self.model!r}: {describe_shape(event)}"
                             ) from exc
                         if content:
                             produced = True

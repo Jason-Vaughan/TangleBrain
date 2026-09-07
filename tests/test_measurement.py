@@ -7,6 +7,7 @@ sums stored lifetime totals with the current row window.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import io
 import json
@@ -20,6 +21,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tanglebrain import measurement
+from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.cli import _parse_json_field
 from tanglebrain.measurement import (
     KEEP_RECENT_BYTES,
     LOG_FILENAME,
@@ -135,9 +138,130 @@ class RecordTaskTest(unittest.TestCase):
         blocker = Path(self.tmp) / "blocker"
         blocker.write_text("i am a file")
         bad = blocker / "nested" / "usage.jsonl"
-        # Must not raise despite the unwritable path.
-        record_task(path="local", entry=FakeEntry("x", "local"), prompt="p", response="r",
-                    log_path=bad, pricing=FIXED)
+        # Must not raise despite the unwritable path. The stderr note is this path's own contract
+        # (`LostWriteNoticeTest`); swallow it here so the suite's output stays clean.
+        with contextlib.redirect_stderr(io.StringIO()):
+            record_task(path="local", entry=FakeEntry("x", "local"), prompt="p", response="r",
+                        log_path=bad, pricing=FIXED)
+
+
+class LostWriteNoticeTest(unittest.TestCase):
+    """`record_task` still swallows a failed append, and now says once that it happened.
+
+    The swallow is a ratified invariant — measurement never breaks the answer — and its cost is
+    that the spend-avoided headline can quietly go on understating. These pin the other half: the
+    operator is told, once, and the telling can never become the failure it reports.
+    """
+
+    def setUp(self):
+        """Isolate each test from the process-wide once-per-run flag."""
+        measurement._LOST_WRITE_NOTED = False
+        self.addCleanup(setattr, measurement, "_LOST_WRITE_NOTED", False)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.log = Path(self.tmp) / "sub" / "usage.jsonl"
+        # A file standing where a directory has to be created: every append fails, none partially.
+        blocker = Path(self.tmp) / "blocker"
+        blocker.write_text("i am a file")
+        self.bad = blocker / "nested" / "usage.jsonl"
+
+    def record(self, log_path, times=1):
+        """Record `times` tasks against `log_path`, returning what reached stderr.
+
+        Args:
+            log_path: Where to point the usage log.
+            times: How many tasks to record in this one process.
+
+        Returns:
+            The captured stderr text.
+        """
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            for _ in range(times):
+                record_task(path="local", entry=FakeEntry("x", "local"), prompt="p",
+                            response="r", log_path=log_path, pricing=FIXED)
+        return err.getvalue()
+
+    def test_successful_write_says_nothing(self):
+        """The healthy path is the common one; a notice on it would be pure noise."""
+        self.assertEqual(self.record(self.log, times=3), "")
+        self.assertEqual(len(read_records(self.log)), 3)
+
+    def test_lost_write_is_noted(self):
+        """A dropped append is invisible in the answer, so it has to be visible somewhere."""
+        err = self.record(self.bad)
+        self.assertIn("could not be recorded to the usage log", err)
+        self.assertIn("--stats", err, "the note must name the figure the loss distorts")
+        self.assertIn("understates", err, "and the direction it moves it in")
+
+    def test_note_carries_the_diagnosis(self):
+        """A write failure the operator cannot act on is a notice they cannot use."""
+        err = self.record(self.bad)
+        # The blocked path is a file used as a directory: the errno and the path are the fix.
+        self.assertIn("Error", err, "the exception type reaches the reader")
+        self.assertIn(str(self.bad.parent.parent), err, "as does the path that could not be made")
+
+    def test_note_fires_once_across_many_failures(self):
+        """Per-task would run on every routed request and train the reader to skip it."""
+        err = self.record(self.bad, times=25)
+        self.assertEqual(err.count("could not be recorded"), 1)
+
+    def test_note_disclaims_being_a_count(self):
+        """Once-per-run means one line can stand for any number of losses. Say so."""
+        err = self.record(self.bad, times=5)
+        self.assertIn("once per run", err)
+
+    def test_note_fires_once_across_threads(self):
+        """`delegate_many` loses appends across threads; the operator still gets one line.
+
+        Pins what the operator experiences, not the mechanism: the flag is an unguarded
+        test-and-set, and a lock-free version was mutation-checked to pass this — a genuinely
+        raced double print is a duplicated line, which is the cost the flag is allowed to have.
+        """
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            threads = [
+                threading.Thread(
+                    target=record_task,
+                    kwargs={"path": "delegate", "entry": FakeEntry("x", "local"), "prompt": "p",
+                            "response": "r", "log_path": self.bad, "pricing": FIXED},
+                )
+                for _ in range(16)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(err.getvalue().count("could not be recorded"), 1)
+
+    def test_a_failing_note_does_not_escape(self):
+        """The notice runs inside the swallow; anything it raises reaches the user's answer."""
+        class BrokenStderr(io.StringIO):
+            def write(self, _data):
+                raise OSError("stderr is gone")
+
+        with contextlib.redirect_stderr(BrokenStderr()):
+            # Must return normally: a broken stream is not allowed to become a broken answer.
+            record_task(path="local", entry=FakeEntry("x", "local"), prompt="p", response="r",
+                        log_path=self.bad, pricing=FIXED)
+
+    def test_a_failure_after_the_append_is_not_a_lost_write(self):
+        """The note claims a row was dropped, so it must not fire over a row that landed."""
+        with patch.object(measurement, "_compact_if_oversized",
+                          side_effect=OSError("boom")):
+            err = self.record(self.log)
+        self.assertEqual(err, "")
+        self.assertEqual(len(read_records(self.log)), 1, "the row is on disk, nothing was lost")
+
+    def test_note_never_carries_prompt_or_response_text(self):
+        """The one hard rule on this path: no prompt or response text leaves the process."""
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            record_task(path="local", entry=FakeEntry("x", "local"),
+                        prompt="SECRETPROMPT", response="SECRETRESPONSE",
+                        log_path=self.bad, pricing=FIXED)
+        self.assertNotIn("SECRETPROMPT", err.getvalue())
+        self.assertNotIn("SECRETRESPONSE", err.getvalue())
 
 
 class ReadRecordsTest(unittest.TestCase):
@@ -1735,6 +1859,69 @@ class CarryUnknownFieldsTest(unittest.TestCase):
         raw, totals = {"future": 1}, {"tasks": 9}
         carry_unknown_fields(raw, totals)
         self.assertEqual((raw, totals), ({"future": 1}, {"tasks": 9}))
+
+
+class PersistedRecordCarriesNoResponseTextTest(unittest.TestCase):
+    """The usage log must never contain prompt or response text — enforced, not asserted.
+
+    `docs/design/data-model.md` § Invariants states this as a guarantee and grounds it in being
+    structural: "a redaction filter can be bypassed by the next code path that forgets it; there
+    is nothing to redact cannot". A review-only mechanism is invisible between reviews, and a real
+    leak survived that way through `failures`. This test is what replaced it.
+
+    This drives the whole path an operator actually hits: a backend returns output the adapter
+    cannot parse, the router keeps `str(exc)` as a failure, and `record_task` persists it. The
+    test fails if any future adapter reintroduces a body into an error message, which is the
+    mechanism the guarantee was missing.
+    """
+
+    BODY = "Zaphod Beeblebrox ate the last Vogon poetry anthology"
+    PROMPT = "Marvin's diagnostic subroutine returned melancholy"
+
+    def _log_after_failed_parse(self, stdout: str) -> str:
+        """Route one unparseable backend response through to a persisted record.
+
+        Args:
+            stdout: What the backend returned and the adapter could not parse.
+
+        Returns:
+            The raw text of the usage log written for that task.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        log = Path(tmp) / "usage.jsonl"
+        try:
+            _parse_json_field(stdout, "text", label="local-ollama")
+        except AdapterError as exc:
+            # Exactly what router.py does when a candidate fails.
+            failures = [("local-ollama", str(exc))]
+        else:  # pragma: no cover - the fixture must actually reach a failure
+            self.fail("fixture did not produce an AdapterError")
+        record_task(
+            path="router", entry=None, prompt=self.PROMPT, response="",
+            kind="failure", failures=failures, log_path=log,
+        )
+        return log.read_text(encoding="utf-8")
+
+    def test_response_text_is_absent_from_the_persisted_record(self):
+        written = self._log_after_failed_parse(self.BODY)
+        self.assertNotIn(self.BODY, written)
+        self.assertNotIn("Zaphod", written)
+
+    def test_the_failure_is_still_recorded_and_still_diagnostic(self):
+        # The guarantee must not be bought by dropping the signal #100 added.
+        written = self._log_after_failed_parse(self.BODY)
+        record = json.loads(written.strip())
+        self.assertEqual(record["kind"], "failure")
+        self.assertEqual(record["failures"][0]["entry"], "local-ollama")
+        self.assertIn("not valid JSON", record["failures"][0]["error"])
+
+    def test_prompt_text_is_absent_from_the_persisted_record(self):
+        # Prompts reach only `estimate_tokens`, but assert it rather than trust it: this is the
+        # half of the guarantee with the most code paths feeding it.
+        written = self._log_after_failed_parse(self.BODY)
+        self.assertNotIn(self.PROMPT, written)
+        self.assertNotIn("Marvin", written)
 
 
 if __name__ == "__main__":

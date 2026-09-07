@@ -31,7 +31,7 @@ import os
 import subprocess
 from typing import Any, Callable, Mapping
 
-from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.base import AdapterError, describe_shape
 from tanglebrain.roster import RosterEntry
 
 PROMPT_TOKEN = "{prompt}"
@@ -75,14 +75,20 @@ def _parse_json_field(stdout: str, field: str, *, label: str) -> str:
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise AdapterError(f"{label}: stdout is not valid JSON: {exc}; got {stdout!r}") from exc
+        raise AdapterError(
+            f"{label}: stdout is not valid JSON: {exc}; got {describe_shape(stdout)}"
+        ) from exc
     if not isinstance(data, dict):
         raise AdapterError(f"{label}: expected a JSON object, got {type(data).__name__}")
     if field not in data:
-        raise AdapterError(f"{label}: response JSON missing {field!r} field: {data!r}")
+        raise AdapterError(
+            f"{label}: response JSON missing {field!r} field: {describe_shape(data)}"
+        )
     value = data[field]
     if not isinstance(value, str) or not value.strip():
-        raise AdapterError(f"{label}: {field!r} is not non-empty text: {value!r}")
+        raise AdapterError(
+            f"{label}: {field!r} is not non-empty text: {describe_shape(value)}"
+        )
     return value
 
 
@@ -104,12 +110,17 @@ def _parse_claude_json(stdout: str) -> str:
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise AdapterError(f"claude: stdout is not valid JSON: {exc}; got {stdout!r}") from exc
+        raise AdapterError(
+            f"claude: stdout is not valid JSON: {exc}; got {describe_shape(stdout)}"
+        ) from exc
     if not isinstance(data, dict):
         raise AdapterError(f"claude: expected a JSON object, got {type(data).__name__}")
     if data.get("is_error"):
+        # `subtype` is claude's own enum (e.g. 'overloaded'), not model output, and it is the
+        # actionable half of this error. `result` is the model's text, so only its shape survives.
         raise AdapterError(
-            f"claude reported an error (subtype={data.get('subtype')!r}): {data.get('result')!r}"
+            f"claude reported an error (subtype={data.get('subtype')!r}): "
+            f"{describe_shape(data.get('result'))}"
         )
     return _parse_json_field(stdout, "result", label="claude")
 
@@ -337,6 +348,16 @@ class CliAdapter:
             ) from exc
 
         if completed.returncode != 0:
+            # The CLI's own stderr, kept verbatim: it is the only thing that distinguishes a
+            # missing binary from an auth prompt from a bad flag, and replacing it with a shape
+            # would make the commonest setup failure undiagnosable.
+            #
+            # Accepted limit, stated rather than discovered: argv carries the prompt, so a CLI
+            # that echoes its arguments on a usage error can put prompt text into this message,
+            # which the router persists. That is third-party output this code cannot predict —
+            # the same class as the HTTP error body in `openai_compat`, and it wants the same
+            # fix: an error that carries a separately constructed summary for persistence rather
+            # than having its one message serve both stderr and the log.
             stderr = (completed.stderr or "").strip()
             raise AdapterError(
                 f"CLI {argv[0]!r} exited {completed.returncode}: {stderr or '(no stderr)'}"
