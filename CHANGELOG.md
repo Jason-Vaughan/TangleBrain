@@ -221,6 +221,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Two design docs still described lost delegate linkage as invisible.**
+  [#147](https://github.com/Jason-Vaughan/TangleBrain/pull/147) gave the condition a positive signal
+  and updated `ARCHITECTURE.md`, `docs/design/observability.md` and `docs/design/data-model.md`, but
+  `docs/design/architecture.md` and `docs/design/operations.md` were left asserting that a lost
+  `TANGLEBRAIN_TASK_ID` hop "degrades silently" with "nothing anywhere reporting that linkage was
+  lost" — which had just stopped being true. The operations page is the worse of the two: it is the
+  troubleshooting entry for exactly this symptom, and it told an operator the condition was
+  undiagnosable while `--stats` was printing the count. Both now describe the signal, and the
+  architecture page's cross-reference is corrected from
+  [#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100) to
+  [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123), the issue that actually covered
+  it.
+
 - **CI now tests Python 3.13 and 3.14.** `requires-python` admits both, so pip installs
   TangleBrain on them while the matrix stopped at 3.12 — the two newest interpreters the package
   claims to support were the ones CI never exercised, and the interpreter the project is

@@ -35,7 +35,7 @@ limit and no cost ceiling.
 | HTTP | entry process → openai-compat / api backends | prompt, completion | `AdapterError` → failover |
 | stdio (MCP) | orchestrator → delegate server | tool calls | orchestrator's to handle; TangleBrain sees a dead pipe |
 | subprocess argv + stdout | entry process → CLI backends | prompt, parsed output | `AdapterError` → failover |
-| **environment variable** | entry process → orchestrator → delegate child | `TANGLEBRAIN_TASK_ID` | **silent degradation to `unlinked`** |
+| **environment variable** | entry process → orchestrator → delegate child | `TANGLEBRAIN_TASK_ID` | **degradation to a counted `linkage_lost: true`** |
 | filesystem | all processes | rotation cursor, usage log | best-effort; never breaks routing |
 
 ### The environment-variable hop deserves its own paragraph
@@ -46,15 +46,17 @@ by the orchestrator to the delegate child, and read back by `run_delegate` to st
 hermetically — it is verified live against one orchestrator (Claude Code), which is honest but is
 not a guarantee.
 
-The design response is the right one: a delegation that loses the variable is recorded `unlinked`
-rather than raising. **The consequence worth holding in mind is that this failure is invisible.** A
-different orchestrator that does not forward environment to its MCP children produces a complete,
-correct-*looking* usage log in which every delegation is silently unparented, and nothing anywhere
-reports that linkage was lost.
+The design response is the right one: a delegation that loses the variable is recorded rather than
+raising. **That failure used to be invisible** — a different orchestrator that does not forward
+environment to its MCP children produced a complete, correct-*looking* usage log in which every
+delegation was silently unparented, with nothing anywhere reporting it.
 
-If parent-task attribution ever becomes load-bearing rather than informational, this needs a
-*positive* signal — not more error handling. Tracked in
-[#100](https://github.com/Jason-Vaughan/TangleBrain/issues/100).
+It is now positively signalled: the delegate measurement seam knows a parent hop was expected, so
+the absence writes `linkage_lost: true`, and `--stats` and the GUI both show the lifetime count
+separately from the window-scoped parent tree. A top-level task with no parent stays an ordinary
+root, and legacy parentless delegate rows are inferred during rollup so the count covers history.
+The hop still degrades rather than raising — it is now merely visible while it does. Closed by
+[#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123).
 
 ## Concurrency model
 
