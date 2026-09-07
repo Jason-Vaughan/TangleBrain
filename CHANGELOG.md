@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Backend response text no longer reaches `usage.jsonl`.** `docs/design/data-model.md` guarantees
+  that prompt and response text is never written to disk, and grounds that in being *structural* —
+  "there is nothing to redact". It was not. When a backend returned output an adapter could not
+  parse, the adapter put that raw output in its error message, the router kept the message
+  untruncated in the task's `failures`, and the record was written to the usage log. Reproduced
+  end-to-end: non-JSON prose from a backend landed verbatim in a record whose own docstring says it
+  carries derived counts only. Closes
+  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153).
+
+  **Fixed where the message is built, not where it is written.** Filtering at the persistence
+  boundary would be exactly the "redaction filter … bypassed by the next code path that forgets it"
+  that the guarantee's own rationale rejects. Every completion-bearing raise site in the CLI and
+  OpenAI-compatible adapters now describes the *shape* of what arrived instead of reproducing it;
+  the census test below is what knows how many there are.
+
+  **The errors got more useful, not less.** `response JSON missing 'text' field: object with keys
+  ['response', 'stats']` says immediately that the wrong parser is wired, which a dumped body never
+  did. Object keys are named only when they look like schema — identifier-shaped and short —
+  which catches free text in key position but **not** a single identifier-shaped token: a key like
+  `patient_name_zaphod` is still reproduced. That heuristic is the one place this guarantee is a
+  judgement rather than a structural property, and it is listed with the residuals below rather
+  than counted as covered. The failure signal #100 added is intact:
+  the reason and the entry id still persist.
+
+  **The guarantee now has a mechanism.** Its norm-registry entry listed enforcement as Critic
+  review, which is invisible between reviews — which is how this survived. A test now drives a real
+  unparseable response through the adapter, the router's failure shape, and `record_task`, and
+  fails if a body comes back; each adapter pins its own sites, and the shape helper's key filter is
+  tested directly. A census test additionally fails the moment a call site is added or removed —
+  because "every site is pinned" is a claim over a set that changes, and a claim like that needs
+  something other than a person to recompute it. The registry entry now names those tests instead
+  of naming a review.
+
+  **What this does not cover, stated rather than implied.** Three error paths still pass
+  third-party text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, that
+  endpoint's in-stream `error` envelope, and a failed CLI's stderr. All three are provider
+  diagnostics rather than completions — but a 400 can echo the offending input, and a CLI's argv
+  carries the prompt, so any of them could in principle carry input text into the log. Claude's own
+  `subtype` enum is listed alongside them for completeness — it is bounded and carries no echo
+  risk.
+
+  They are kept verbatim deliberately: replacing `invalid api key` or `claude: command not found`
+  with a shape would make the commonest setup failures undiagnosable.
+  Closing that properly means an error carrying a separately constructed summary for persistence,
+  distinct from the message shown on stderr — recorded on
+  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153) rather than done here. The
+  identifier-shaped-key heuristic above is on that list too, and is the one item that fix does not
+  close: distinguishing a schema field name from content is not decidable, so that one is a judgement call by construction rather
+  than something a later fix closes.
+
+  **What this replaces, honestly:** the guarantee is structural at every site that reproduces a
+  completion, and a judgement at the points listed above. That is a narrower claim than the one
+  this project made before, which was structural everywhere and wrong. The design documents under
+  `docs/design/` still state it without that qualification; reconciling them is the follow-up
+  chunk's work, named in the build plan so it is a deferral rather than a drop.
+
 - **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
   has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its
   own state root — and nothing said so, so a second laptop's small number read as a lost history
