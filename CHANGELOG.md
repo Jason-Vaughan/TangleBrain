@@ -365,6 +365,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster is that nothing changes, which reads as a routing bug rather than a documentation one.
 
 ### Internal
+- **CI now tests Python 3.13 and 3.14.** `requires-python` admits both, so pip installs TangleBrain on them while the matrix stopped at 3.12 — the interpreter I develop on was the one CI never exercised. Closes #145.
 
 - **Filed [#131](https://github.com/Jason-Vaughan/TangleBrain/issues/131) for the accessibility
   surface #115 did not cover.** The new Accessibility section names keyboard traversal,
