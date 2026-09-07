@@ -41,6 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **`CONTRIBUTING.md` now mirrors the full seven-point security checklist** from
+  [`Jason-Vaughan/.github`](https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md),
+  replacing the five-bullet condensation that predated it. Contributors are now told, in the
+  project's own words, that CI workflows and build scripts are off-limits, that no new dependency
+  may be added, and that obfuscated content is an immediate ban — three rules this repo already
+  enforced without publishing.
+
+  Extracted programmatically and verified byte-identical between the `mirrored-security-rules`
+  markers, so the drift checker reads what upstream wrote. Two repo-specific lines the upstream
+  block does not carry — the vulnerability-reporting route and the pointer back to the full guide —
+  moved **outside** the markers rather than being dropped: inside, they would have broken the
+  byte-identity the mirror exists to guarantee.
+
 - **`CONTRIBUTING.md` carries the account-wide security rules**, byte-identical to the copy in the
   other repositories and extracted programmatically rather than retyped, between the
   `mirrored-security-rules` markers a drift checker
