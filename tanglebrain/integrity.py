@@ -234,10 +234,7 @@ def _folded_since(legacy_root: Path, current_root: Path) -> bool:
     return read_totals(current_root / TOTALS_FILENAME) != read_totals(legacy_root / TOTALS_FILENAME)
 
 
-def probe_migration_integrity(
-    legacy_root: Path | None = None,
-    current_root: Path | None = None,
-) -> str | None:
+def probe_migration_integrity() -> str | None:
     """Check whether the current usage log accounts for every record in the legacy one.
 
     The healthy answer is cheap by construction rather than by a gate in front of an expensive
@@ -250,11 +247,9 @@ def probe_migration_integrity(
     moved it, and the totals settle which without reading a log at all; only a store that *has*
     folded needs the record comparison.
 
-    Args:
-        legacy_root: Override the pre-move state root. Defaults to
-            :func:`~tanglebrain.router.legacy_state_root`.
-        current_root: Override the state root in use. Defaults to
-            :func:`~tanglebrain.router.state_root`.
+    Takes no overrides. Both roots already resolve through ``TANGLEBRAIN_STATE_DIR`` and
+    ``XDG_DATA_HOME``, which is the seam every other test in this package drives, so parameters
+    here would be a second way to say the same thing — and a second way that nothing exercises.
 
     Returns:
         A human-readable finding, or ``None`` when there is nothing to report. The silent cases are
@@ -271,8 +266,8 @@ def probe_migration_integrity(
     # raises when the environment gives it nothing to resolve. Resolving outside would leave the
     # one promise this function makes false for its own first line.
     try:
-        legacy = legacy_root if legacy_root is not None else legacy_state_root()
-        current = current_root if current_root is not None else state_root()
+        legacy = legacy_state_root()
+        current = state_root()
     except (OSError, RuntimeError):
         return None
     if legacy == current:
