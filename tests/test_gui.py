@@ -129,8 +129,10 @@ class ViewStatsTest(unittest.TestCase):
         self.assertIn("is_placeholder", out)
 
     def test_stats_carries_measurement_health(self):
-        # The panel is long-lived, so `record_task`'s once-per-process stderr notice is invisible
-        # here — this payload is the only way a store that broke at hour six reaches the panel.
+        # The panel is long-lived, so `record_task`'s once-per-process stderr notice is printed at
+        # most once for the whole process and is effectively invisible here — this payload is the
+        # only way a store that broke at hour six reaches the panel. (The panel does not poll; it
+        # refetches on load, after a run, and after a pricing save.)
         with patch("tanglebrain.gui.views.read_records", return_value=[]):
             out = views.view_stats()
         self.assertEqual(out["health"], [])

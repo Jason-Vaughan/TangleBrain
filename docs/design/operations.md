@@ -159,11 +159,18 @@ The tool description enumerating the target menu is built **once at server start
 is invisible to a running server. Restart it.
 
 **"Stats look wrong / spend-avoided dropped."**
-**Check stderr from the last run first** — a task that could not be recorded says so, naming the
-error and which way the figure moves. That notice fires once per process, so one line can stand
-for any number of lost tasks, and a run whose log was never writable understates by however much
-it dropped. Nothing is recoverable after the fact; what the notice buys is knowing the figure is
-short rather than believing it.
+**Read the `⚠ measurement:` lines in `--stats` first**, if there are any. They are probed at the
+moment you ask, so they describe the store as it is now: a usage log that cannot be written (tasks
+routed now are not being recorded) and a `totals.json` that is present but unreadable (the figures
+cover only the rows still on disk, and compaction has stopped pruning) are reported separately,
+because they fail independently. Each names the check it performed rather than promising an
+outcome — the probe cannot know whether past writes were lost.
+
+**Then stderr from the last run** — a task that could not be recorded says so, naming the error and
+which way the figure moves. That notice fires once per process, so one line can stand for any
+number of lost tasks, and it is the weaker of the two signals for a long-lived `serve` or `gui`
+process, which prints it at hour zero and stays silent afterwards. Nothing is recoverable after the
+fact; what either signal buys is knowing the figure is short rather than believing it.
 
 Failing that, most likely one of the two measurement files was deleted; neither is
 **reconstructible**. The figure is `totals.json` plus the rows in `usage.jsonl`, so losing either

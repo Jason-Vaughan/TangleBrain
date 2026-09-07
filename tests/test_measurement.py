@@ -1949,8 +1949,6 @@ class PersistedRecordCarriesNoResponseTextTest(unittest.TestCase):
         self.assertNotIn("Marvin", written)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 @unittest.skipIf(
@@ -1999,6 +1997,20 @@ class MeasurementHealthTest(unittest.TestCase):
             ),
             [],
         )
+
+    def test_a_readonly_state_root_with_no_log_directory_yet_is_reported(self):
+        # `record_task` appends through `mkdir(parents=True, exist_ok=True)`, so the append
+        # succeeds exactly when the nearest EXISTING ancestor is writable. A probe that looked only
+        # at `log.parent` reported nothing here — every append raises and the rollup stays clean
+        # forever, which is the silence this whole feature exists to break.
+        self.dir.chmod(0o500)
+        absent = self.dir / "not-created-yet"
+        findings = probe_measurement_health(
+            log_path=absent / LOG_FILENAME, totals_path=absent / "totals.json"
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn(str(self.dir), findings[0])
+        self.assertIn("nearest existing parent", findings[0])
 
     def test_missing_totals_is_not_degraded(self):
         # Absence is the normal state of a log that has never crossed the compaction cap.
@@ -2062,13 +2074,17 @@ class MeasurementHealthTest(unittest.TestCase):
         # `record_task` swallows everything, so a probe that raised would be invisible there and
         # fatal in `--stats`, which has no such handler. Driven through a real failure rather
         # than a patched one: the path is a directory, so every file operation on it errors.
-        with contextlib.suppress(Exception):
-            self.assertIsInstance(
-                probe_measurement_health(log_path=self.dir, totals_path=self.dir), list
-            )
         self.assertIsInstance(
             probe_measurement_health(log_path=self.dir, totals_path=self.dir), list
         )
+        # And when path resolution itself blows up — the one step that used to sit outside the
+        # guard, where a raise would have escaped into `--stats`, which has no handler.
+        with patch(
+            "tanglebrain.measurement.default_log_path", side_effect=RuntimeError("no state root")
+        ):
+            findings = probe_measurement_health()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("could not be located", findings[0])
 
     def test_an_unprobeable_store_reports_rather_than_going_quiet(self):
         # Silence renders identically to a healthy store, so a swallowed probe failure would make
@@ -2166,3 +2182,7 @@ class HealthLineRenderingTest(unittest.TestCase):
         )
         self.assertIn("⚠ measurement:", out)
         self.assertNotIn("ℹ measurement:", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

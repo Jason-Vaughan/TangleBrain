@@ -3,7 +3,9 @@
 ## The honest summary
 
 TangleBrain has **one signal**: an append-only JSONL usage log. No metrics backend, no tracing, no
-alerting, no health endpoint.
+alerting, no health endpoint. The store's own health is checked where it is *read* — see
+[Store health](#store-health) — which is a property of the rollup, not a fourth signal: nothing
+polls it, nothing serves it, and it produces no data anyone but the reader in front of it sees.
 
 For a single-operator local tool whose consumer is a human running `--stats`, that is the right
 depth — and this document says so rather than filing three absent signals as gaps. What it does
@@ -163,7 +165,7 @@ re-runs on every render.
 | Metrics backend | Absent, correct | One operator, no time series worth scraping. |
 | Distributed tracing | Absent, defensible | The parent-task tree already covers the one cross-process relationship. |
 | Alerting | Absent, correct | Nothing to alert; nobody on call. |
-| Health endpoint | Absent, correct | Not a service. Failure is visible in the response. |
+| Health endpoint | Absent, correct | Not a service. Failure is visible in the response. A store-health *probe* runs when `--stats` or the panel renders, but nothing polls it and it is not reachable over the network — that is a rollup caveat, not an endpoint. |
 | Structured error log | Folded into the usage log | Failures are `kind: "failure"` records carrying the per-backend attempt list (#100). |
 
 ## Gaps

@@ -35,7 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "all well".
 
   The line takes the warning glyph rather than the informational one the pricing-span note uses:
-  that note marks a benign state, this renders only when a check actually failed.
+  that note marks a benign state, this renders only when a check actually failed. Closes
+  [#152](https://github.com/Jason-Vaughan/TangleBrain/issues/152).
 
 - **Lost delegate linkage is now a positive lifetime signal (#123).** A delegated sub-call that
   reaches measurement without its expected `TANGLEBRAIN_TASK_ID` records the additive optional

@@ -654,13 +654,22 @@ def probe_measurement_health(
         One human-readable finding per failed check, in the order checked; empty when every check
         passed. Never raises — the caller is a renderer, and a probe that broke the command it
         exists to annotate would have inverted its own priority
-        (``observability-strategy.md`` § Direction). A check that cannot be performed at all
+        (``docs/design/observability.md`` § Invariants). A check that cannot be performed at all
         yields a finding saying so rather than nothing: silence renders identically to a healthy
         store, so swallowing would hide the one answer the operator most needs.
     """
-    log = Path(log_path) if log_path is not None else default_log_path()
-    totals_file = Path(totals_path) if totals_path is not None else default_totals_path()
     findings: list[str] = []
+    # Resolution is inside the guard, not before it. `default_log_path()` consults the state root,
+    # which reads the environment and can itself fail; resolving outside would have left the one
+    # promise this function makes — that it never raises — false for the very first line of it.
+    try:
+        log = Path(log_path) if log_path is not None else default_log_path()
+        totals_file = Path(totals_path) if totals_path is not None else default_totals_path()
+    except Exception as exc:  # noqa: BLE001 -- boundary: the probe must never break `--stats`
+        return [
+            f"the measurement store could not be located — {type(exc).__name__} while resolving "
+            "its paths; whether it is recording is unknown"
+        ]
     try:
         if log.is_file():
             # Once the log exists, the append target is the file. A writable directory holding a
@@ -670,11 +679,29 @@ def probe_measurement_health(
                     f"the usage log is not writable — checked write permission on {log}; "
                     "tasks routed now are not being recorded"
                 )
-        elif log.parent.is_dir() and not os.access(log.parent, os.W_OK):
-            findings.append(
-                f"the usage-log directory is not writable — checked write permission on "
-                f"{log.parent}; no log can be created there"
-            )
+        else:
+            # `record_task` appends through `mkdir(parents=True, exist_ok=True)`, so an append
+            # succeeds exactly when the nearest *existing* ancestor is writable — not when
+            # `log.parent` is, which may not exist at all. Checking `log.parent` alone reported
+            # nothing for a read-only state root holding no log directory yet, which is precisely
+            # the silence this probe exists to break: every append raises and the rollup stays
+            # clean forever. Walking up keeps a fresh install quiet, because there the ancestor
+            # that does exist is writable.
+            anchor = log.parent
+            while not anchor.exists() and anchor != anchor.parent:
+                anchor = anchor.parent
+            if not os.access(anchor, os.W_OK):
+                if anchor == log.parent:
+                    findings.append(
+                        f"the usage-log directory is not writable — checked write permission on "
+                        f"{anchor}; no log can be created there"
+                    )
+                else:
+                    findings.append(
+                        f"the usage-log directory does not exist and cannot be created — checked "
+                        f"write permission on {anchor}, the nearest existing parent of "
+                        f"{log.parent}; no log can be created there"
+                    )
     # Broad on purpose, and separately from the totals check below so one fault cannot hide the
     # other's finding. `--stats` has no handler around this call, and the Direction norm is that
     # observability degrades to less information rather than to an error: a probe that raised
@@ -1182,11 +1209,10 @@ def format_rollup(summary: dict, pricing: Pricing, health: list[str] | None = No
     which is the same idiom the failure and origin lines already follow: a line appears only once
     it has something to say.
 
-    **They take the warning glyph, and the pricing-span note does not.** That note marks a benign,
-    expected state — any long-lived log spans a pricing edit eventually — so borrowing the warning
-    glyph would teach the reader to discount the one that means something. These render only when a
-    check actually failed: tasks are not being recorded, or the headline is understated. A real
-    fault wearing the benign glyph is the same defect pointed the other way.
+    **They take the warning glyph, and the pricing-span note does not**, because these render only
+    when a check actually failed while that note marks a benign state. The full reasoning has one
+    home in ``docs/design/observability.md`` § Store health; it is not restated here, so a ruling
+    change has one place to land rather than three that can drift apart.
 
     Args:
         summary: The aggregate from :func:`rollup`.

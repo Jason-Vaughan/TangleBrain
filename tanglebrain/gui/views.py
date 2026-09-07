@@ -115,10 +115,15 @@ def view_stats() -> dict:
         labels as covering the current window only — and ``health`` is
         :func:`probe_measurement_health`'s findings, empty when the store is sound.
 
-        The health probe runs on every poll rather than once per process. That is the property it
-        was chosen for: a panel left open all day outlives the one-shot stderr notice that
-        ``record_task`` emits, so a store that breaks at hour six would otherwise never reach this
-        surface.
+        The health probe runs on every *request* rather than once per process. That is the property
+        it was chosen for: the one-shot stderr notice ``record_task`` emits is printed at most once
+        for the life of a long-running ``gui`` process, so a store that breaks at hour six never
+        reaches this surface through it, while any later ``/api/stats`` call reports the condition
+        that is true when it is asked.
+
+        **The honest limit: the panel does not poll.** It fetches on load, after a run, and after a
+        pricing save, so an idle panel keeps showing the health of the store as it was at the last
+        of those. The freshness this buys is per-request, not per-second.
     """
     pricing = load_pricing()
     return {
