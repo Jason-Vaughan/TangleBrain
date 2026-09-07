@@ -318,6 +318,24 @@ class UnreadableStoreTest(IntegrityTestBase):
         self.write_current([row(n) for n in range(4)])
         self.assertIsNotNone(probe_migration_integrity())
 
+    def test_an_undecodable_legacy_log_is_reported_even_after_a_fold(self):
+        """The branch that stayed silent when the tail read alone was made to speak.
+
+        The tail comparison reads bytes and cannot fail on encoding, so an undecodable legacy log
+        gets past it. Only the row comparison hits the decode — and while that returned `[]` for
+        "unreadable" as well as "no rows", the caller read it as "nothing to report" and the store
+        rendered as healthy. Reaching it needs a fold, because without one the totals settle the
+        question before any row is read.
+        """
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        (self.legacy / "usage.jsonl").write_bytes(b'{"kind": "\xff\xfe bad bytes"}\n' * 30)
+        self.write_current([row(n) for n in range(60)])
+        self.fold_current(keep_recent=20)  # moves totals, so the fold branch is the one taken
+        self.assertTrue((self.new / "totals.json").exists(), "no fold — this tests the wrong branch")
+        finding = probe_migration_integrity()
+        self.assertIsNotNone(finding, "an undecodable legacy log rendered as a healthy store")
+        self.assertIn("could not read", finding)
+
     def test_an_unreadable_current_log_is_reported_not_swallowed(self):
         rows = [row(n) for n in range(6)]
         self.write_legacy(rows)

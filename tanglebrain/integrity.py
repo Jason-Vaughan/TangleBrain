@@ -149,23 +149,62 @@ def _newest_row(block: bytes, *, whole_file: bool) -> str | None:
     return rows[-1]
 
 
-def _rows(path: Path) -> list[str]:
-    """Read a log's rows verbatim, in order.
+def _rows(path: Path) -> list[str] | None:
+    """Read a log's rows verbatim, in order, or ``None`` when the file cannot be read.
 
-    Defers to :func:`~tanglebrain.measurement._read_lines` rather than splitting the file here, so
-    "what counts as a row" has one definition in the package and this comparison cannot drift from
-    the one compaction and the rollup use. Raw lines rather than parsed records: the comparison
-    asks whether the same row is present, and the row as written is the strongest form of that
-    question — it survives a field this version does not know about and a line too torn to parse.
+    Defers to :func:`~tanglebrain.measurement._read_lines` for the split, so "what counts as a row"
+    has one definition in the package and this comparison cannot drift from the one compaction and
+    the rollup use. Raw lines rather than parsed records: the comparison asks whether the same row
+    is present, and the row as written is the strongest form of that question — it survives a field
+    this version does not know about and a line too torn to parse.
+
+    **The read that looks redundant is the one that makes silence honest.** ``_read_lines`` returns
+    ``[]`` for an empty log and for one it could not read, which is right for a rollup — a reader
+    wants a smaller number, not an exception. It is wrong here: an empty legacy log means there is
+    nothing to account for, and an unreadable one means nothing was checked, and reporting the
+    second as the first is the single failure this module cannot afford. So the file is opened once
+    to learn whether it can be read at all, which ``_read_lines`` cannot be asked, and the split is
+    then delegated. It costs one extra read on a path that is already the rare, expensive one.
 
     Args:
         path: The usage log to read.
 
     Returns:
-        One entry per row. An absent or unreadable log yields ``[]``; callers reach this only after
-        a tail read has already established that the file can be read.
+        One entry per row, ``[]`` for a log with no rows, or ``None`` when the file could not be
+        read or decoded.
     """
+    try:
+        path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
     return [raw for raw, _ in _read_lines(path)]
+
+
+def _drop_torn_tail(path: Path, rows: list[str]) -> list[str]:
+    """Drop a trailing fragment from ``rows`` when the file does not end in a newline.
+
+    :func:`_newest_row` applies this rule to the tail block; this applies it to a full read, which
+    is the path taken when a row is longer than :data:`BOUNDARY_BYTES`. Both need it for the same
+    reason — a file ending mid-record ends on something that is not a row, and a complete migration
+    copies that fragment forward and then appends onto it, so treating it as a row makes an intact
+    store look short.
+
+    Args:
+        path: The log the rows came from.
+        rows: Its rows, in order.
+
+    Returns:
+        ``rows`` without a trailing fragment.
+    """
+    if not rows:
+        return rows
+    try:
+        with path.open("rb") as handle:
+            handle.seek(-1, 2)
+            ends_clean = handle.read(1) == b"\n"
+    except OSError:
+        return rows
+    return rows if ends_clean else rows[:-1]
 
 
 def _contains_row(path: Path, row: str) -> bool | None:
@@ -292,7 +331,12 @@ def probe_migration_integrity(
 
     anchor = _newest_row(legacy_edge, whole_file=boundary == legacy_size)
     if anchor is None:
+        # A row longer than the tail block. Rare, and it costs the full read the block exists to
+        # avoid — but guessing at the newest record is how an intact store gets accused.
         legacy_rows = _rows(legacy_log)
+        if legacy_rows is None:
+            return _finding(legacy_log, UNREADABLE)
+        legacy_rows = _drop_torn_tail(legacy_log, legacy_rows)
         if not legacy_rows:
             return None
         anchor = legacy_rows[-1]
@@ -305,10 +349,14 @@ def probe_migration_integrity(
         return None
 
     legacy_rows = _rows(legacy_log)
+    current_rows = _rows(current_log)
+    if legacy_rows is None or current_rows is None:
+        return _finding(legacy_log, UNREADABLE)
+    legacy_rows = _drop_torn_tail(legacy_log, legacy_rows)
     if not legacy_rows:
         return None
-    current_rows = set(_rows(current_log))
-    if any(row in current_rows for row in legacy_rows):
+    present = set(current_rows)
+    if any(row in present for row in legacy_rows):
         # Migrated records survive, but not the newest one. No fold can produce that: it would have
         # had to remove a record from the middle of the log.
         return _finding(legacy_log, SHORT)
