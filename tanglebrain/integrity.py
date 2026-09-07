@@ -166,14 +166,14 @@ def _rows(path: Path) -> list[str] | None:
     to learn whether it can be read at all, which ``_read_lines`` cannot be asked, and the split is
     then delegated. It costs one extra read on a path that is already the rare, expensive one.
 
-    Args:
-        path: The usage log to read.
-
     **A trailing fragment is not a row**, and dropping it here rather than at the call sites is
     what keeps the rule in one place: :func:`_newest_row` applies the same test to the tail block,
     and this applies it to a full read — the path taken when a row is longer than
     :data:`BOUNDARY_BYTES`. A complete migration copies a mid-record fragment forward and the next
     append writes onto it, so counting it makes an intact store look short.
+
+    Args:
+        path: The usage log to read.
 
     Returns:
         One entry per complete row, ``[]`` for a log with no complete rows, or ``None`` when the
@@ -301,7 +301,7 @@ def probe_migration_integrity(
     if current_size >= legacy_size:
         current_edge = _bytes_ending_at(current_log, legacy_size, boundary)
         if current_edge is None:
-            return _finding(legacy_log, UNREADABLE)
+            return _finding(legacy_log, UNREADABLE, current_log)
         if current_edge == legacy_edge:
             return None
 
@@ -323,7 +323,7 @@ def probe_migration_integrity(
         anchor = legacy_rows[-1]
     found = _contains_row(current_log, anchor)
     if found is None:
-        return _finding(legacy_log, UNREADABLE)
+        return _finding(legacy_log, UNREADABLE, current_log)
     if found:
         # The newest migrated record is still here, and a fold takes a contiguous prefix — so
         # every record after it is here too, and nothing was left behind.
@@ -334,7 +334,7 @@ def probe_migration_integrity(
         return _finding(legacy_log, UNREADABLE)
     current_rows = _rows(current_log)
     if current_rows is None:
-        return _finding(current_log, UNREADABLE)
+        return _finding(legacy_log, UNREADABLE, current_log)
     if not legacy_rows:
         return None
     present = set(current_rows)
@@ -345,7 +345,7 @@ def probe_migration_integrity(
     return _finding(legacy_log, INCONCLUSIVE)
 
 
-def _finding(legacy_log: Path, verdict: str) -> str:
+def _finding(legacy_log: Path, verdict: str, failed_file: Path | None = None) -> str:
     """Compose the one-line finding for a store whose legacy records are unaccounted for.
 
     Three wordings, because three states are genuinely different and collapsing them would put a
@@ -353,11 +353,13 @@ def _finding(legacy_log: Path, verdict: str) -> str:
     is the only thing an operator can act on before the repair exists.
 
     Args:
-        legacy_log: The legacy usage log holding the records in question — except under
-            :data:`UNREADABLE`, where it is whichever file could not be read, so the operator is
-            sent to check the permissions of the file that actually failed rather than its
-            neighbour.
+        legacy_log: The legacy usage log holding the records in question. It is always the legacy
+            one, because the closing instruction is always about the legacy directory.
         verdict: :data:`SHORT`, :data:`INCONCLUSIVE`, or :data:`UNREADABLE`.
+        failed_file: Under :data:`UNREADABLE`, the file that actually could not be read — which is
+            often the *current* log, and sending the operator to check the legacy file's
+            permissions instead would waste the one diagnostic the notice offers. Defaults to
+            ``legacy_log``.
 
     Returns:
         The line to print on stderr.
@@ -370,8 +372,9 @@ def _finding(legacy_log: Path, verdict: str) -> str:
         )
     elif verdict == UNREADABLE:
         head = (
-            f"tanglebrain: could not read {legacy_log}, so whether your usage records survived the "
-            "v0.21.0 state move is unknown — check that file's permissions and encoding."
+            f"tanglebrain: could not read {failed_file if failed_file is not None else legacy_log}"
+            ", so whether your usage records survived the v0.21.0 state move is unknown — check "
+            "that file's permissions and encoding."
         )
     else:
         head = (
@@ -380,7 +383,7 @@ def _finding(legacy_log: Path, verdict: str) -> str:
             "long log leaves behind, and the two cannot be told apart from here."
         )
     return head + (
-        " Keep that directory: it holds the only copy of those records, and nothing can be "
+        f" Keep {legacy_log.parent}: it holds the only copy of those records, and nothing can be "
         "repaired from it once it is deleted."
     )
 

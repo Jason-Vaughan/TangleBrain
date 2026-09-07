@@ -371,7 +371,12 @@ class UnreadableStoreTest(IntegrityTestBase):
         self.assertIsNotNone(finding, "an undecodable legacy log rendered as a healthy store")
         self.assertIn("could not read", finding)
 
-    def test_an_unreadable_current_log_is_reported_not_swallowed(self):
+    def test_an_unreadable_current_log_names_the_current_log(self):
+        """The diagnostic is a filename, so naming the wrong one wastes the only help it gives.
+
+        Both files are in play here and only one failed. Asserting the phrase alone passed while
+        the notice sent the operator to check the permissions of the file that was fine.
+        """
         rows = [row(n) for n in range(6)]
         self.write_legacy(rows)
         self.write_current(rows)
@@ -383,6 +388,20 @@ class UnreadableStoreTest(IntegrityTestBase):
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding)
         self.assertIn("could not read", finding)
+        self.assertIn(f"could not read {target}", finding)
+        # ...and the instruction still points at the legacy root, which is what must be kept.
+        self.assertIn(f"Keep {self.legacy}", finding)
+
+    def test_an_unreadable_legacy_log_names_the_legacy_log(self):
+        rows = [row(n) for n in range(6)]
+        self.write_legacy(rows)
+        self.write_current(rows[:2])
+        target = self.legacy / "usage.jsonl"
+        target.chmod(0o000)
+        self.addCleanup(target.chmod, 0o644)
+        if os.access(target, os.R_OK):
+            self.skipTest("cannot make a file unreadable as this user")
+        self.assertIn(f"could not read {target}", probe_migration_integrity())
 
 
 class FindingTextTest(IntegrityTestBase):
@@ -406,10 +425,12 @@ class FindingTextTest(IntegrityTestBase):
 
     def test_both_wordings_tell_the_operator_to_keep_the_legacy_directory(self):
         # Phase 2's repair has nothing to merge from once it is deleted, so this is the one
-        # instruction the detector exists to deliver while the records still exist.
+        # instruction the detector exists to deliver while the records still exist. It names the
+        # directory rather than saying "that directory": the unreadable wording can name the
+        # *current* log in its first sentence, and a bare demonstrative would then point at it.
         for inconclusive in (False, True):
             with self.subTest(inconclusive=inconclusive):
-                self.assertIn("Keep that directory", self._finding(inconclusive=inconclusive))
+                self.assertIn(f"Keep {self.legacy}", self._finding(inconclusive=inconclusive))
 
     def test_the_inconclusive_wording_does_not_assert_data_loss(self):
         finding = self._finding(inconclusive=True)
