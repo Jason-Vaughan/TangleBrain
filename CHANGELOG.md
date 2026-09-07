@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The nav is the panel's first interactive navigation surface, so it ships keyboard-operable: real
   anchors, a visible focus ring, a skip link, and `aria-current` on the active view rather than
-  colour alone.
+  colour alone. The router owns the `#/` prefix and nothing else, so a plain in-page anchor — the
+  skip link is one — moves the fragment without moving the reader out of the view they are in.
 
 ### Fixed
 

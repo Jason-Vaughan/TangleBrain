@@ -39,9 +39,13 @@
   /* Visible only while focused — a keyboard user's first stop, invisible to everyone else. */
   .skip:focus { left: 16px; }
 
+  /* `height: 100vh` rather than a stretched flex item: an item that fills its container cannot
+     stick, so `align-self: stretch` here would leave the nav scrolling away up the Settings
+     view — which is the long one, and the one you most want the nav from. */
   .sidebar {
-    flex: 0 0 200px; align-self: stretch; background: var(--card-bg);
+    flex: 0 0 200px; height: 100vh; background: var(--card-bg);
     border-right: 1px solid var(--border); padding: 20px 12px; position: sticky; top: 0;
+    overflow-y: auto;
   }
   .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
   .brand .logo { width: 32px; height: 32px; display: block; }
@@ -57,8 +61,12 @@
   .navlink:focus-visible { outline: 2px solid var(--primary-bright); outline-offset: 1px; }
 
   .main { flex: 1 1 auto; min-width: 0; padding: 24px 20px 64px; }
+  /* The skip target is only focusable to receive that focus; it is not an interactive control,
+     so a focus ring on it would say otherwise. Focus remains visible on every real control. */
+  .main:focus { outline: none; }
   .wrap { max-width: 920px; margin: 0 auto; }
-  /* `hidden` alone loses to any display rule, and the view container carries one. */
+  /* Kept so a later display rule on a view or its container cannot beat the bare attribute.
+     Nothing sets one today; chunk 02's banner is the near occasion for one to appear. */
   .view[hidden] { display: none; }
   .view-title { font-size: 1.3rem; margin: 0 0 4px; letter-spacing: .3px; }
   .view-sub { color: var(--text-muted); font-size: .8rem; margin-bottom: 20px; }
@@ -67,8 +75,8 @@
   @media (max-width: 720px) {
     .app { flex-direction: column; }
     .sidebar {
-      flex: none; width: 100%; position: static; padding: 14px 12px;
-      border-right: none; border-bottom: 1px solid var(--border);
+      flex: none; width: 100%; height: auto; position: static; padding: 14px 12px;
+      border-right: none; border-bottom: 1px solid var(--border); overflow-y: visible;
     }
     .brand { padding-bottom: 12px; }
     .nav { flex-direction: row; }
@@ -131,7 +139,9 @@
     </ul>
   </nav>
 
-  <main class="main" id="main">
+  <!-- tabindex="-1" so the skip link moves focus rather than only scrolling: without it Safari
+       scrolls and leaves focus on the link, so the next Tab resumes from the top of the page. -->
+  <main class="main" id="main" tabindex="-1">
    <div class="wrap">
     <section class="view" id="view-chat" aria-labelledby="chat-title">
       <h1 class="view-title" id="chat-title">Chat playground</h1>
@@ -174,16 +184,32 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&a
 // ---- view routing ---------------------------------------------------------------------------
 // Hash routing rather than JS-only show/hide: the fragment never reaches the server, so
 // `dispatch()` needs no new route and the panel stays one packaged file, while the browser's
-// back/forward and a bookmarked view both work. An unknown or absent hash falls back to chat.
+// back/forward and a bookmarked view both work.
+//
+// The router owns the `#/` prefix and nothing else. A page has exactly one fragment, and plain
+// in-page anchors want it too — the skip link below is one, and a banner or a modal will be more.
+// Claiming the whole namespace means every such anchor reads as an unroutable view and silently
+// throws the reader back to the default, which is worst for the keyboard user the skip link
+// exists for. So a fragment that is not `#/…` is not addressed to the router: it is left alone.
 const VIEWS = { chat: "view-chat", settings: "view-settings" };
 const DEFAULT_VIEW = "chat";
+const ROUTE_PREFIX = "#/";
 
-function currentView() {
-  const name = (window.location.hash || "").replace(/^#\/?/, "");
+function routedView() {
+  // Returns the view a `#/…` fragment names, or null when the fragment is not a route at all.
+  // Null and DEFAULT_VIEW are deliberately different answers: "not addressed to me, change
+  // nothing" is not the same as "addressed to me and unrecognised, show the default".
+  const hash = window.location.hash || "";
+  if (!hash.startsWith(ROUTE_PREFIX)) return null;
+  const name = hash.slice(ROUTE_PREFIX.length);
   return Object.prototype.hasOwnProperty.call(VIEWS, name) ? name : DEFAULT_VIEW;
 }
 
 function showView(name) {
+  // Focus is deliberately not moved. The nav is anchors, so activating one leaves focus on the
+  // link the reader just used and Tab continues into the view they opened — the browser's own
+  // behaviour, and correct here. Moving focus into the view would be right for a modal, which is
+  // what #164 adds; it is wrong for navigation, where it strands the reader outside the nav.
   for (const key of Object.keys(VIEWS)) {
     const active = key === name;
     $(VIEWS[key]).hidden = !active;
@@ -196,7 +222,11 @@ function showView(name) {
   }
 }
 
-window.addEventListener("hashchange", () => showView(currentView()));
+window.addEventListener("hashchange", () => {
+  const view = routedView();
+  // Null means some other anchor moved the fragment. Leave the view where the reader put it.
+  if (view !== null) showView(view);
+});
 
 // ---- data -----------------------------------------------------------------------------------
 async function getJSON(url) {
@@ -405,7 +435,7 @@ $("rosterCard").addEventListener("click", (ev) => {
   if (cell) saveRoster(cell, btn);
 });
 
-showView(currentView());
+showView(routedView() || DEFAULT_VIEW);
 // Both views' data is fetched at startup regardless of which one is showing. The alternative,
 // loading a view's data when it is first opened, saves two localhost fetches and buys a class of
 // "this view says loading… forever" bugs; it would also falsify view_stats's docstring, which

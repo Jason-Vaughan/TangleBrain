@@ -111,7 +111,8 @@ PAIRS = [
     ("body text on the page", "text", "bg", NORMAL_TEXT),
     ("body text inside a card", "text", "card-bg", NORMAL_TEXT),
     ("text typed into a field", "text", "elevated-bg", NORMAL_TEXT),
-    ("header subtitle (muted)", "text-muted", "bg", NORMAL_TEXT),
+    # Was the centred header's subtitle; the live surface is now each view's `.view-sub`.
+    ("view subtitle (muted)", "text-muted", "bg", NORMAL_TEXT),
     ("section heading (muted)", "text-muted", "bg", NORMAL_TEXT),
     ("checkbox label (muted)", "text-muted", "card-bg", NORMAL_TEXT),
     ("table column header (muted)", "text-muted", "card-bg", NORMAL_TEXT),

@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -490,6 +491,12 @@ class LiveHandlerTest(unittest.TestCase):
 
 PANEL = Path(__file__).resolve().parents[1] / "tanglebrain" / "gui" / "static" / "index.html"
 
+#: A URL that would leave this machine: any absolute or scheme-relative reference inside an
+#: attribute or a `url(...)`. Anchored on the opening quote/paren so a bare `//` — a JS comment or
+#: a division, both of which the panel contains — is not mistaken for one. Shared with the test
+#: that proves it fires, so the guard and its proof cannot drift apart.
+OFF_MACHINE_URL = r"""["'(]\s*(?:https?:)?//[^"')\s]+"""
+
 
 class PanelLayoutTest(unittest.TestCase):
     """The panel's shell: two views behind a sidebar, keyboard-reachable, nothing dropped.
@@ -526,10 +533,15 @@ class PanelLayoutTest(unittest.TestCase):
             self.assertIn(f'<a class="navlink" id="nav-{view}" href="#/{view}">', self.panel)
 
     def test_chat_is_the_default_view_and_settings_starts_hidden(self):
-        # An unknown or absent hash must land somewhere rather than showing two views or none.
+        # An absent or unroutable `#/` hash must land somewhere rather than showing two views
+        # or none.
         self.assertIn('const DEFAULT_VIEW = "chat";', self.panel)
-        settings = self.panel[self.panel.index('id="view-settings"'):]
-        self.assertIn("hidden", settings[: settings.index(">")])
+        self.assertIn("showView(routedView() || DEFAULT_VIEW);", self.panel)
+        settings = self.panel[self.panel.index('id="view-settings"') :]
+        opening_tag = settings[: settings.index(">")]
+        # The bare attribute, not a substring: `aria-hidden="true"` contains "hidden" and would
+        # satisfy assertIn while hiding the view from assistive tech only, leaving it painted.
+        self.assertRegex(opening_tag, r"(?:^|\s)hidden(?:\s|$)")
 
     def test_hidden_is_enforced_against_the_container_display_rule(self):
         # `.view` sits inside a flex/grid shell; a display rule on it would beat the bare `hidden`
@@ -543,10 +555,52 @@ class PanelLayoutTest(unittest.TestCase):
 
     def test_a_hash_change_switches_view(self):
         self.assertIn('window.addEventListener("hashchange"', self.panel)
+        self.assertIn("if (view !== null) showView(view);", self.panel)
+
+    def test_the_router_owns_only_its_own_prefix(self):
+        """A fragment that is not a route must leave the view alone.
+
+        The regression: the skip link this panel ships writes `#main`. A router that claims the
+        whole fragment namespace reads that as an unroutable view and falls back to the default,
+        so the keyboard user it exists for is thrown out of the view they were reading — and the
+        address bar keeps `#main`, so a reload lands them there too. The same shape returns with
+        chunk 02's banner anchors and chunk 03's modals, which is why the fix is a prefix the
+        router owns rather than a special case for `#main`.
+
+        Asserted against the source, like every other test in this class: there is no JS engine
+        here, so this pins the construction that makes the bug unexpressible rather than
+        executing the handler. Stated because the difference matters — it would not catch a
+        second router added elsewhere on the page.
+        """
+        self.assertIn('const ROUTE_PREFIX = "#/";', self.panel)
+        self.assertIn("if (!hash.startsWith(ROUTE_PREFIX)) return null;", self.panel)
+        # Null and the default must stay distinguishable: collapsing them is the bug itself.
+        self.assertIn("if (view !== null) showView(view);", self.panel)
+
+    def test_the_skip_target_can_receive_focus(self):
+        # Without tabindex the skip link scrolls but leaves focus behind in Safari, so the next
+        # Tab resumes from the link rather than entering the content.
+        self.assertIn('<main class="main" id="main" tabindex="-1">', self.panel)
+
+    def test_focus_is_visible_on_the_nav(self):
+        # An acceptance criterion of this chunk: the nav is the panel's first navigation surface
+        # and a keyboard user must be able to see where they are in it.
+        self.assertIn(".navlink:focus-visible {", self.panel)
+        self.assertIn("outline: 2px solid var(--primary-bright)", self.panel)
+
+    def test_the_sidebar_can_actually_stick(self):
+        # `position: sticky` on a flex item stretched to its container's height does nothing, so
+        # the nav would scroll away up the Settings view — the long one, and the one you most
+        # want the nav from. The explicit height is what makes the sticky real.
+        sidebar = self.panel[self.panel.index("  .sidebar {") :]
+        sidebar = sidebar[: sidebar.index("}")]
+        self.assertIn("position: sticky", sidebar)
+        self.assertIn("height: 100vh", sidebar)
+        self.assertNotIn("align-self: stretch", sidebar)
 
     def test_landmarks_and_a_skip_link_exist(self):
         self.assertIn('<nav class="sidebar" aria-label="Primary">', self.panel)
-        self.assertIn('<main class="main" id="main">', self.panel)
+        self.assertIn('<main class="main" id="main"', self.panel)
         self.assertIn('<a class="skip" href="#main">', self.panel)
 
     def test_every_card_survived_the_restructure(self):
@@ -567,6 +621,48 @@ class PanelLayoutTest(unittest.TestCase):
         for card in ('id="statsCard"', 'id="rosterCard"', 'id="pricingCard"'):
             with self.subTest(card=card):
                 self.assertIn(card, settings)
+
+    def test_the_panel_references_nothing_off_machine(self):
+        """The binding constraint on this train: a default install reaches nothing off-machine.
+
+        The panel is one packaged file served by a stdlib handler and must render with the machine
+        offline. Nothing in the suite failed on an added `<script src="https://…">`, `@font-face`
+        or `@import url(…)` before this test — and #176 proposes a Chart.js CDN tag, so the
+        temptation is scheduled rather than hypothetical.
+        """
+        external = re.findall(OFF_MACHINE_URL, self.panel)
+        self.assertEqual([], external, "the panel must reference no off-machine URL")
+        for banned in ("@font-face", "@import"):
+            with self.subTest(rule=banned):
+                self.assertNotIn(banned, self.panel)
+
+    def test_the_offline_guard_fires_on_the_shapes_it_claims(self):
+        """The guard above is only worth having if it rejects what it says it rejects.
+
+        A pattern asserted against a file that already conforms passes forever, including when it
+        matches nothing at all. Running it over synthetic markup proves it without mutating the
+        shipped panel — the same technique `test_gui_contrast.py` uses for its colour-literal
+        guard, and for the same reason. The negative cases matter as much: `//` is also a JS
+        comment and a division, and a guard that trips on those would be deleted within a week.
+        """
+        rejected = [
+            '<script src="https://cdnjs.cloudflare.com/chart.min.js"></script>',
+            "<script src='http://example.com/x.js'></script>",
+            '<script src="//cdn.example.com/c.js"></script>',
+            "@import url(https://fonts.googleapis.com/css?family=Inter);",
+        ]
+        allowed = [
+            '<img src="/logo.png" alt="">',
+            '<a href="#/chat">Chat</a>',
+            "// a plain JS comment",
+            "const ratio = a / b;  // not a URL",
+        ]
+        for markup in rejected:
+            with self.subTest(rejected=markup):
+                self.assertTrue(re.findall(OFF_MACHINE_URL, markup))
+        for markup in allowed:
+            with self.subTest(allowed=markup):
+                self.assertEqual([], re.findall(OFF_MACHINE_URL, markup))
 
     def test_both_views_still_load_their_data_at_startup(self):
         # Splitting the page did not make any card's fetch conditional on its view being open.
