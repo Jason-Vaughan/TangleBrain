@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A security report had nowhere correct to go.** `CONTRIBUTING.md` forbade opening a public issue
+  for a vulnerability and pointed at the contact in `CODE_OF_CONDUCT.md` — which is the
+  *conduct-enforcement* address, offered there for harassment reports. A reporter who followed the
+  trail landed on the wrong channel and had to guess it doubled as security; if they guessed right,
+  the report arrived as plain email rather than a private advisory, with no embargo and no
+  acknowledgement path. That is worse than an empty pointer, because it looks answered, so nobody
+  fixes it. It now routes to GitHub private vulnerability reporting and to the security policy for
+  what a reporter should expect back.
+
 ## [0.22.0] - 2026-09-07
 
 ### Changed

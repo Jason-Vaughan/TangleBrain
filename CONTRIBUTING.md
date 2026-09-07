@@ -99,7 +99,11 @@ code change to `adapters/` + `roster.py` — open an issue first so we can agree
 
 Use the [issue templates](.github/ISSUE_TEMPLATE/): **bug**, **feature**, or **add a backend /
 adapter**. For bugs, include reproduction steps and what you expected. For security-sensitive
-reports, please don't open a public issue — see the contact in the [Code of Conduct](CODE_OF_CONDUCT.md).
+reports, please don't open a public issue. Use GitHub's private vulnerability reporting instead: open
+this repository's **Security** tab and choose **Report a vulnerability**, which opens a private
+advisory visible only to you and the maintainers. The
+[security policy](https://github.com/Jason-Vaughan/TangleBrain/security/policy) says what to expect
+back, and what to do if that option isn't available.
 
 ## License
 
