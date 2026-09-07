@@ -115,9 +115,10 @@ def legacy_state_root() -> Path:
 def _discard(path: Path) -> None:
     """Remove ``path`` — file or directory tree — tolerating its absence.
 
-    Used to clear a half-written staging entry after a failed copy. Absence is tolerated rather
-    than expected: the failure may have arrived before anything was created, and a cleanup that
-    raised would replace the real error with its own.
+    Clears a staging entry on the way out of a migration copy, whatever the outcome — so absence
+    is ordinary, not exceptional: a successful copy has already been renamed away, and a failure
+    may have arrived before anything was created. Raising on either would replace a real error
+    with a cleanup's own.
 
     Args:
         path: The path to remove.
