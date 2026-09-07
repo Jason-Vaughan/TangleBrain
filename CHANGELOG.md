@@ -87,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **What this replaces, honestly:** the guarantee is structural at every site that reproduces a
   completion, and a judgement at the points listed above. That is a narrower claim than the one
   this project made before, which was structural everywhere and wrong. The design documents are
-  reconciled to that narrower claim in the entry below, and the residual set is tracked as
+  reconciled to that narrower claim by the no-persistence-guarantee entry in this same release, and
+  the residual set is tracked as
   [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156).
 
 - **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup

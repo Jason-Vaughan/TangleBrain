@@ -224,14 +224,20 @@ step because nothing that would need redacting ever reaches the writer.
 explaining why is persisted next to the failed attempt, because a router that hides why it fell back
 is not debuggable. Every one of those messages that could carry a model's reply now reports the
 reply's *shape* — `52 chars of text`, `object with keys ['result', 'subtype']` — instead of quoting
-it, and a test drives a real malformed response through the whole path onto disk to prove it. Kept
-verbatim is the narrower set of strings only a provider or a CLI produces: an HTTP error body, a
-stream's error envelope, a failed subprocess's stderr. Those are error metadata, not model output,
-and they stay readable because rendering `invalid api key` as `object with keys ['error']` would
-gut the diagnostic for the single most common setup failure there is. An upstream that echoes your
-request back inside one of them — a 400, a content-filter rejection — would put that text in the
-log; that turns on what the provider returns, not on TangleBrain.
-[`docs/design/security-model.md`](docs/design/security-model.md) carries the full accounting.
+it, and a test drives a real malformed response through the whole path onto disk to prove it.
+
+Two things are still kept as-is, deliberately. **Strings only a provider or a CLI produces** — an
+HTTP error body, a stream's error envelope, a failed subprocess's stderr — stay readable, because
+rendering `invalid api key` as `object with keys ['error']` would gut the diagnostic for the single
+most common setup failure there is. Those are error metadata rather than model output, but an
+upstream that echoes your request back inside one — a 400, a content-filter rejection — would put
+that text in the log; that turns on what the provider returns, not on TangleBrain. And **the shape
+summary itself has to guess once**: it names an object's keys when they look like schema, so a key
+that is a single identifier-shaped token is reproduced rather than counted, and that one can come
+from the model's own reply. Telling a schema field name from content is not decidable, so it is a
+judgement by construction rather than something a later fix closes.
+[`docs/design/security-model.md`](docs/design/security-model.md) enumerates both and is the
+authoritative accounting.
 
 **Editing the price never restates history.** Each task is priced when it runs and keeps that
 figure, so tuning `pricing.yaml` cannot retroactively inflate what you have already saved. The
