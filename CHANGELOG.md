@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`tanglebrain-gui --help` called the panel "read-only".** It has not been read-only since the
+  pricing and roster cards became editable — it writes `pricing.yaml` and `roster.yaml`. The help
+  now says what the panel actually does.
+
 - **A security report had nowhere correct to go.** `CONTRIBUTING.md` forbade opening a public issue
   for a vulnerability and pointed at the contact in `CODE_OF_CONDUCT.md` — which is the
   *conduct-enforcement* address, offered there for harassment reports. A reporter who followed the

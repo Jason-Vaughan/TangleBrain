@@ -524,6 +524,23 @@ class PanelLayoutTest(unittest.TestCase):
         self.assertIn('id="view-chat"', self.panel)
         self.assertIn('id="view-settings"', self.panel)
 
+    def test_every_registered_view_has_its_section_and_its_nav_link(self):
+        # `VIEWS` maps a key to a section id, and the nav link id is derived as `nav-<key>`. The
+        # three are joined by naming convention alone, and `showView()` dereferences all of them
+        # unguarded — so a typo in any one throws inside the loop before the remaining views are
+        # processed, which can leave a view permanently hidden and its cards at "loading…". The
+        # registry is read out of the shipped source rather than restated here, so this cannot
+        # pass by agreeing with a copy of the list.
+        registry = re.search(r"const VIEWS = \{(.*?)\};", self.panel, re.DOTALL)
+        self.assertIsNotNone(registry, "the panel must declare a VIEWS registry")
+        pairs = re.findall(r"(\w+):\s*\"([^\"]+)\"", registry.group(1))
+        self.assertTrue(pairs, "VIEWS must be a non-empty key -> section-id map")
+        for key, section_id in pairs:
+            with self.subTest(view=key):
+                self.assertIn(f'id="{section_id}"', self.panel)
+                self.assertIn(f'id="nav-{key}"', self.panel)
+                self.assertIn(f'href="#/{key}"', self.panel)
+
     def test_the_sidebar_links_to_every_view(self):
         # The nav is the only way to reach a view, so a view without a link is unreachable.
         self.assertIn('id="nav-chat"', self.panel)
@@ -551,15 +568,22 @@ class PanelLayoutTest(unittest.TestCase):
 
     def test_hidden_survives_a_later_display_rule(self):
         # Nothing sets `display` on a view or its ancestors today — `.app` is the flex container
-        # and `.main`/`.wrap` carry none. The rule is defensive: whichever chunk first gives a
-        # view or its container a display rule would otherwise beat the bare `hidden` attribute
-        # and paint both views at once. Chunk 02's banner is the near occasion.
+        # and `.main`/`.wrap` carry none. The rule is defensive: whatever first gives a view or its
+        # container a display rule would otherwise beat the bare `hidden` attribute and paint both
+        # views at once. A sticky banner above the views is the near occasion (#162).
         self.assertIn(".view[hidden] { display: none; }", self.panel)
 
     def test_the_active_view_is_announced_not_just_painted(self):
         # A colour change alone tells a screen-reader user nothing about which view they are in.
         self.assertIn('setAttribute("aria-current", "page")', self.panel)
         self.assertIn('removeAttribute("aria-current")', self.panel)
+
+    def test_showing_a_view_hides_every_other_one(self):
+        # The load-bearing line, and the one every neighbouring assertion left unpinned: invert or
+        # delete it and the initial markup still parses as "Settings hidden", the nav still paints
+        # and announces correctly, and the panel shows both views at once after the first switch.
+        # Whitespace-tolerant so a reformat does not force an assertion edit.
+        self.assertRegex(self.panel, r"\$\(VIEWS\[key\]\)\.hidden\s*=\s*!active\s*;")
 
     def test_a_hash_change_switches_view(self):
         self.assertIn('window.addEventListener("hashchange"', self.panel)
@@ -572,8 +596,8 @@ class PanelLayoutTest(unittest.TestCase):
         whole fragment namespace reads that as an unroutable view and falls back to the default,
         so the keyboard user it exists for is thrown out of the view they were reading — and the
         address bar keeps `#main`, so a reload lands them there too. The same shape returns with
-        chunk 02's banner anchors and #164's roster modals, which is why the fix is a prefix
-        the router owns rather than a special case for `#main`.
+        #162's banner anchors and #164's roster modals, which is why the fix is a prefix the
+        router owns rather than a special case for `#main`.
 
         Asserted against the source, like every other test in this class: there is no JS engine
         here, so this pins the construction that makes the bug unexpressible rather than
