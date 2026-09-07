@@ -234,10 +234,10 @@ reach a quota-spending view.
 fragment, which never reaches the server — that is what lets a multi-view panel stay one packaged
 file with no new route. A page has only one fragment, though, and plain in-page anchors want it
 too: the skip link is one. So a fragment that is not `#/…` is left alone rather than treated as an
-unknown view, because falling back would silently reset the panel every time an ordinary anchor
-fired — which is exactly what broke the skip link for keyboard users when the router first claimed
-the whole namespace. **Add a view by adding a key to `VIEWS`; never by widening what counts as a
-route.** The rule is asserted by `tests/test_gui.py::PanelLayoutTest`.
+unknown view — falling back would silently reset the panel every time an ordinary anchor fired,
+throwing a reader out of the view they were in, and it would hit the keyboard user hardest because
+the skip link is the anchor they depend on. **Add a view by adding a key to `VIEWS`; never by
+widening what counts as a route.** The rule is asserted by `tests/test_gui.py::PanelLayoutTest`.
 
 ### Serve endpoint (`serve/`)
 
