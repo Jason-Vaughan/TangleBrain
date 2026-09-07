@@ -99,9 +99,66 @@ code change to `adapters/` + `roster.py` — open an issue first so we can agree
 
 Use the [issue templates](.github/ISSUE_TEMPLATE/): **bug**, **feature**, or **add a backend /
 adapter**. For bugs, include reproduction steps and what you expected. For security-sensitive
-reports, please don't open a public issue — see the contact in the [Code of Conduct](CODE_OF_CONDUCT.md).
+reports, please don't open a public issue. Use GitHub's private vulnerability reporting instead: open
+this repository's **Security** tab and choose **Report a vulnerability**, which opens a private
+advisory visible only to you and the maintainers. The
+[security policy](../../security/policy) says what to expect back, and what to do if that option
+isn't available.
 
 ## License
 
 By contributing, you agree that your contributions are licensed under the project's
 [MIT License](LICENSE).
+
+<!-- BEGIN MIRRORED SECURITY BLOCK -- source: https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md
+     These markers are load-bearing: a drift checker extracts between them (Jason-Vaughan/.github#1).
+     Do not rename or reformat them. Edit the source above, not this copy — except for the
+     repository-specific details in items 4, 5 and 7, which are meant to differ per repo. -->
+
+## Security & contribution guidelines
+
+TangleBrain routes prompts to backends that run with real permissions on real machines, so every
+incoming pull request is audited as a potential supply-chain vector. None of this is a judgement
+about you — it is the same process for everyone, and it is designed so a good contribution still
+gets in.
+
+1. **Scope.** One issue per PR, and nothing outside it. A diff touching files unrelated to the issue
+   is closed regardless of quality: from the outside, scope overrun and probing look identical.
+
+2. **Zero trust — and you still get the credit.** Maintainers audit pull requests as raw text diffs.
+   We do not check out contributor branches or run contributor code on our own machines. Where a
+   repository runs CI on pull requests, those runs are sandboxed by GitHub with a read-only token
+   and no access to secrets. If your logic is sound we may reconstruct the fix in a clean commit and
+   credit you by name.
+
+3. **Because we may reconstruct it, your explanation is worth more than your code.** The most
+   valuable pull request describes the bug precisely, says why it happens, and explains the
+   approach. A clear description gets reconstructed and shipped; a large, clever, unexplained diff
+   does not, however good it is.
+
+4. **Forbidden files.** `.github/workflows/` and the `Makefile` are off-limits unless an issue
+   explicitly asks for a change there. These execute *without anyone choosing to run them*, which is
+   what separates them from ordinary source. Unexplained modifications are treated as payload and the
+   pull request is closed.
+
+5. **Tests are welcome, and they are executable code.** Please add tests for your change — the suite
+   is `make test`, which is hermetic and mocks HTTP. They are audited line by line like any other
+   file, so keep them small and obvious.
+
+6. **Reviewable text only.** No binary files, and no generated, minified or vendored code: none can
+   be read as a diff, which is the only review we perform. Source must also contain no bidirectional
+   control characters, no zero-width or invisible characters, and no non-ASCII homoglyphs standing in
+   for ASCII in identifiers. Those three make a diff *render* differently from what it *executes*
+   ("Trojan Source", CVE-2021-42574), defeating a text audit by construction rather than by degree.
+   Ordinary Unicode in prose, comments and string literals is fine — it is the invisible and the
+   disguised that are the problem, not the non-English.
+
+7. **No new dependencies.** TangleBrain ships two runtime dependencies, each bounded at the next
+   major, and the reasoning is recorded in `pyproject.toml` itself. A pull request adding a third is
+   rejected without further review unless an issue argued the case first. Solve it with the standard
+   library, or open that issue before writing code.
+
+Expect a rigorous review and some back-and-forth. That is the same bar the maintainers hold
+themselves to, and a contribution that clears it is genuinely valued.
+
+<!-- END MIRRORED SECURITY BLOCK -->

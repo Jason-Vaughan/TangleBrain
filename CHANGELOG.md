@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A security report had nowhere correct to go.** `CONTRIBUTING.md` forbade opening a public issue
+  for a vulnerability and pointed at the contact in `CODE_OF_CONDUCT.md` — which is the
+  *conduct-enforcement* address, offered there for harassment reports. A reporter who followed the
+  trail landed on the wrong channel; if they guessed it doubled as security, the report arrived as
+  plain email rather than a private advisory, with no embargo and no acknowledgement path. That is
+  worse than an empty pointer, because it looks answered, so nobody fixes it. It now routes to
+  GitHub private vulnerability reporting and to the security policy.
+
+### Internal
+
+- **`CONTRIBUTING.md` carries the account-wide supply-chain review standards**, mirrored from
+  [`Jason-Vaughan/.github`](https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md)
+  between explicit `BEGIN`/`END` markers so drift can be checked mechanically rather than trusted to
+  a label. Repository-specific details — the forbidden paths, the test command, the dependency rule
+  — deliberately differ from the source and are marked as such.
+
+  **Mirrored rather than linked, deliberately.** A pointer to an account-wide guide under-delivers:
+  a contributor reads the file in front of them, and a rule nobody loads protects nothing. That
+  argument was made by the session that wrote the account-wide files, and it is right. The cost is
+  a copy that can drift, which the markers and
+  [`.github#1`](https://github.com/Jason-Vaughan/.github/issues/1) exist to bound.
+
+  A repository shipping its own `CONTRIBUTING.md` inherits **none** of the account-wide one —
+  GitHub's community-health fallback is per-file and all-or-nothing — so without this the standards
+  reached every repo except the ones that take pull requests.
+
 ## [0.22.0] - 2026-09-07
 
 ### Changed
