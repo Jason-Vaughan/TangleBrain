@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Lost delegate linkage is now a positive lifetime signal (#123).** A delegated sub-call that
+  reaches measurement without its expected `TANGLEBRAIN_TASK_ID` records the additive optional
+  field `linkage_lost: true`. The rollup, `--stats`, and knob panel report that count separately
+  from genuine top-level tasks and from the window-scoped `by_parent` tree. Legacy parentless
+  delegate rows are inferred from `kind: delegate`, so the count covers existing history and is
+  folded into `totals.json`; measurement still never raises and stores no prompt or response text.
+
 - **The no-persistence guarantee is now stated where users read, at the width it actually holds.**
   "Prompt and response text is never written to disk" was a ratified invariant stated only where
   contributors read. It is now in `README.md` and `docs/design/security-model.md` in the project's

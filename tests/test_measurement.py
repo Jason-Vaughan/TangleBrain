@@ -789,7 +789,15 @@ class DelegateObservabilityTest(unittest.TestCase):
                     kind="delegate", parent_task_id="task-abc", log_path=self.log, pricing=FIXED)
         rec = self._read()[0]
         self.assertEqual(rec["parent_task_id"], "task-abc")
+        self.assertNotIn("linkage_lost", rec)
         self.assertNotIn("task_id", rec)
+
+    def test_record_marks_parentless_delegate_as_lost_linkage(self):
+        record_task(path="delegate", entry=FakeEntry("local-x", "local"), prompt="hi", response="yo",
+                    kind="delegate", log_path=self.log, pricing=FIXED)
+        rec = self._read()[0]
+        self.assertTrue(rec["linkage_lost"])
+        self.assertNotIn("parent_task_id", rec)
 
     def test_record_omits_linkage_fields_when_absent(self):
         record_task(path="local", entry=FakeEntry("local-x", "local"), prompt="hi", response="yo",
@@ -797,6 +805,7 @@ class DelegateObservabilityTest(unittest.TestCase):
         rec = self._read()[0]
         self.assertNotIn("task_id", rec)
         self.assertNotIn("parent_task_id", rec)
+        self.assertNotIn("linkage_lost", rec)
 
     def test_rollup_groups_delegates_by_parent(self):
         records = [
@@ -811,9 +820,18 @@ class DelegateObservabilityTest(unittest.TestCase):
         self.assertNotIn("unlinked", by_parent)
 
     def test_rollup_unlinked_delegate_grouped_under_sentinel(self):
-        # A delegate with no parent_task_id (run outside a propagated task) groups under "unlinked".
+        # Legacy parentless delegates still get the new positive signal during rollup.
         by_parent = rollup([{"kind": "delegate", "model": "local-x"}])["delegates"]["by_parent"]
         self.assertEqual(by_parent["unlinked"]["count"], 1)
+
+    def test_rollup_counts_lost_delegate_linkage_but_not_parentless_tasks(self):
+        records = [
+            {"kind": "delegate", "model": "local-x", "linkage_lost": True},
+            {"kind": "delegate", "model": "local-x"},  # legacy row, before the signal existed
+            {"kind": "delegate", "model": "local-x", "parent_task_id": "p1"},
+            {"kind": "task", "model": "local-x"},
+        ]
+        self.assertEqual(rollup(records)["delegates"]["linkage_lost"], 2)
 
     def test_format_shows_linked_parents(self):
         s = rollup([
@@ -824,14 +842,16 @@ class DelegateObservabilityTest(unittest.TestCase):
         out = format_rollup(s, FIXED)
         self.assertIn("Linked to:", out)
         self.assertIn("2 parent task(s)", out)
-        self.assertIn("1 unlinked", out)
+        self.assertIn("Linkage lost: 1", out)
+        self.assertNotIn("unlinked", out)
 
     def test_format_all_unlinked_reads_cleanly(self):
-        # When no delegate is linked, the line should read "N unlinked", not "0 parent task(s), ...".
+        # Lost linkage is a separate lifetime signal; the parent tree remains window-scoped.
         s = rollup([{"kind": "delegate", "model": "local-x"},
                     {"kind": "delegate", "model": "local-x"}])
         out = format_rollup(s, FIXED)
-        self.assertIn("Linked to:    2 unlinked", out)
+        self.assertIn("Linkage lost: 2", out)
+        self.assertNotIn("Linked to:", out)
         self.assertNotIn("parent task(s)", out)
 
     def test_format_shows_delegate_section_when_present(self):
@@ -881,6 +901,7 @@ FULL_TOTALS = {
     "pricing_refs": ["old-frontier", "test-frontier"],
     "delegates": {
         "count": 5,
+        "linkage_lost": 2,
         "by_backend": {"m1": {"count": 5, "in_tokens_est": 50, "out_tokens_est": 60}},
         "in_tokens_est": 50,
         "out_tokens_est": 60,
@@ -1019,6 +1040,7 @@ class RollupReadsTotalsPlusRowsTest(unittest.TestCase):
             "pricing_refs": ["test-frontier"],
             "delegates": {
                 "count": 1,
+                "linkage_lost": 0,
                 "by_backend": {"m1": {"count": 1, "in_tokens_est": 5, "out_tokens_est": 6}},
                 "by_parent": {"t1": {"count": 1, "by_backend": {"m1": 1}}},
                 "in_tokens_est": 5,
@@ -1037,6 +1059,7 @@ class RollupReadsTotalsPlusRowsTest(unittest.TestCase):
         self.assertEqual(got["by_tier"], {"local": 8, "cli": 4})
         self.assertEqual(got["by_origin"], {"cli": 7, "gui": 5})
         self.assertEqual(got["delegates"]["count"], 6)
+        self.assertEqual(got["delegates"]["linkage_lost"], 2)
         self.assertEqual(
             got["delegates"]["by_backend"]["m1"],
             {"count": 6, "in_tokens_est": 55, "out_tokens_est": 66},

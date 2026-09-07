@@ -53,7 +53,7 @@ TOTALS_FILENAME = "totals.json"
 _INT_FIELDS = ("tasks", "failures", "lost_attempts", "in_tokens_est", "out_tokens_est")
 _FLOAT_FIELDS = ("cloud_equiv_usd", "spend_avoided_usd")
 _COUNT_MAPS = ("by_tier", "by_origin")
-_DELEGATE_INT_FIELDS = ("count", "in_tokens_est", "out_tokens_est")
+_DELEGATE_INT_FIELDS = ("count", "linkage_lost", "in_tokens_est", "out_tokens_est")
 _DELEGATE_FLOAT_FIELDS = ("cloud_equiv_usd",)
 #: Per-backend aggregate fields — the one nested numeric map bounded enough to fold (one key per
 #: roster backend, not one per task). Public because `measurement.rollup` builds its own per-backend

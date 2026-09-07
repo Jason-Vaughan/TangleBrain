@@ -205,10 +205,12 @@ fans out across threads) are serialized by a process-level lock. Each delegation
 *specific* parent task across processes (a true tree): the CLI mints a `task_id` per routed task and
 injects it as `TANGLEBRAIN_TASK_ID` into the orchestrator's environment, the orchestrator forwards it
 to the MCP delegate child, and `run_delegate` reads it back to stamp each delegate record's
-`parent_task_id`. The rollup groups delegates `by_parent` (a "Linked to" tree in `--stats` and the
-GUI); a sub-call run outside a propagated task is `unlinked`. The orchestrator-forwards-env hop is
-verified live (claude), not hermetically — a delegation that loses the env degrades safely to
-`unlinked`, never an error.
+`parent_task_id`. The rollup groups linked delegates `by_parent` (a "Linked to" tree in `--stats`
+and the GUI). The orchestrator-forwards-env hop is verified live (claude), not hermetically; when a
+delegate reaches the measurement seam without that id, its record gains `linkage_lost: true` and
+both renderers show the lifetime lost-linkage count separately. A top-level task with no parent is
+an ordinary root, while legacy parentless delegate rows are inferred as lost linkage during rollup.
+The signal degrades safely and never raises.
 
 ### Knob GUI — localhost panel (`gui/`)
 
