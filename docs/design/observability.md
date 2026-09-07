@@ -141,12 +141,20 @@ describe it, and a trial write would race the appends it is meant to characteris
 check with its limit stated is the trade — which is the same stance the rest of this page takes,
 since a signal that overclaims is worse than one that is explicit about its edge.
 
-**Two conditions, reported separately, because they fail independently.** A read-only log means
-tasks routed *now* are not being recorded; it says nothing about whether the lifetime figure is
-sound. A `totals.json` that is present but unreadable means the opposite: the figures cover only
-the rows still on disk, and — because compaction refuses to fold onto a totals file it cannot read
-— the log has also stopped being pruned. One condition, two consequences, and the wording names
-both.
+**Conditions are reported separately, because they fail independently.** The set is not fixed and
+this page does not enumerate it — `probe_measurement_health` is the list, and a page that copied it
+would fall behind the next state added. Two are worth stating because their *consequences* differ
+and neither implies the other:
+
+A **log that cannot be appended to** means tasks routed *now* are not being recorded; it says
+nothing about whether the lifetime figure is sound. The probe covers the several ways that happens
+— the file unwritable, the directory unwritable, the directory absent *and* uncreatable, a
+non-regular file or a dangling symlink on the path — because they are one condition to the operator
+and several to the filesystem.
+
+A **`totals.json` that is present but unreadable** means the opposite: the figures cover only the
+rows still on disk, and — because compaction refuses to fold onto a totals file it cannot read —
+the log has also stopped being pruned. One condition, two consequences, and the wording names both.
 
 **Absence is not damage — but an absence that cannot be repaired is.** A machine that has never
 routed a task has no log directory, and a log that has never crossed the compaction cap has no
