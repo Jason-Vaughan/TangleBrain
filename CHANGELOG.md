@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`--stats` now says when the measurement store cannot do its job.** A read-only usage log and
+  an unreadable `totals.json` both produced a confident, plausible number and no hint that anything
+  was wrong — the failure mode a rollup is worst at showing. Both renderers now probe the store at
+  render time and report what they found.
+
+  **It reports a check, not a guarantee.** "The usage log is not writable — checked write permission
+  on `<path>`" is something the probe actually asked the filesystem. "No writes were lost" would be
+  a completeness claim with no mechanism behind it: nothing reads history, and a permission restored
+  between two appends leaves a hole no probe can see.
+
+  **The two conditions are reported separately, because they fail independently.** A read-only log
+  means tasks routed *now* are not recorded. An unreadable `totals.json` means the opposite — the
+  figures cover only the rows still on disk, and compaction refuses to fold onto a totals file it
+  cannot read, so the log has also stopped being pruned. That second condition is `compact_log`'s
+  own refusal predicate, shared rather than restated, so the health line cannot tell an operator the
+  store is fine while compaction silently declines to prune it.
+
+  **Absence is not damage.** A fresh install has no log directory and an uncompacted log has no
+  `totals.json`; reporting either would fire on every clean machine until the reader learned to
+  ignore the line. An all-green store renders byte-identically to before.
+
+  **It degrades to a finding, never to silence.** A probe that cannot run says so — silence renders
+  exactly like a healthy store, so swallowing would make "I could not tell" indistinguishable from
+  "all well".
+
+  The line takes the warning glyph rather than the informational one the pricing-span note uses:
+  that note marks a benign state, this renders only when a check actually failed.
+
 - **Lost delegate linkage is now a positive lifetime signal (#123).** A delegated sub-call that
   reaches measurement without its expected `TANGLEBRAIN_TASK_ID` records the additive optional
   field `linkage_lost: true`. The rollup, `--stats`, and knob panel report that count separately

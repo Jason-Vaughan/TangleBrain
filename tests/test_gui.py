@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 from tanglebrain.gui import server, views
 from tanglebrain.roster import Invoke, Roster, RosterEntry, packaged_roster_path
+from tanglebrain.totals import default_totals_path
 from tanglebrain.router import RouterError
 
 
@@ -126,6 +127,24 @@ class ViewStatsTest(unittest.TestCase):
         self.assertEqual(out["summary"]["by_tier"], {"local": 1, "sub": 1})
         self.assertAlmostEqual(out["summary"]["spend_avoided_usd"], 1.5)
         self.assertIn("is_placeholder", out)
+
+    def test_stats_carries_measurement_health(self):
+        # The panel is long-lived, so `record_task`'s once-per-process stderr notice is invisible
+        # here — this payload is the only way a store that broke at hour six reaches the panel.
+        with patch("tanglebrain.gui.views.read_records", return_value=[]):
+            out = views.view_stats()
+        self.assertEqual(out["health"], [])
+
+    def test_stats_reports_a_damaged_store(self):
+        # Exercised in the damaged state: a healthy run would pass against a payload that always
+        # reported an empty list.
+        # The path is computed from the code rather than assumed: TANGLEBRAIN_STATE_DIR *is* the
+        # state root, with no product subdirectory under it.
+        Path(default_totals_path()).write_text("{not json", encoding="utf-8")
+        with patch("tanglebrain.gui.views.read_records", return_value=[]):
+            out = views.view_stats()
+        self.assertEqual(len(out["health"]), 1)
+        self.assertIn("totals", out["health"][0])
 
     def test_includes_delegate_breakdown(self):
         recs = [

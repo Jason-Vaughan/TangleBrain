@@ -282,8 +282,8 @@ def run_delegate(
     # linkage depends on the orchestrator CLI forwarding its environment to the MCP delegate child it
     # spawns. That forwarding is the orchestrator's behavior, not TangleBrain's — if a CLI stops
     # forwarding env, or a roster adds TANGLEBRAIN_TASK_ID to an orchestrator's invoke.scrub_env, the
-    # linkage degrades rather than erroring (the delegation itself is unaffected) — but it is no
-    # longer silent: the absence is recorded as linkage_lost and counted in --stats (#123).
+    # linkage degrades rather than erroring (the delegation itself is unaffected) — but it is
+    # not silent: the absence is recorded as linkage_lost and counted in --stats (#123).
     #
     # record_task never raises; the extra guard is belt-and-suspenders — metering must never break a
     # delegation.

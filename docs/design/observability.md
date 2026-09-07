@@ -118,6 +118,44 @@ says so instead of labelling it with whichever one is configured today.
 Documentation consistently calls these estimates. Keep it that way — the number's credibility rests
 on not overclaiming it.
 
+## Store health
+
+The measurement store can be broken in ways that produce a *plausible* number rather than an error,
+which is the failure mode a rollup is worst at showing. `--stats` and the GUI panel therefore run a
+probe at render time and report what it found.
+
+**It reports a check, never a guarantee.** "The usage log is not writable — checked write permission
+on `<path>`" is something the probe actually asked the filesystem. "No writes were lost" would be a
+completeness claim with no mechanism behind it: nothing reads history, and a permission restored
+between two appends leaves a hole no probe can see. Findings are worded as the question asked and
+the answer it got, at the moment it was asked.
+
+**Two conditions, reported separately, because they fail independently.** A read-only log means
+tasks routed *now* are not being recorded; it says nothing about whether the lifetime figure is
+sound. A `totals.json` that is present but unreadable means the opposite: the figures cover only
+the rows still on disk, and — because compaction refuses to fold onto a totals file it cannot read
+— the log has also stopped being pruned. One condition, two consequences, and the wording names
+both.
+
+**Absence is not damage.** A machine that has never routed a task has no log directory, and a log
+that has never crossed the compaction cap has no `totals.json`. Both are ordinary states of a fresh
+install, and reporting them would fire the signal on every clean machine until the reader learned to
+ignore it.
+
+**It degrades to a finding, never to silence.** A probe that cannot run reports that it could not
+run. Silence renders identically to a healthy store, so swallowing would make "I could not tell"
+indistinguishable from "all well" — the one substitution this signal exists to prevent.
+
+**It carries the warning glyph, and the pricing-span note does not.** That note marks a benign,
+expected state; these render only when a check actually failed. A real fault wearing the benign
+glyph is the same defect as a benign state wearing the warning one, pointed the other way.
+
+This is the counterpart to the once-per-process stderr notice on a lost append, answering a
+different question: the notice tells the operator *when it happens*, the health line tells them
+*when they go to trust the number*. Neither substitutes for the other — a long-lived `serve` or
+`gui` process prints the notice once at hour zero and stays silent afterwards, while the probe
+re-runs on every render.
+
 ## What is deliberately absent
 
 | Signal | Status | Reasoning |

@@ -12,7 +12,14 @@ from __future__ import annotations
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import run_once
-from tanglebrain.measurement import load_pricing, read_records, rollup, save_pricing, validate_pricing
+from tanglebrain.measurement import (
+    load_pricing,
+    probe_measurement_health,
+    read_records,
+    rollup,
+    save_pricing,
+    validate_pricing,
+)
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.roster_edit import RosterEditError, save_roster_edits
 from tanglebrain.router import RouterError
@@ -103,15 +110,22 @@ def view_stats() -> dict:
     rows are compacted, which is the exact failure the totals file exists to prevent.
 
     Returns:
-        ``{summary, pricing_ref, is_placeholder}`` where ``summary`` is :func:`rollup`'s dict —
-        lifetime throughout, except the delegates' ``by_parent`` tree, which the panel labels as
-        covering the current window only.
+        ``{summary, pricing_ref, is_placeholder, health}`` where ``summary`` is :func:`rollup`'s
+        dict — lifetime throughout, except the delegates' ``by_parent`` tree, which the panel
+        labels as covering the current window only — and ``health`` is
+        :func:`probe_measurement_health`'s findings, empty when the store is sound.
+
+        The health probe runs on every poll rather than once per process. That is the property it
+        was chosen for: a panel left open all day outlives the one-shot stderr notice that
+        ``record_task`` emits, so a store that breaks at hour six would otherwise never reach this
+        surface.
     """
     pricing = load_pricing()
     return {
         "summary": rollup(read_records(), read_totals()),
         "pricing_ref": pricing.reference_model,
         "is_placeholder": pricing.is_placeholder,
+        "health": probe_measurement_health(),
     }
 
 
