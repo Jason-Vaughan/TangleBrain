@@ -148,6 +148,18 @@ class ViewStatsTest(unittest.TestCase):
         self.assertEqual(len(out["health"]), 1)
         self.assertIn("totals", out["health"][0])
 
+    def test_the_panel_actually_renders_the_health_findings(self):
+        # Pins the consumer, not just the producer. `view_stats` emitting `health` is covered
+        # twice over, but deleting the render line — or renaming the payload key on either side —
+        # left every test green while the panel silently stopped reporting that tasks are not
+        # being recorded. That is the same shape as the untested `--stats` call site, one layer
+        # out: the two ends of a contract were each pinned and the wire between them was not.
+        panel = (Path(__file__).resolve().parents[1]
+                 / "tanglebrain" / "gui" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("d.health", panel, "the panel must read the payload key view_stats writes")
+        self.assertIn("⚠ measurement:", panel)
+        self.assertIn("esc(finding)", panel, "server-composed findings must stay escaped")
+
     def test_includes_delegate_breakdown(self):
         recs = [
             {"kind": "task", "tier": "sub", "in_tokens_est": 5, "out_tokens_est": 5,

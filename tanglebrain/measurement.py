@@ -637,6 +637,16 @@ def probe_measurement_health(
     appends leaves a hole no probe can see. The findings are worded as the question that was asked
     and the answer it got, at the moment it was asked.
 
+    **What the check is, precisely, because it is narrower than "can this be written".**
+    :func:`os.access` reads the *permission bits*; it does not attempt a write. A full disk, an
+    exhausted quota, an immutable flag, and root over a ``0444`` file all satisfy it while an
+    append would still fail — so a clean probe is evidence about permissions, not about capacity.
+    A trial append was the alternative and was rejected: it would write to the operator's log on
+    every ``--stats``, which is a side effect a read-only command must not have, and it would race
+    the very appends it is meant to describe. The narrower check with its limit stated is the
+    honest trade; the limit is written down rather than left for a reader to discover in the one
+    state it matters.
+
     **It fires eagerly by preference.** The two failure directions are not symmetric: a finding
     that need not have fired is a line the operator reads and dismisses, while silence over a store
     that is genuinely broken is the exact defect this exists to prevent. Where the choice arises,
@@ -671,7 +681,17 @@ def probe_measurement_health(
             "its paths; whether it is recording is unknown"
         ]
     try:
-        if log.is_file():
+        if log.exists() and not log.is_file():
+            # A directory or socket sitting on the log path is the worst of the three states and
+            # was the one that reported nothing: `is_file()` sent it down the does-not-exist
+            # branch, where `mkdir(parents=True, exist_ok=True)` succeeds against an existing
+            # directory and the append then raises on every task. Neither a permission check nor
+            # an ancestor walk describes it, so it gets its own finding.
+            findings.append(
+                f"the usage-log path is not a regular file — checked the file type of {log}; "
+                "nothing can be appended to it"
+            )
+        elif log.is_file():
             # Once the log exists, the append target is the file. A writable directory holding a
             # read-only log loses every task, and the directory check alone would call that fine.
             if not os.access(log, os.W_OK):
@@ -1209,10 +1229,10 @@ def format_rollup(summary: dict, pricing: Pricing, health: list[str] | None = No
     which is the same idiom the failure and origin lines already follow: a line appears only once
     it has something to say.
 
-    **They take the warning glyph, and the pricing-span note does not**, because these render only
-    when a check actually failed while that note marks a benign state. The full reasoning has one
-    home in ``docs/design/observability.md`` § Store health; it is not restated here, so a ruling
-    change has one place to land rather than three that can drift apart.
+    **They take the warning glyph** under the block's criterion: ``⚠`` marks a figure that cannot
+    be trusted as printed, ``ℹ`` marks benign context about a figure that can. The criterion — and
+    why it is stated rather than inferred from the two lines that happen to use each glyph — has
+    one home in ``docs/design/observability.md`` § Store health, so a ruling change lands once.
 
     Args:
         summary: The aggregate from :func:`rollup`.

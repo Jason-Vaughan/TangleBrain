@@ -164,7 +164,8 @@ moment you ask, so they describe the store as it is now: a usage log that cannot
 routed now are not being recorded) and a `totals.json` that is present but unreadable (the figures
 cover only the rows still on disk, and compaction has stopped pruning) are reported separately,
 because they fail independently. Each names the check it performed rather than promising an
-outcome — the probe cannot know whether past writes were lost.
+outcome — the probe cannot know whether past writes were lost. **The repair for the unreadable
+`totals.json` case is below**, under *"Spend avoided jumped, or `--stats` refuses to compact"*.
 
 **Then stderr from the last run** — a task that could not be recorded says so, naming the error and
 which way the figure moves. That notice fires once per process, so one line can stand for any

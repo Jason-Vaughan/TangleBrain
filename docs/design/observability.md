@@ -4,8 +4,9 @@
 
 TangleBrain has **one signal**: an append-only JSONL usage log. No metrics backend, no tracing, no
 alerting, no health endpoint. The store's own health is checked where it is *read* — see
-[Store health](#store-health) — which is a property of the rollup, not a fourth signal: nothing
-polls it, nothing serves it, and it produces no data anyone but the reader in front of it sees.
+[Store health](#store-health) — which is a property of the rollup, not a fourth signal: no endpoint
+serves it, nothing polls it, and it produces no data beyond the line in front of the reader who
+asked for it.
 
 For a single-operator local tool whose consumer is a human running `--stats`, that is the right
 depth — and this document says so rather than filing three absent signals as gaps. What it does
@@ -132,6 +133,14 @@ completeness claim with no mechanism behind it: nothing reads history, and a per
 between two appends leaves a hole no probe can see. Findings are worded as the question asked and
 the answer it got, at the moment it was asked.
 
+**And the check is narrower than "can this be written".** It reads permission bits. A full disk, an
+exhausted quota, an immutable flag, and root over a `0444` file all pass it while an append would
+still fail, so a quiet probe is evidence about permissions and not about capacity. A trial append
+was rejected as the alternative: `--stats` is a read-only command and must not write to the log to
+describe it, and a trial write would race the appends it is meant to characterise. The narrower
+check with its limit stated is the trade — which is the same stance the rest of this page takes,
+since a signal that overclaims is worse than one that is explicit about its edge.
+
 **Two conditions, reported separately, because they fail independently.** A read-only log means
 tasks routed *now* are not being recorded; it says nothing about whether the lifetime figure is
 sound. A `totals.json` that is present but unreadable means the opposite: the figures cover only
@@ -151,9 +160,13 @@ state root would otherwise stay silent while every append raised.
 run. Silence renders identically to a healthy store, so swallowing would make "I could not tell"
 indistinguishable from "all well" — the one substitution this signal exists to prevent.
 
-**It carries the warning glyph, and the pricing-span note does not.** That note marks a benign,
-expected state; these render only when a check actually failed. A real fault wearing the benign
-glyph is the same defect as a benign state wearing the warning one, pointed the other way.
+**The glyph is a criterion, not a precedent.** `⚠` means *the figure above cannot be trusted as
+printed* — placeholder rates make it illustrative, a broken store makes it short. `ℹ` means *benign
+context about a figure you can trust*, which is what a pricing span is. Stated that way it decides
+the next annotation line too, instead of leaving it to be re-derived from two examples: the health
+line takes `⚠` not because a check failed but because the figure beside it is not trustworthy —
+which is also why `⚠ pricing: PLACEHOLDER`, where nothing failed and no check ran, takes the same
+glyph. A benign state wearing `⚠` and a real fault wearing `ℹ` are one defect, pointed two ways.
 
 This is the counterpart to the once-per-process stderr notice on a lost append, answering a
 different question: the notice tells the operator *when it happens*, the health line tells them

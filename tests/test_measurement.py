@@ -2034,6 +2034,16 @@ class MeasurementHealthTest(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn(str(self.log), findings[0])
 
+    def test_a_non_regular_file_on_the_log_path_is_reported(self):
+        # The worst of the three states and the one that used to report nothing: `is_file()` sent
+        # a directory down the does-not-exist branch, where `mkdir(parents=True, exist_ok=True)`
+        # succeeds against it and every append then raises.
+        (self.dir / LOG_FILENAME).mkdir()
+        findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("not a regular file", findings[0])
+        self.assertIn(str(self.log), findings[0])
+
     def test_present_but_unreadable_totals_is_reported(self):
         self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
         self.totals.write_text("{not json at all", encoding="utf-8")
