@@ -107,31 +107,73 @@ reporting route.
 By contributing, you agree that your contributions are licensed under the project's
 [MIT License](LICENSE).
 
-<!-- BEGIN mirrored-security-rules
-     MIRRORED from https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md
+<!-- MIRRORED from https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md
      Edit that file first, then update this copy. Do not let them diverge.
-     These markers are load-bearing: a drift checker extracts exactly what lies between
-     them, so do not remove, rename or reformat them. -->
+     The markers below are load-bearing: a drift checker extracts exactly what lies between
+     them and compares it byte-for-byte with upstream, so do not remove, rename or reformat
+     them, and do not add repo-specific prose inside them — it belongs outside. -->
 
 ## Security rules that apply to every repository
 
-- **Clean-room review.** Pull requests from contributors we do not know are reviewed as raw text
-  diffs. Maintainers do not check out your branch or run your code on their own machines. Where a
-  repository runs CI on pull requests, those runs are sandboxed by GitHub with a read-only token and
-  no access to repository secrets. If your logic is sound we re-implement it and credit you as the
-  author.
-- **Because we reconstruct it, your explanation is worth more than your code.** Describe the bug
-  precisely and explain the approach; a clear description gets shipped, a large unexplained diff
-  does not.
-- **Scope.** One issue per pull request. A diff touching unrelated files is closed regardless of
-  quality — from the outside, scope overrun and probing are indistinguishable.
-- **Reviewable text only.** No binary files, and no generated, minified or vendored code. Source
-  must contain no bidirectional control characters, no zero-width or invisible characters, and no
-  non-ASCII homoglyphs standing in for ASCII in identifiers: those make a diff *render* differently
-  from what it *executes* (Trojan Source, CVE-2021-42574), which defeats a text audit by
-  construction. Ordinary Unicode in prose, comments and string literals is fine.
-- **Security reports:** do not open a public issue. Open this repository's **Security** tab and
-  choose **Report a vulnerability** — see the [security policy](../../security/policy).
+<!-- BEGIN mirrored-security-rules -->
+1. **The Clean Room Reconstruction Standard (Dual-Key Review).** Pull requests from contributors we do not know are reviewed as **raw text diffs** through a strict dual-key process:
+   - **First Pass (Macro Filter):** The Coordinator session performs the initial security audit, explicitly checking for supply chain attacks, `package.json` tampering, and broad logical soundness.
+   - **Second Pass (Micro Filter):** If the PR passes the Coordinator, the Builder session performs an independent raw-text audit to catch subtle logic bombs or regressions before execution.
+   
+   Maintainers will not check out your branch or run your code on their own machines. If your contribution clears both audits, the Builder re-implements the logic from scratch on `main` and **credits you as the author**. We merge ideas, not raw bytes.
+
+   To be precise, because this is a security claim and a vague one is worthless: *continuous
+   integration does run your tests* when a repository's workflows are triggered by pull requests.
+   Those runs are sandboxed by GitHub, with a read-only token and no access to repository secrets.
+   The commitment is that no maintainer executes your code on their own hardware.
+
+2. **Because we reconstruct it, your explanation is worth more than your code.** The most valuable
+   pull request describes the bug precisely, says why it happens, and explains the approach. A clear
+   description gets reconstructed and shipped. A large, clever, unexplained diff does not, however
+   good it is.
+
+3. **Scope.** One issue per pull request, and nothing outside it. A diff that touches files
+   unrelated to the issue will be closed regardless of quality — from the outside, scope overrun and
+   probing are indistinguishable.
+
+4. **Forbidden files.** Core infrastructure is off-limits unless an issue explicitly asks for a
+   change there: CI workflows (`.github/workflows/`), build scripts and `Makefile`s, install or
+   deploy scripts, git hooks, and orchestrator configuration. What these have in common is that they
+   execute **without anyone choosing to run them**, which is what separates them from ordinary
+   source. Unexplained modifications there are treated as payload and the pull request is closed.
+
+5. **Reviewable text only.** No binary files, and no generated, minified or vendored code — none of
+   them can be read as a diff, and a diff is the only review we perform.
+
+   For the same reason, source must contain no **bidirectional control characters**, no
+   **zero-width or invisible characters**, and no **non-ASCII homoglyphs standing in for ASCII in
+   identifiers**. Those three make a diff *render* differently from what it *executes*
+   ("Trojan Source", CVE-2021-42574) — an attack aimed precisely at a text-based review, which
+   defeats our method by construction rather than by degree. Ordinary Unicode in prose, comments and
+   string literals is fine: it is the invisible and the disguised that are the problem, not the
+   non-English.
+
+6. **No new dependencies.** Adding third-party libraries, npm packages or PyPI dependencies
+   introduces supply-chain risk that these projects have deliberately designed out. Unless an issue
+   explicitly asks for a new dependency, do not add one — and note that some of our repositories are
+   strictly zero-dependency, where adding one is an automatic rejection. A solution built on the
+   standard library is vastly preferred over importing a new package.
+
+7. **No obfuscation.** Code must be clear and readable. Base64 payloads, hidden network requests,
+   dynamic `eval`/`require` of constructed strings, or deliberately obscured logic will result in an
+   immediate ban. This is the one rule where we assume intent, because none of those happen by
+   accident.
+
+<!-- END mirrored-security-rules -->
+
+<!-- Repo-specific, deliberately OUTSIDE the mirrored block: the upstream rules do not carry a
+     vulnerability-reporting route, and this one is per-repository (the Security tab is this
+     repo's). Putting it inside the markers would break byte-identity with upstream and the
+     drift checker would red. "Filing issues" above points here for the private route. -->
+
+### Reporting a vulnerability
+
+Do not open a public issue. Open this repository's **Security** tab and choose **Report a
+vulnerability** — see the [security policy](../../security/policy).
 
 Full contribution guide: https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md
-<!-- END mirrored-security-rules -->
