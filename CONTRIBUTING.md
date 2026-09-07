@@ -9,6 +9,25 @@ the [Disclaimer](DISCLAIMER.md) — it explains the opt-in posture of the subscr
 authenticated-CLI adapters (your responsibility under each provider's Terms of Service) and the
 bring-your-own-key, off-by-default paid-API tier. Keep contributions consistent with that posture.
 
+## Security & contribution guidelines
+
+**Supply-chain security and PR review standards.** To protect the integrity of the project and the
+machines running it, incoming pull requests are subject to a security audit. Expect rigorous review
+and some back-and-forth.
+
+1. **Zero-trust review.** PRs from contributors we don't know are reviewed as raw text diffs.
+   Maintainers do not check out an unknown branch or execute its code before a full text audit. If
+   the logic is sound but the provenance isn't, we may reconstruct the change in a clean commit on
+   `main` and credit you for it rather than merging the bytes.
+2. **Execution vectors are off-limits.** CI workflows (`.github/workflows/`), the `Makefile`, and
+   build scripts. An unexplained or undocumented change to any of them is treated as a malicious
+   payload and the PR is rejected.
+3. **No new dependencies.** Third-party packages are supply-chain risk; standard-library solutions
+   are strongly preferred. Unexpected additions to `pyproject.toml` will be rejected. (See the
+   dependency-bound rationale in `pyproject.toml` itself.)
+4. **No obfuscation.** Base64 payloads, hidden network calls, and deliberately unclear logic are
+   rejected on sight. Code must be readable.
+
 ## Dev setup
 
 Requires **Python ≥ 3.10**.

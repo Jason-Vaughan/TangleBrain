@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **`CONTRIBUTING.md` states the supply-chain review posture for incoming PRs.** Zero-trust review
+  of unknown branches, CI workflows and build scripts as off-limits execution vectors, no new
+  dependencies, no obfuscated logic. Landed as one section rather than the two overlapping copies it
+  arrived as — the same guideline stated twice diverges the first time either is edited.
+
 ## [0.22.0] - 2026-09-07
 
 ### Changed
