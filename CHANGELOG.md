@@ -41,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **`CONTRIBUTING.md`'s mirrored security rules now match upstream again.** The Clean Room clause
+  said a reconstruction "credits you as the author", which pulled against the standard it sits in —
+  the whole point of the clean room is that we author the bytes. Upstream
+  [`Jason-Vaughan/.github`](https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md)
+  resolved it to "ensures you receive full credit and an @mention for your contribution (while
+  preserving the Clean Room distinction that we author the final bytes)", which promises the
+  contributor more, not less, and no longer contradicts the paragraph above it. This copy is a
+  byte-for-byte mirror, so it follows rather than diverges. One sentence; no other line moved.
+
 - **The weekly CI canary's comment now names both extras it resolves** — `".[delegate,dev]"`, not
   `".[delegate]"`. The job runs `make test`, which builds the venv from `pip install -e
   ".[delegate,dev]"`, so the canary has always resolved `ruff` and `mypy` too and would catch an

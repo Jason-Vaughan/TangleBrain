@@ -120,7 +120,7 @@ By contributing, you agree that your contributions are licensed under the projec
    - **First Pass (Macro Filter):** The Coordinator session performs the initial security audit, explicitly checking for supply chain attacks, `package.json` tampering, and broad logical soundness.
    - **Second Pass (Micro Filter):** If the PR passes the Coordinator, the Builder session performs an independent raw-text audit to catch subtle logic bombs or regressions before execution.
    
-   Maintainers will not check out your branch or run your code on their own machines. If your contribution clears both audits, the Builder re-implements the logic from scratch on `main` and **credits you as the author**. We merge ideas, not raw bytes.
+   Maintainers will not check out your branch or run your code on their own machines. If your contribution clears both audits, the Builder re-implements the logic from scratch on `main` and **ensures you receive full credit and an @mention for your contribution** (while preserving the Clean Room distinction that we author the final bytes). We merge ideas, not raw bytes.
 
    To be precise, because this is a security claim and a vague one is worthless: *continuous
    integration does run your tests* when a repository's workflows are triggered by pull requests.
