@@ -102,7 +102,7 @@ adapter**. For bugs, include reproduction steps and what you expected. For secur
 reports, please don't open a public issue. Use GitHub's private vulnerability reporting instead: open
 this repository's **Security** tab and choose **Report a vulnerability**, which opens a private
 advisory visible only to you and the maintainers. The
-[security policy](https://github.com/Jason-Vaughan/TangleBrain/security/policy) says what to expect
+[security policy](../../security/policy) says what to expect
 back, and what to do if that option isn't available.
 
 ## License
