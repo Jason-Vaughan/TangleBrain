@@ -192,12 +192,18 @@ def migrate_state_root(stream: TextIO | None = None) -> list[str]:
                     shutil.copy2(item, staged)
                 os.replace(staged, destination)
             except OSError:
-                _discard(staged)
                 if destination.exists():
                     # Another console script started at the same moment and won the race. Its
                     # copy is the same bytes from the same source, so this is not a failure.
                     continue
                 raise
+            finally:
+                # `finally`, not the `except` arm: a unique staging name is unfindable by any
+                # later run, so whatever leaves this block without cleaning up leaks it into the
+                # operator's data root permanently — and Ctrl-C during a first-run migration,
+                # which every console script performs at startup, is not an `OSError`. A
+                # successful `os.replace` has already consumed the entry, so this is then a no-op.
+                _discard(staged)
             migrated.append(item.name)
     except OSError as exc:
         print(

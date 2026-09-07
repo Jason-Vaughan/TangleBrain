@@ -39,16 +39,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than an empty pointer, because it looks answered. The private route now lives in the mirrored
   security rules and that line points at it.
 
-- **Two console scripts starting at once could lose the state migration entirely**
+- **Two console scripts starting at once could corrupt or lose the state migration**
   ([#139](https://github.com/Jason-Vaughan/TangleBrain/issues/139)). Every console script migrates
   the pre-0.21 state root on startup, and each staged its copy under a fixed name — so both
-  processes used the same staging path. When the second one failed part-way it cleaned up that
-  shared path, deleting the *completed* copy the first had just staged, whose move into place then
-  failed on a file that was no longer there. The visible result was worse than a lost race: **both
-  processes printed `could not move state`, nothing migrated at all**, and the operator was told
-  their history was stranded and `--stats` might read low — on a machine where nothing was wrong.
-  Staging now uses `atomic.staging_path`, which is unique per process, so a process that fails can
-  only ever discard its own work.
+  processes computed the *same* staging path, and each could act on the other's file. Two
+  interleavings were possible, and the quiet one is the worse:
+
+  - **Loud.** The second process fails part-way and cleans up the shared path, deleting the
+    *completed* copy the first had just staged; the first's move into place then fails on a file
+    that is no longer there. Both processes print `could not move state` and nothing migrates,
+    telling the operator their history is stranded and `--stats` may read low, on a machine where
+    nothing is wrong. The next run does repair it.
+  - **Silent, and permanent.** The second process's cleanup unlinks the first's staging file
+    *while it is still being written*, then creates a new one at that same path. The first
+    process finishes writing into the file it no longer has a name for, and then moves the second
+    one's **still-partial** copy into place. Nothing raises, nothing is printed, and the migration
+    reports success — but because the re-run guard is "does the destination exist", the truncated
+    file is never retried and understates the lifetime figure for good.
+
+  **If you installed 0.21.0 or 0.22.0 and `--stats` reads lower than you expect**, compare
+  `~/.local/share/tanglebrain/usage.jsonl` with `~/.cache/tanglebrain/usage.jsonl`. The migration
+  copies and never deletes, so the original is still there: delete the short file at the new path
+  and run any `tanglebrain` command to migrate it again.
+
+  Staging now uses `atomic.staging_path`, which is unique per process, so no process can reach
+  another's staging file at all. Cleanup moved into a `finally` in the same change: a unique name
+  is unfindable by any later run, so an interrupt — Ctrl-C during the first-run migration — would
+  otherwise leave a staging entry in the data root permanently.
 
   Found and reported by **@be-student**, who also identified `atomic.staging_path` as the fix. As
   `CONTRIBUTING.md` explains, external contributions are re-implemented rather than merged: the

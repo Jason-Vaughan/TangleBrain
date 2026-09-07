@@ -381,6 +381,29 @@ class MigrateStateRootTest(unittest.TestCase):
             list(self.new.glob("*.tmp")), "neither process may leave a staging entry behind"
         )
 
+    def test_an_interrupt_mid_copy_leaves_no_orphan_in_the_operators_data_root(self):
+        """Ctrl-C is not an `OSError`, and a unique staging name is unfindable by any later run.
+
+        Every console script migrates at startup, so the interrupt lands here more often than
+        anywhere else in the package. Nothing sweeps the data root — a sweep keyed on the staging
+        suffix would be the fixed-name collision again, one directory wider — so an entry not
+        cleaned up on the way out is an entry the operator keeps forever.
+        """
+        self._seed_legacy()
+
+        def interrupted(src, dst, *args, **kwargs):
+            Path(dst).write_text("half a fi", encoding="utf-8")
+            raise KeyboardInterrupt
+
+        with patch("tanglebrain.router.shutil.copy2", side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                migrate_state_root(stream=io.StringIO())
+
+        self.assertFalse(
+            list(self.new.glob("*.tmp")),
+            "an interrupted copy left a staging entry nothing will ever reclaim",
+        )
+
     def test_the_notice_never_goes_to_stdout(self):
         # stdout carries the routed answer and gets piped; a notice there corrupts it.
         self._seed_legacy()
