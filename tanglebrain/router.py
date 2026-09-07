@@ -24,6 +24,7 @@ from typing import Callable, Mapping, TextIO
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.adapters.base import Adapter
+from tanglebrain.atomic import staging_path
 from tanglebrain.roster import RosterEntry, Roster
 from tanglebrain.selector import build_adapter
 from tanglebrain.settings import Settings, load_settings
@@ -114,7 +115,9 @@ def legacy_state_root() -> Path:
 def _discard(path: Path) -> None:
     """Remove ``path`` — file or directory tree — tolerating its absence.
 
-    Used to clear a half-written staging entry. Absence is the expected case, not an error.
+    Used to clear a half-written staging entry after a failed copy. Absence is tolerated rather
+    than expected: the failure may have arrived before anything was created, and a cleanup that
+    raised would replace the real error with its own.
 
     Args:
         path: The path to remove.
@@ -141,12 +144,19 @@ def migrate_state_root(stream: TextIO | None = None) -> list[str]:
 
     Copying is per-entry and skips anything already present at the destination, so an interrupted
     run completes on the next invocation instead of skipping wholesale, and a completed run is a
-    no-op. Each entry is staged under a dotted temporary name in the destination directory and
-    moved into place with :func:`os.replace`, so a copy killed part-way leaves no partial file at
-    the real path — which matters precisely *because* the re-run guard is "does the destination
-    exist": a truncated ``usage.jsonl`` would be skipped forever and understate the lifetime
-    figure with nothing to signal it. One notice is printed for the move as a whole, not one per
-    file: the operator needs to know their state moved, not to read an inventory.
+    no-op. Each entry is staged under a temporary name in the destination directory and moved into
+    place with :func:`os.replace`, so a copy killed part-way leaves no partial file at the real
+    path — which matters precisely *because* the re-run guard is "does the destination exist": a
+    truncated ``usage.jsonl`` would be skipped forever and understate the lifetime figure with
+    nothing to signal it. One notice is printed for the move as a whole, not one per file: the
+    operator needs to know their state moved, not to read an inventory.
+
+    The staging name is **unique per process** (:func:`~tanglebrain.atomic.staging_path`), not a
+    fixed one. Every console script migrates on startup, so two of them can be here at once — and
+    with a shared staging name the second one's cleanup deletes the first one's *completed* staged
+    copy, whose :func:`os.replace` then fails on a file that is simply gone. The operator sees both
+    processes report a failed migration, on a machine where nothing is wrong, with nothing
+    migrated. A unique name means a losing process can only ever discard its own work.
 
     Failure is reported, never raised and never silent. A migration that fails leaves the new root
     incomplete, and a rollup over an incomplete log understates savings — which reads as the
@@ -174,8 +184,7 @@ def migrate_state_root(stream: TextIO | None = None) -> list[str]:
             if destination.exists():
                 continue
             target.mkdir(parents=True, exist_ok=True)
-            staged = target / f".{item.name}.incoming"
-            _discard(staged)
+            staged = staging_path(destination)
             try:
                 if item.is_dir():
                     shutil.copytree(item, staged)

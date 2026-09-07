@@ -288,6 +288,11 @@ class MigrateStateRootTest(unittest.TestCase):
         with patch("tanglebrain.router.shutil.copy2", side_effect=truncated_write):
             migrate_state_root(stream=io.StringIO())
 
+        # First, because a surviving staging entry would otherwise be reported by the loop below
+        # as an unexplained file rather than as the leak it is.
+        self.assertFalse(
+            list(self.new.glob("*.tmp")), "staging entries must not survive a failure"
+        )
         # Assert over whatever landed rather than a named file: `copy2` dies on the first entry it
         # is handed, and which one that is depends on iteration order. Naming a file here is how
         # this test passes without ever exercising the defect.
@@ -299,9 +304,6 @@ class MigrateStateRootTest(unittest.TestCase):
                 f.read_bytes(), original.read_bytes(),
                 f"{f.name} is at its real path but truncated; every later run will skip it",
             )
-        self.assertFalse(
-            list(self.new.glob(".*.incoming")), "staging entries must not survive a failure"
-        )
         # And the retry the notice promises actually works.
         migrate_state_root(stream=io.StringIO())
         self.assertEqual(
@@ -333,6 +335,51 @@ class MigrateStateRootTest(unittest.TestCase):
         self.assertNotIn("could not move state", out.getvalue())
         self.assertEqual(sorted(migrated), ["router-state.json", "usage.jsonl"])
         self.assertTrue((self.new / "backups" / "pricing-x.yaml").is_file())
+
+    def test_a_rival_start_cannot_destroy_our_completed_staged_copy(self):
+        """A second console script starting mid-migration must not cost us the entry we staged.
+
+        Every console script migrates on startup, so two can be inside this function at once. When
+        the staging name is a fixed one, both compute the same path: the rival writes over our
+        finished staged copy, fails, cleans *that shared path* up, and our `os.replace` then dies
+        on a file that is simply gone. The operator sees both processes report a failed migration
+        and finds nothing migrated, on a machine where nothing is wrong — which reads as the
+        product being broken rather than as two starts overlapping.
+
+        The rival here fails its own copy (a killed process, a full disk) because that is the only
+        shape that reaches the defect: a rival that *succeeds* leaves the destination in place, and
+        that path is already covered above.
+        """
+        self._seed_legacy()
+        real_copy = shutil.copy2
+        rival_out = io.StringIO()
+        state = {"rival_ran": False}
+
+        def rival_starts_mid_copy(src, dst, *args, **kwargs):
+            if Path(src).name == "usage.jsonl" and not state["rival_ran"]:
+                state["rival_ran"] = True
+                result = real_copy(src, dst)  # our staged copy completes
+                migrate_state_root(stream=rival_out)  # ...and now a rival process starts
+                return result
+            if state["rival_ran"] and Path(src).name == "usage.jsonl":
+                Path(dst).write_text("half a fi", encoding="utf-8")  # the rival dies mid-copy
+                raise OSError("rival copy stopped")
+            return real_copy(src, dst)
+
+        out = io.StringIO()
+        with patch("tanglebrain.router.shutil.copy2", side_effect=rival_starts_mid_copy):
+            migrated = migrate_state_root(stream=out)
+
+        self.assertTrue(state["rival_ran"], "the rival never started — this test would prove nothing")
+        self.assertNotIn("could not move state", out.getvalue())
+        self.assertEqual(sorted(migrated), ["backups", "router-state.json", "usage.jsonl"])
+        self.assertEqual(
+            (self.new / "usage.jsonl").read_text(encoding="utf-8"), '{"kind": "task"}\n',
+            "the rival's partial bytes reached the real path, or ours never did",
+        )
+        self.assertFalse(
+            list(self.new.glob("*.tmp")), "neither process may leave a staging entry behind"
+        )
 
     def test_the_notice_never_goes_to_stdout(self):
         # stdout carries the routed answer and gets piped; a notice there corrupts it.

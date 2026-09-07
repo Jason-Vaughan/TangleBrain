@@ -39,6 +39,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than an empty pointer, because it looks answered. The private route now lives in the mirrored
   security rules and that line points at it.
 
+- **Two console scripts starting at once could lose the state migration entirely**
+  ([#139](https://github.com/Jason-Vaughan/TangleBrain/issues/139)). Every console script migrates
+  the pre-0.21 state root on startup, and each staged its copy under a fixed name — so both
+  processes used the same staging path. When the second one failed part-way it cleaned up that
+  shared path, deleting the *completed* copy the first had just staged, whose move into place then
+  failed on a file that was no longer there. The visible result was worse than a lost race: **both
+  processes printed `could not move state`, nothing migrated at all**, and the operator was told
+  their history was stranded and `--stats` might read low — on a machine where nothing was wrong.
+  Staging now uses `atomic.staging_path`, which is unique per process, so a process that fails can
+  only ever discard its own work.
+
+  Found and reported by **@be-student**, who also identified `atomic.staging_path` as the fix. As
+  `CONTRIBUTING.md` explains, external contributions are re-implemented rather than merged: the
+  diagnosis and the approach are theirs, the bytes here are ours.
+
 ### Internal
 
 - **The weekly CI canary's comment now names both extras it resolves** — `".[delegate,dev]"`, not
