@@ -8,6 +8,7 @@ that moves ``totals.json`` — so a fake would test the model instead of the mec
 """
 from __future__ import annotations
 
+import contextlib
 import inspect
 import io
 import json
@@ -141,7 +142,7 @@ class TruncatedMigrationTest(IntegrityTestBase):
         self.append_current([row(n) for n in range(100, 105)])
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding)
-        self.assertIn("copied it only in part", finding)
+        self.assertIn("holds usage records your current log does not", finding)
 
     def test_a_copy_cut_mid_record_is_reported(self):
         legacy = [row(n) for n in range(6)]
@@ -151,7 +152,7 @@ class TruncatedMigrationTest(IntegrityTestBase):
         self.append_current([row(n) for n in range(100, 105)])
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding)
-        self.assertIn("copied it only in part", finding)
+        self.assertIn("holds usage records your current log does not", finding)
 
     def test_a_copy_that_landed_nothing_is_reported(self):
         legacy = [row(n) for n in range(6)]
@@ -160,13 +161,13 @@ class TruncatedMigrationTest(IntegrityTestBase):
         self.append_current([row(n) for n in range(100, 110)])
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding)
-        self.assertIn("copied it only in part", finding)
+        self.assertIn("holds usage records your current log does not", finding)
 
     def test_a_missing_current_log_is_reported(self):
         self.write_legacy([row(n) for n in range(3)])
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding)
-        self.assertIn("copied it only in part", finding)
+        self.assertIn("holds usage records your current log does not", finding)
 
     def test_a_truncated_log_bigger_than_the_legacy_one_is_still_reported(self):
         """The case that rules out comparing sizes, kept as an executable argument.
@@ -185,7 +186,7 @@ class TruncatedMigrationTest(IntegrityTestBase):
         self.assertGreater(current_size, legacy_size, "this test proves nothing unless it is bigger")
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding)
-        self.assertIn("copied it only in part", finding)
+        self.assertIn("holds usage records your current log does not", finding)
 
 
 class CompactionTest(IntegrityTestBase):
@@ -212,7 +213,7 @@ class CompactionTest(IntegrityTestBase):
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding)
         self.assertIn("could not confirm", finding)
-        self.assertNotIn("copied it only in part", finding)
+        self.assertNotIn("holds usage records your current log does not", finding)
 
     def test_no_overlap_and_no_fold_is_reported_as_certain(self):
         """Absent records with the totals untouched can only be a short copy.
@@ -227,7 +228,7 @@ class CompactionTest(IntegrityTestBase):
         self.append_current([row(n) for n in range(100, 104)])
         self.assertFalse((self.new / "totals.json").exists())
         finding = probe_migration_integrity()
-        self.assertIn("copied it only in part", finding)
+        self.assertIn("holds usage records your current log does not", finding)
 
     def test_a_fold_that_predates_the_move_is_not_mistaken_for_a_later_one(self):
         """The legacy root's own totals migrate too, so equal totals still mean no fold since."""
@@ -239,7 +240,96 @@ class CompactionTest(IntegrityTestBase):
         (self.new / "totals.json").write_text(totals, encoding="utf-8")
         self.write_current([])
         self.append_current([row(n) for n in range(100, 104)])
-        self.assertIn("copied it only in part", probe_migration_integrity())
+        self.assertIn("holds usage records your current log does not", probe_migration_integrity())
+
+
+class TornLegacyTailTest(IntegrityTestBase):
+    """A pre-move log that ends mid-record must not make a complete migration look short."""
+
+    def _seed_torn(self) -> list[str]:
+        """A legacy log whose final append died part-way, copied forward completely."""
+        rows = [row(n) for n in range(6)]
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        fragment = row(6)[:18]
+        (self.legacy / "usage.jsonl").write_text(
+            "".join(f"{r}\n" for r in rows) + fragment, encoding="utf-8"
+        )
+        # A complete migration copies the fragment verbatim, and the first append after the move
+        # writes straight onto it — so the current log holds `<fragment><next record>` as one line
+        # and can never contain the legacy file's last line again.
+        self.new.mkdir(parents=True, exist_ok=True)
+        (self.new / "usage.jsonl").write_text(
+            "".join(f"{r}\n" for r in rows) + fragment, encoding="utf-8"
+        )
+        self.append_current([row(n) for n in range(100, 104)])
+        return rows
+
+    def test_a_torn_tail_copied_completely_is_silent_before_a_fold(self):
+        self._seed_torn()
+        self.assertIsNone(probe_migration_integrity())
+
+    def test_a_torn_tail_copied_completely_is_silent_after_a_fold(self):
+        """The case the byte boundary used to hide: once a fold moves it, the record path decides.
+
+        Before the fragment was excluded, this store — intact, migrated in full — was told its
+        records were missing, because the legacy file's last *line* was a fragment that the current
+        log had already been appended onto.
+        """
+        rows = self._seed_torn()
+        self.assertEqual(self.fold_current(keep_recent=5), 5)
+        current = (self.new / "usage.jsonl").read_text(encoding="utf-8")
+        self.assertNotIn(rows[0], current, "the fold did not reach the migrated records")
+        self.assertIsNone(probe_migration_integrity())
+
+    def test_a_torn_tail_that_was_truncated_is_still_reported(self):
+        """Excluding the fragment must not cost the detection it exists to make."""
+        rows = [row(n) for n in range(6)]
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        (self.legacy / "usage.jsonl").write_text(
+            "".join(f"{r}\n" for r in rows) + row(6)[:18], encoding="utf-8"
+        )
+        self.write_current(rows[:2])
+        self.append_current([row(n) for n in range(100, 104)])
+        self.assertIn(
+            "holds usage records your current log does not", probe_migration_integrity()
+        )
+
+
+class UnreadableStoreTest(IntegrityTestBase):
+    """A check that could not run says so; it never renders as a healthy store."""
+
+    def test_an_unreadable_legacy_log_is_reported_not_swallowed(self):
+        rows = [row(n) for n in range(6)]
+        self.write_legacy(rows)
+        self.write_current(rows[:2])
+        target = self.legacy / "usage.jsonl"
+        target.chmod(0o000)
+        self.addCleanup(target.chmod, 0o644)
+        if os.access(target, os.R_OK):  # running as root — the mode says nothing
+            self.skipTest("cannot make a file unreadable as this user")
+        finding = probe_migration_integrity()
+        self.assertIsNotNone(finding, "an unreadable legacy log rendered as a healthy store")
+        self.assertIn("could not read", finding)
+
+    def test_a_legacy_log_of_invalid_utf8_is_reported_not_swallowed(self):
+        # The boundary read is bytes and survives this; the row comparison is what cannot proceed.
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        (self.legacy / "usage.jsonl").write_bytes(b"\xff\xfe not utf-8 at all\n" * 40)
+        self.write_current([row(n) for n in range(4)])
+        self.assertIsNotNone(probe_migration_integrity())
+
+    def test_an_unreadable_current_log_is_reported_not_swallowed(self):
+        rows = [row(n) for n in range(6)]
+        self.write_legacy(rows)
+        self.write_current(rows)
+        target = self.new / "usage.jsonl"
+        target.chmod(0o000)
+        self.addCleanup(target.chmod, 0o644)
+        if os.access(target, os.R_OK):
+            self.skipTest("cannot make a file unreadable as this user")
+        finding = probe_migration_integrity()
+        self.assertIsNotNone(finding)
+        self.assertIn("could not read", finding)
 
 
 class FindingTextTest(IntegrityTestBase):
@@ -300,10 +390,17 @@ class WarnTest(IntegrityTestBase):
         self.assertEqual(out.getvalue(), f"{returned}\n")
 
     def test_it_defaults_to_stderr_never_stdout(self):
-        # stdout carries the routed answer and gets piped; a notice there corrupts it.
-        source = inspect.getsource(warn_if_migration_incomplete)
-        self.assertIn("sys.stderr", source)
-        self.assertNotIn("sys.stdout", source)
+        # stdout carries the routed answer and gets piped, and on the MCP delegate it carries the
+        # protocol. Redirect both and assert where the line landed, rather than reading the source
+        # for the name of a stream — which passes just as well if the print never runs.
+        legacy = [row(n) for n in range(6)]
+        self.write_legacy(legacy)
+        self.write_current(legacy[:2])
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            returned = warn_if_migration_incomplete()
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(err.getvalue(), f"{returned}\n")
 
 
 class StartupCostTest(IntegrityTestBase):
@@ -321,7 +418,23 @@ class StartupCostTest(IntegrityTestBase):
         self.write_legacy(rows)
         self.write_current(rows)
         self.append_current([row(n) for n in range(1000, 1500)])
-        with patch.object(integrity, "_records", side_effect=AssertionError("read the whole log")):
+        with patch.object(integrity, "_rows", side_effect=AssertionError("read the whole log")):
+            self.assertIsNone(probe_migration_integrity())
+
+    def test_a_healthy_folded_store_does_not_read_both_logs_in_full(self):
+        """After a fold the boundary is gone for good, so what replaces it must still be bounded.
+
+        The newest migrated record sits at the head of the surviving window on a healthy store, so
+        the scan that looks for it stops there. Collecting the current log into a set instead would
+        pay for the whole file on every startup of every console script, permanently — a fold is
+        not a transient state, and the operator is told to keep the legacy directory forever.
+        """
+        legacy = [row(n) for n in range(40)]
+        self.write_legacy(legacy)
+        self.write_current(legacy)
+        self.append_current([row(n) for n in range(1000, 1400)])
+        self.fold_current(keep_recent=420)  # folds into the migrated records, keeping the newest
+        with patch.object(integrity, "_rows", side_effect=AssertionError("read a log in full")):
             self.assertIsNone(probe_migration_integrity())
 
     def test_the_boundary_read_is_bounded(self):

@@ -201,6 +201,13 @@ explicit, separately-invoked operation rather than something a startup path does
 data uninvited. Until it is built, the notice's job is to keep the evidence alive: it names the
 legacy directory and says to keep it, because those records exist nowhere else.
 
+**It reports the evidence, not a cause.** The finding says the legacy log holds records this one
+does not. A short copy is the reason that matters, but it is not the only route there: an operator
+who downgraded to a version that still writes `~/.cache` and ran it has appended records the new log
+never had, and one whose new root already held a `usage.jsonl` was never migrated into at all — the
+migration skips an entry whose destination exists. So the causal sentence is offered as the usual
+explanation alongside the other, never as the finding itself.
+
 **It compares records, and file sizes tell it nothing.** The current log grows on every run while
 the legacy one is frozen, so a log truncated at the migration and used for a week holds more bytes
 than the file it is missing records from. Size calls that healthy, and it reaches the
@@ -212,15 +219,37 @@ carrying them — and a check that stopped there would accuse exactly the operat
 misses. Two properties of `compact_log` make the answer exact anyway: a fold removes a *contiguous
 prefix*, so if any migrated record survives then the newest one does, which makes "some present,
 but not the newest" reachable only by a short copy; and a fold is the only thing that writes
-`totals.json`, while the legacy root is frozen after the move, so totals that never moved are a
-fold that never ran. Where a fold has been deep enough to take every migrated record, the two
+`totals.json`, while the legacy root is frozen after the move, so the two roots' totals differ
+**only if** a fold has run since. Not the converse: `read_totals` collapses a deleted or damaged
+file to zeros, so a missing `totals.json` on either side reads as a fold that never ran. That
+resolves toward the definite wording rather than the inconclusive one — the direction an honesty
+signal is allowed to fail in — and it is stated here because the deferred repair will be built on
+this sentence. Where a fold has been deep enough to take every migrated record, the two
 causes genuinely cannot be separated, and the notice says so instead of asserting loss.
 
-**The healthy path costs a fixed amount.** The legacy file's own size is the offset its last byte
-sits at inside a complete copy, so an intact store is confirmed by a seek and a small read in each
-file — no part of the cost grows with the log. The record comparison runs only when that boundary
-does not match, which is either a short copy or a compaction, and both are worth reading two files
-to resolve.
+**What it costs, stated for both states rather than only the good one.** The legacy file's own
+size is the offset its last byte sits at inside a complete copy, so an intact store that has not
+folded past that boundary is confirmed by a seek and a small read in each file, at a cost that does
+not grow with the log. **That ends at the first fold that crosses the boundary** — after it the
+bytes have moved and the comparison can never match again, so every startup of every console script
+pays a scan of the current log for the newest migrated record, and a store that cannot be settled
+that way pays a full read of both. This is permanent for any machine with a legacy root whose log
+has crossed the compaction cap, which is the steady state for exactly the heavy pre-0.21 upgraders
+this check is aimed at — so it is written down as the condition it is, not as an exception.
+
+The notice that state produces repeats on every invocation, on the same stderr channel as the
+lost-append and failed-migration notices, and there is no flag to silence it. That is deliberate
+and it is a real cost: suppressing a repeat means remembering that it fired, and remembering means
+writing to the store, which is the one thing a detector must not do. The answer is to ship the
+repair, not to quieten the signal.
+
+**Three limits, because a check that overclaims is worth less than one explicit about its edge.** A
+legacy log ending mid-record ends on a fragment that is not a row, and it is excluded — a complete
+migration copies that fragment and the next append writes onto it, so counting it as a row made an
+intact store report loss. Rows are compared as a set, so a legacy log holding the same line twice is
+satisfied by one copy. And an **already-deleted legacy root cannot be reported at all**: it is
+indistinguishable from a machine that never had one, and separating them needs a persisted marker,
+which is a write. That last limit is why the notice leads with keeping the directory.
 
 ## What is deliberately absent
 

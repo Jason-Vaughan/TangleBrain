@@ -173,11 +173,20 @@ number of lost tasks, and it is the weaker of the two signals for a long-lived `
 process, which prints it at hour zero and stays silent afterwards. Nothing is recoverable after the
 fact; what either signal buys is knowing the figure is short rather than believing it.
 
-Failing that, most likely one of the two measurement files was deleted; neither is
+**A third notice lands on stderr and its whole subject is this symptom**: one saying
+`~/.cache/tanglebrain` holds usage records your current log does not, or that this could not be
+confirmed either way. It means the v0.21.0 move forward copied the log only in part — the figure
+has been short ever since, and no re-run repairs it, because the migration's re-run guard is
+"does the destination exist". **Do not delete `~/.cache/tanglebrain` while that line is printing**:
+it holds the only copy of the missing records, and the repair is not built yet
+([#197](https://github.com/Jason-Vaughan/TangleBrain/issues/197)). The reasoning, and what the
+two wordings distinguish, is in [`observability.md`](observability.md) § Migrated-log integrity.
+
+Failing all three, most likely one of the two measurement files was deleted; neither is
 **reconstructible**. The figure is `totals.json` plus the rows in `usage.jsonl`, so losing either
 shrinks it — losing the totals discards everything already folded, losing the log discards
-everything not yet folded. Check the state root above, and check stderr for the other notice that
-lands there: a migration that could not copy the log forward says so and names both paths.
+everything not yet folded. Check the state root above, and check stderr for the remaining notice
+that lands there: a migration that could not copy the log forward says so and names both paths.
 
 **"Spend avoided jumped, or `--stats` refuses to compact."**
 A compaction interrupted between its two writes leaves its rows counted in both `totals.json` and

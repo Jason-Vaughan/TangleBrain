@@ -30,8 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longest-running stores first. The comparison also allows for compaction, which folds the oldest
   rows out of a healthy log and would otherwise make a heavy user's intact store look robbed. Where
   a fold has gone deep enough that the two genuinely cannot be told apart, the notice says that
-  rather than claiming data loss. A healthy store prints nothing and pays two small reads, at a
-  cost that does not grow with the log.
+  rather than claiming data loss.
+
+  **What it costs, and where it stops being free.** An intact store whose log has not yet folded
+  past the migration boundary is confirmed by two small reads, at a cost independent of the log's
+  size. Once a fold moves those bytes the boundary can never match again, and from then on every
+  command pays a scan of the log — permanently, on any machine that still has a legacy root and
+  whose log has crossed the compaction cap. Where the result is the inconclusive notice, it prints
+  on every invocation, with no flag to silence it: suppressing it would mean remembering that it
+  fired, and remembering means writing to the store. Shipping the repair is what ends it.
+
+  **Two things it deliberately does not do.** A legacy root you have already deleted is
+  indistinguishable from one that never existed, so nothing is printed for it — telling those apart
+  needs a persisted marker and a marker is a write. And if the legacy log cannot be read at all, it
+  says *that*, rather than staying quiet and letting an unreadable file look like a clean bill.
 
 ### Changed
 
