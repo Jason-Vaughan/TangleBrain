@@ -681,7 +681,16 @@ def probe_measurement_health(
             "its paths; whether it is recording is unknown"
         ]
     try:
-        if log.exists() and not log.is_file():
+        if log.is_symlink() and not log.exists():
+            # A dangling symlink is neither `exists()` nor meaningfully absent. It would take the
+            # ancestor walk below, which inspects a directory that is perfectly writable while
+            # `open(log, "a")` resolves the link and fails on wherever it points. Verified, not
+            # reasoned: a link into a 0o500 directory raises PermissionError on append.
+            findings.append(
+                f"the usage-log path is a symlink whose target does not exist — checked that {log} "
+                f"resolves; appending would follow it to {os.readlink(log)}"
+            )
+        elif log.exists() and not log.is_file():
             # A directory or socket sitting on the log path is the worst of the three states and
             # was the one that reported nothing: `is_file()` sent it down the does-not-exist
             # branch, where `mkdir(parents=True, exist_ok=True)` succeeds against an existing

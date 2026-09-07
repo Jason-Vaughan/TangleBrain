@@ -2034,6 +2034,23 @@ class MeasurementHealthTest(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn(str(self.log), findings[0])
 
+    def test_a_dangling_symlink_on_the_log_path_is_reported(self):
+        # Neither `exists()` nor absent. It used to take the ancestor walk, which inspects a
+        # directory that is perfectly writable — while `open(log, "a")` follows the link and
+        # fails on wherever it points. Driven through the real failure: the target sits in a
+        # 0o500 directory, so the append raises PermissionError.
+        target_dir = self.dir / "unwritable"
+        target_dir.mkdir()
+        self.log.symlink_to(target_dir / "target.jsonl")
+        target_dir.chmod(0o500)
+        self.addCleanup(target_dir.chmod, 0o700)
+        with self.assertRaises(OSError):
+            with open(self.log, "a", encoding="utf-8") as fh:
+                fh.write("x")
+        findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("symlink", findings[0])
+
     def test_a_non_regular_file_on_the_log_path_is_reported(self):
         # The worst of the three states and the one that used to report nothing: `is_file()` sent
         # a directory down the does-not-exist branch, where `mkdir(parents=True, exist_ok=True)`
@@ -2180,11 +2197,9 @@ class HealthLineRenderingTest(unittest.TestCase):
         )
 
     def test_the_health_line_uses_the_warning_glyph(self):
-        # The opposite of the pricing-span note, and deliberately so. That note marks a benign,
-        # expected state, so it takes the informational glyph. This line renders only when a
-        # check actually failed — tasks are not being recorded, or the headline is understated —
-        # so it takes the warning glyph. A real fault wearing the benign glyph is the same defect
-        # as a benign state wearing the warning one, pointed the other way.
+        # Pins the glyph against the block's criterion, which has one home in
+        # `docs/design/observability.md` § Store health and is not restated here: ⚠ marks a figure
+        # that cannot be trusted as printed, ℹ marks benign context about one that can.
         out = format_rollup(
             rollup([{"kind": "task", "model": "m1"}]), FIXED, health=["the log is unwritable"]
         )

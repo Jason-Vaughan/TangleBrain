@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a completeness claim with no mechanism behind it: nothing reads history, and a permission restored
   between two appends leaves a hole no probe can see.
 
-  **The two conditions are reported separately, because they fail independently.** A read-only log
+  **The conditions are reported separately, because they fail independently.** A read-only log
   means tasks routed *now* are not recorded. An unreadable `totals.json` means the opposite — the
   figures cover only the rows still on disk, and compaction refuses to fold onto a totals file it
   cannot read, so the log has also stopped being pruned. That second condition is `compact_log`'s
@@ -37,8 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly like a healthy store, so swallowing would make "I could not tell" indistinguishable from
   "all well".
 
-  The line takes the warning glyph rather than the informational one the pricing-span note uses:
-  that note marks a benign state, this renders only when a check actually failed. Closes
+  The line takes the warning glyph under the block's criterion — `⚠` marks a figure that cannot be
+  trusted as printed, `ℹ` marks benign context about one that can — stated in
+  `docs/design/observability.md` § Store health rather than restated here. That page also carries
+  the full list of conditions and the limits of the check: it reads permission bits, so a full disk
+  or an exhausted quota passes it while an append would still fail. Closes
   [#152](https://github.com/Jason-Vaughan/TangleBrain/issues/152).
 
 - **Lost delegate linkage is now a positive lifetime signal (#123).** A delegated sub-call that
