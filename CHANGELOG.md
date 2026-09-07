@@ -60,7 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **If you installed 0.21.0 or 0.22.0 and `--stats` reads lower than you expect**, compare
   `~/.local/share/tanglebrain/usage.jsonl` with `~/.cache/tanglebrain/usage.jsonl`. The migration
   copies and never deletes, so the original is still there: delete the short file at the new path
-  and run any `tanglebrain` command to migrate it again.
+  and run any `tanglebrain` command to migrate it again. If you also find a file named like
+  `usage.jsonl.<hex>.tmp` there, it is an abandoned staging copy from an interrupted migration —
+  inert, read by nothing, and safe to delete.
 
   Staging now uses `atomic.staging_path`, which is unique per process, so no process can reach
   another's staging file at all. Cleanup moved into a `finally` in the same change: a unique name

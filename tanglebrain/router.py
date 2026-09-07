@@ -168,6 +168,12 @@ def migrate_state_root(stream: TextIO | None = None) -> list[str]:
     because the only way to reclaim it is to sweep the destination for the staging suffix at
     startup — and a sweep is the shared-name collision again, one directory wider.
 
+    Such an orphan is **deliberately visible**. The old name was dotfile-hidden; this one cannot be,
+    because uniqueness comes from the suffix :func:`~tanglebrain.atomic.staging_path` appends, and
+    hiding it again would mean a second naming rule at the one call site that exists to stop having
+    one. Visible is also the right answer on its own terms: an orphan is the operator's to delete,
+    and they cannot delete what they cannot see.
+
     Failure is reported, never raised and never silent. A migration that fails leaves the new root
     incomplete, and a rollup over an incomplete log understates savings — which reads as the
     product lying rather than as a broken copy. Saying so on stderr is what distinguishes them;

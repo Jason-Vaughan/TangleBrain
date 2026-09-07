@@ -353,15 +353,19 @@ class MigrateStateRootTest(unittest.TestCase):
         self._seed_legacy()
         real_copy = shutil.copy2
         rival_out = io.StringIO()
-        state = {"rival_ran": False}
+        state = {"spawned": False, "rival_contended": False}
 
         def rival_starts_mid_copy(src, dst, *args, **kwargs):
-            if Path(src).name == "usage.jsonl" and not state["rival_ran"]:
-                state["rival_ran"] = True
+            if Path(src).name == "usage.jsonl" and not state["spawned"]:
+                state["spawned"] = True
                 result = real_copy(src, dst)  # our staged copy completes
                 migrate_state_root(stream=rival_out)  # ...and now a rival process starts
                 return result
-            if state["rival_ran"] and Path(src).name == "usage.jsonl":
+            if state["spawned"] and Path(src).name == "usage.jsonl":
+                # The rival reached the same entry we just staged. This flag, not the one above,
+                # is what says the collision happened: the first is set before the rival runs, so
+                # it witnesses only that we got to the spawn point.
+                state["rival_contended"] = True
                 Path(dst).write_text("half a fi", encoding="utf-8")  # the rival dies mid-copy
                 raise OSError("rival copy stopped")
             return real_copy(src, dst)
@@ -370,7 +374,14 @@ class MigrateStateRootTest(unittest.TestCase):
         with patch("tanglebrain.router.shutil.copy2", side_effect=rival_starts_mid_copy):
             migrated = migrate_state_root(stream=out)
 
-        self.assertTrue(state["rival_ran"], "the rival never started — this test would prove nothing")
+        self.assertTrue(
+            state["rival_contended"],
+            "the rival never reached the entry we staged — this test would prove nothing",
+        )
+        self.assertIn(
+            "could not move state", rival_out.getvalue(),
+            "the rival was expected to fail its own copy; if it did not, it never contended",
+        )
         self.assertNotIn("could not move state", out.getvalue())
         self.assertEqual(sorted(migrated), ["backups", "router-state.json", "usage.jsonl"])
         self.assertEqual(
