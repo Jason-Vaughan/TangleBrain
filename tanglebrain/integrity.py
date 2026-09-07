@@ -334,6 +334,9 @@ def probe_migration_integrity(
         return _finding(legacy_log, UNREADABLE)
     current_rows = _rows(current_log)
     if current_rows is None:
+        # Reachable only by a race: `_contains_row` above just read this same file end to end.
+        # Kept rather than asserted away, and left untested deliberately — a test would have to
+        # make the file fail between two reads, which pins the mock rather than the behaviour.
         return _finding(legacy_log, UNREADABLE, current_log)
     if not legacy_rows:
         return None

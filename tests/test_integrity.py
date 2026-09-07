@@ -369,7 +369,7 @@ class UnreadableStoreTest(IntegrityTestBase):
         self.assertTrue((self.new / "totals.json").exists(), "no fold — this tests the wrong branch")
         finding = probe_migration_integrity()
         self.assertIsNotNone(finding, "an undecodable legacy log rendered as a healthy store")
-        self.assertIn("could not read", finding)
+        self.assertIn(f"could not read {self.legacy / 'usage.jsonl'}", finding)
 
     def test_an_unreadable_current_log_names_the_current_log(self):
         """The diagnostic is a filename, so naming the wrong one wastes the only help it gives.
@@ -391,6 +391,44 @@ class UnreadableStoreTest(IntegrityTestBase):
         self.assertIn(f"could not read {target}", finding)
         # ...and the instruction still points at the legacy root, which is what must be kept.
         self.assertIn(f"Keep {self.legacy}", finding)
+
+    def test_an_undecodable_current_log_names_the_current_log(self):
+        """The row scan is the first read that decodes the current log, so it is where it fails.
+
+        The boundary read is bytes and survives undecodable content — it just mismatches — and the
+        totals then route past it. So this site is reached only with a current log that is large
+        enough to be compared and undecodable when read as text, and it is the site a phrase-only
+        assertion cannot tell apart from the legacy one.
+        """
+        self.write_legacy([row(n) for n in range(6)])
+        self.new.mkdir(parents=True, exist_ok=True)
+        current = self.new / "usage.jsonl"
+        current.write_bytes(b"\xff\xfe not decodable as utf-8 " * 80)
+        self.assertGreater(current.stat().st_size, (self.legacy / "usage.jsonl").stat().st_size,
+                           "smaller than the legacy log — the boundary compare would be skipped")
+        # A fold on the current side only, so the probe reaches the row scan rather than settling
+        # the question from the totals.
+        (self.new / "totals.json").write_text('{"tasks": 12}', encoding="utf-8")
+        finding = probe_migration_integrity()
+        self.assertIsNotNone(finding)
+        self.assertIn(f"could not read {current}", finding)
+        self.assertIn(f"Keep {self.legacy}", finding)
+
+    def test_an_undecodable_legacy_row_past_the_tail_block_names_the_legacy_log(self):
+        """The anchor fallback has its own read, and its own chance to blame the wrong file.
+
+        Reaching it needs the tail block to hold no complete row — a record longer than
+        `BOUNDARY_BYTES` — so that the probe falls back to reading the log, and that read is the
+        one that fails on the decode.
+        """
+        self.legacy.mkdir(parents=True, exist_ok=True)
+        legacy_log = self.legacy / "usage.jsonl"
+        legacy_log.write_bytes(b"\xff\xfe" * (integrity.BOUNDARY_BYTES + 4000))
+        self.write_current([row(n) for n in range(6)])
+        (self.new / "totals.json").write_text('{"tasks": 12}', encoding="utf-8")
+        finding = probe_migration_integrity()
+        self.assertIsNotNone(finding)
+        self.assertIn(f"could not read {legacy_log}", finding)
 
     def test_an_unreadable_legacy_log_names_the_legacy_log(self):
         rows = [row(n) for n in range(6)]
