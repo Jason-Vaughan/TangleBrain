@@ -152,11 +152,21 @@ def migrate_state_root(stream: TextIO | None = None) -> list[str]:
     operator needs to know their state moved, not to read an inventory.
 
     The staging name is **unique per process** (:func:`~tanglebrain.atomic.staging_path`), not a
-    fixed one. Every console script migrates on startup, so two of them can be here at once — and
-    with a shared staging name the second one's cleanup deletes the first one's *completed* staged
-    copy, whose :func:`os.replace` then fails on a file that is simply gone. The operator sees both
-    processes report a failed migration, on a machine where nothing is wrong, with nothing
-    migrated. A unique name means a losing process can only ever discard its own work.
+    fixed one. Every console script migrates on startup, so two can be here at once, and a shared
+    staging name lets each act on the other's file. Either the second one's cleanup deletes the
+    first one's *completed* copy, whose :func:`os.replace` then fails on a file that is simply gone
+    — both processes report a failed migration on a machine where nothing is wrong, and the next
+    run repairs it — or, worse, it unlinks that copy *while the first is still writing it*, so the
+    first writes on into a file that no longer has a name and then renames the second one's
+    still-partial copy into place. That one is silent, and because the re-run guard is "does the
+    destination exist" no later run ever retries the truncated file. A unique name means a losing
+    process can only ever discard its own work.
+
+    The staging entry is discarded in a ``finally`` rather than on the error path, because a unique
+    name is one no later run can find: whatever is not cleaned up on the way out is never cleaned
+    up at all. ``SIGKILL`` and power loss still orphan one. That is accepted rather than solved,
+    because the only way to reclaim it is to sweep the destination for the staging suffix at
+    startup — and a sweep is the shared-name collision again, one directory wider.
 
     Failure is reported, never raised and never silent. A migration that fails leaves the new root
     incomplete, and a rollup over an incomplete log understates savings — which reads as the
@@ -198,11 +208,9 @@ def migrate_state_root(stream: TextIO | None = None) -> list[str]:
                     continue
                 raise
             finally:
-                # `finally`, not the `except` arm: a unique staging name is unfindable by any
-                # later run, so whatever leaves this block without cleaning up leaks it into the
-                # operator's data root permanently — and Ctrl-C during a first-run migration,
-                # which every console script performs at startup, is not an `OSError`. A
-                # successful `os.replace` has already consumed the entry, so this is then a no-op.
+                # `finally`, not the `except` arm: Ctrl-C during a first-run migration is not an
+                # `OSError`, and an entry that leaves this block uncleaned is unreclaimable (see
+                # the note on staging names above). A successful replace makes this a no-op.
                 _discard(staged)
             migrated.append(item.name)
     except OSError as exc:
