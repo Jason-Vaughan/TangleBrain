@@ -4,7 +4,9 @@ TangleBrain is a single-operator, local-first tool that handles third-party cred
 spend real money. This document names its weaknesses plainly rather than diplomatically — a security
 document that only lists strengths is not useful to anyone deciding whether to trust it.
 
-Every gap below has a tracking issue.
+Every gap below that is **open work** has a tracking issue. The ones that are ratified non-goals —
+permissions warned rather than enforced, no roster integrity check — are decisions rather than
+backlog, and are stated here without one.
 
 ## Invariants
 
@@ -50,9 +52,12 @@ The highest-consequence rules in the project. These bind.
   is reproduced, and as a judgement at the enumerated points.
 
   > **Enforced.** `tests/test_measurement.py` drives a real malformed backend response through the
-  > parser, the router's failure collection, and `record_task`, then asserts neither the response
-  > nor the prompt appears in the file on disk. `tests/test_cli_adapter.py` pins `describe_shape`'s
-  > key filter, which is the only thing keeping content out of key position.
+  > parser into `record_task` — in the shape the router hands it, which that test constructs rather
+  > than routing for real — and asserts neither the response nor the prompt appears in the file on
+  > disk. `tests/test_cli_adapter.py` pins `describe_shape`'s key filter, the only thing keeping
+  > content out of key position. The router's own failure collection is covered separately, so no
+  > single test spans the whole hop; closing that is
+  > [#157](https://github.com/Jason-Vaughan/TangleBrain/issues/157).
 
 - **A paid backend is never reachable without two independent gates, and is never preferred.**
   `settings.api_billing_enabled` **and** the entry's own `enabled`, both defaulting false, both

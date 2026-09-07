@@ -224,7 +224,7 @@ step because nothing that would need redacting ever reaches the writer.
 explaining why is persisted next to the failed attempt, because a router that hides why it fell back
 is not debuggable. Every one of those messages that could carry a model's reply now reports the
 reply's *shape* — `52 chars of text`, `object with keys ['result', 'subtype']` — instead of quoting
-it, and a test drives a real malformed response through the whole path onto disk to prove it.
+it, and a test drives a real malformed response onto disk to prove nothing of it survives.
 
 Two things are still kept as-is, deliberately. **Strings only a provider or a CLI produces** — an
 HTTP error body, a stream's error envelope, a failed subprocess's stderr — stay readable, because

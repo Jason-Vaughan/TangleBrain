@@ -23,9 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Every place the absolute claim stood is reconciled, not just the new ones.** It appeared across
   the design set — the invariant itself, the record description, the state-root rationale, the
-  OWASP data-exposure disposition, the NFR statement, and the observability "nothing to filter"
-  paragraph. Qualifying one and republishing would have left the rest propping up a security claim
-  the project had already withdrawn.
+  OWASP data-exposure disposition, the NFR statement, the observability "nothing to filter"
+  paragraph, and the security model's own "what is actually being protected" list, which justified
+  itself with the very reasoning the previous entry withdrew. Qualifying one and republishing would
+  have left the rest propping up a security claim the project had already withdrawn.
 
   **The residual set now has a durable public home.** `docs/design/security-model.md` § Known gaps
   enumerates it and is the authoritative accounting, replacing a pointer into a build plan that
