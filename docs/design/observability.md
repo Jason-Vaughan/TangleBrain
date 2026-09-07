@@ -3,10 +3,13 @@
 ## The honest summary
 
 TangleBrain has **one signal**: an append-only JSONL usage log. No metrics backend, no tracing, no
-alerting, no health endpoint. The store's own health is checked where it is *read* — see
-[Store health](#store-health) — which is a property of the rollup, not a fourth signal: it has no
-endpoint of its own and nothing polls it. It rides the rollup a reader already asked for, in
-`--stats` and in the `/api/stats` body the panel fetches, and is stored nowhere.
+alerting, no health endpoint. The store's own health is checked in two places, neither of them a
+second signal — nothing is recorded, nothing is polled, and nothing is reachable over the network.
+It is checked where the store is *read* — see [Store health](#store-health) — riding the rollup a
+reader already asked for, in `--stats` and in the `/api/stats` body the panel fetches. And it is
+checked once at startup, for the one fault a reader cannot be relied on to go looking for: a log
+the v0.21.0 state move copied only in part, which understates the lifetime figure while looking
+entirely normal (see [Migrated-log integrity](#migrated-log-integrity)).
 
 For a single-operator local tool whose consumer is a human running `--stats`, that is the right
 depth — and this document says so rather than filing three absent signals as gaps. What it does
@@ -181,6 +184,44 @@ different question: the notice tells the operator *when it happens*, the health 
 `gui` process prints the notice once at hour zero and stays silent afterwards, while the probe
 re-runs on every render.
 
+## Migrated-log integrity
+
+The v0.21.0 move to the data tier staged every entry under one shared name, so two console scripts
+starting together could act on each other's staging file — in one interleaving, silently, leaving a
+short `usage.jsonl` at the destination. A unique staging name stops that recurring; it does nothing
+for a store where it already happened, and that store had no signal of any kind. The re-run guard
+is "does the destination exist", so no later run retried the short file, and the only symptom was a
+lifetime figure that had always been smaller than the truth.
+
+So this one check does not wait to be asked. Every console script runs it after the migration and
+before it reads anything, and it prints at most one line on stderr. **It only ever reads, and no
+repair exists yet** — see [Gaps](#gaps). Putting the records back means merging them underneath
+everything logged since the move, and a copy would delete that history, so it has to be an
+explicit, separately-invoked operation rather than something a startup path does to an operator's
+data uninvited. Until it is built, the notice's job is to keep the evidence alive: it names the
+legacy directory and says to keep it, because those records exist nowhere else.
+
+**It compares records, and file sizes tell it nothing.** The current log grows on every run while
+the legacy one is frozen, so a log truncated at the migration and used for a week holds more bytes
+than the file it is missing records from. Size calls that healthy, and it reaches the
+longest-running stores first — the same stores with the most history to lose.
+
+**Compaction is the reason the check is more than reading the head of the log.** Folding removes the
+*oldest* rows, and the oldest rows are the migrated ones, so a healthy heavy user's log stops
+carrying them — and a check that stopped there would accuse exactly the operators a size check
+misses. Two properties of `compact_log` make the answer exact anyway: a fold removes a *contiguous
+prefix*, so if any migrated record survives then the newest one does, which makes "some present,
+but not the newest" reachable only by a short copy; and a fold is the only thing that writes
+`totals.json`, while the legacy root is frozen after the move, so totals that never moved are a
+fold that never ran. Where a fold has been deep enough to take every migrated record, the two
+causes genuinely cannot be separated, and the notice says so instead of asserting loss.
+
+**The healthy path costs a fixed amount.** The legacy file's own size is the offset its last byte
+sits at inside a complete copy, so an intact store is confirmed by a seek and a small read in each
+file — no part of the cost grows with the log. The record comparison runs only when that boundary
+does not match, which is either a short copy or a compaction, and both are worth reading two files
+to resolve.
+
 ## What is deliberately absent
 
 | Signal | Status | Reasoning |
@@ -188,12 +229,19 @@ re-runs on every render.
 | Metrics backend | Absent, correct | One operator, no time series worth scraping. |
 | Distributed tracing | Absent, defensible | The parent-task tree already covers the one cross-process relationship. |
 | Alerting | Absent, correct | Nothing to alert; nobody on call. |
-| Health endpoint | Absent, correct | Not a service. Failure is visible in the response. A store-health *probe* runs when `--stats` or the panel renders, but nothing polls it and it is not reachable over the network — that is a rollup caveat, not an endpoint. |
+| Health endpoint | Absent, correct | Not a service. Failure is visible in the response. A store-health *probe* runs when `--stats` or the panel renders, and a migrated-log check runs once at each command's startup; neither is polled and neither is reachable over the network — one is a rollup caveat and the other a line on stderr, and no endpoint is either. |
 | Structured error log | Folded into the usage log | Failures are `kind: "failure"` records carrying the per-backend attempt list (#100). |
 
 ## Gaps
 
-No open measurement gap is currently recorded here.
+**A log the v0.21.0 move left short is detected, not repairable**
+([#197](https://github.com/Jason-Vaughan/TangleBrain/issues/197)). The check above names the
+records and tells the operator to keep the directory holding them; nothing yet puts them back. The
+repair is a separate, explicitly invoked command with a dry run, and it has to merge rather than
+copy — the legacy records belong *underneath* everything logged since the move, and a blind copy
+would delete that history. It also has to handle a copy cut mid-record. Until it ships, an operator
+who deletes `~/.cache/tanglebrain` has destroyed the only copy, which is why the notice leads with
+keeping it.
 
 Five former gaps here are closed. *Lost delegate linkage being indistinguishable from a top-level
 task* went with [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123). *No failure record at

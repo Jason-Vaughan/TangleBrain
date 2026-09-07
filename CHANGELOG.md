@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **TangleBrain now tells you when the v0.21.0 state move left your usage log short**
+  ([#197](https://github.com/Jason-Vaughan/TangleBrain/issues/197)). Every command checks, at
+  startup, whether `~/.cache/tanglebrain` still holds usage records the current log does not, and
+  says so on one line of stderr if it does. The fix for the underlying race shipped separately; it
+  stops the truncation happening again and does nothing for a store where it already happened,
+  which had no signal at all — the re-run guard is "does the destination exist", so no later run
+  ever retried a short file, and the lifetime spend-avoided figure understated in silence.
+
+  **This release only reports. It does not repair, and it never writes to your data.** Putting the
+  legacy records back means merging them *underneath* everything logged since the move; a copy
+  would delete that history. Repair is therefore an explicitly invoked command with a dry run, in a
+  later release. Until then the one thing to do is what the notice says: **keep
+  `~/.cache/tanglebrain`.** It holds the only copy of the missing records, and nothing can be
+  recovered from it once it is deleted.
+
+  Records are compared, never file sizes. After the move the current log grows on every run while
+  the legacy one is frozen, so a log truncated at migration and used for a week is *larger* than
+  the file it is missing records from — a size check calls that healthy, and reaches the
+  longest-running stores first. The comparison also allows for compaction, which folds the oldest
+  rows out of a healthy log and would otherwise make a heavy user's intact store look robbed. Where
+  a fold has gone deep enough that the two genuinely cannot be told apart, the notice says that
+  rather than claiming data loss. A healthy store prints nothing and pays two small reads, at a
+  cost that does not grow with the log.
+
 ### Changed
 
 - **The knob panel is two views behind a sidebar, not one scrolling column** ([#166](https://github.com/Jason-Vaughan/TangleBrain/issues/166)).
