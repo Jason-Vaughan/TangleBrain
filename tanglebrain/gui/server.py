@@ -161,7 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     migrate_state_root()
     parser = argparse.ArgumentParser(
         prog="tanglebrain-gui",
-        description="Serve the TangleBrain knob panel (read-only) on localhost.",
+        description="Serve the TangleBrain knob panel on localhost. Reads the roster, pricing and\n"
+                    "spend-avoided rollup; can run prompts and edit pricing and roster fields.",
     )
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT,

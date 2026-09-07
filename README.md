@@ -258,8 +258,10 @@ A thin **localhost-only** web panel over the config — zero extra dependencies 
 .venv/bin/tanglebrain-gui --port 3260   # override the port if 3250 is busy
 ```
 
-The panel **views** the roster, the pricing reference, and the cost-avoided rollup, and lets you
-**run a prompt** through the router (showing which tier/model served it). The **pricing card is
+The panel has two views, switched from the sidebar and addressable by fragment. **Chat**
+(`#/chat`, where it opens) lets you **run a prompt** through the router, showing which tier/model
+served it. **Settings** (`#/settings`) holds the knobs: the cost-avoided rollup, the roster, and the
+pricing reference. The **pricing card is
 editable** — change the rates / reference label / placeholder flag and Save; it writes the tracked
 `tanglebrain/config/pricing.yaml` (strict validation, atomic write, a backup to the state dir, and
 the methodology header preserved), so the edit is git-visible for you to commit. The **roster is
@@ -463,9 +465,9 @@ order and never paid-routes a roster that has no orchestrators to exhaust first.
    `key_ref` = the env/file reference above, `enabled: true`, and `budget_usd_month: 25`
    (display-only — match what you capped at the source).
 4. **Flip the global gate**: set `api_billing_enabled: true` in `tanglebrain/config/settings.yaml`.
-5. **Verify** in the knob panel (`tanglebrain-gui`): the roster card shows a **Paid-API billing: ON**
-   banner and the entry's `budget: $25.00/mo` note; or run `tanglebrain --model <id> "…"` for an
-   explicit paid call. To pause spend without editing keys, set the entry's `enabled: false` (a
+5. **Verify** in the knob panel (`tanglebrain-gui`): open **Settings** in the sidebar — the panel
+   opens on Chat — and the roster card there shows a **Paid-API billing: ON** banner and the entry's
+   `budget: $25.00/mo` note; or run `tanglebrain --model <id> "…"` for an explicit paid call. To pause spend without editing keys, set the entry's `enabled: false` (a
    per-key kill-switch) or flip the global gate back to `false`.
 
 ## Develop

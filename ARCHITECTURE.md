@@ -215,8 +215,10 @@ The signal degrades safely and never raises.
 ### Knob GUI — localhost panel (`gui/`)
 
 `tanglebrain-gui` serves a thin, **localhost-only** web panel (stdlib `http.server` + a single
-vanilla HTML/CSS/JS page, zero extra runtime dependencies). It **views** the roster, the pricing
-reference, and the cost-avoided rollup, and lets you **run a prompt** through the router. The
+vanilla HTML/CSS/JS page, zero extra runtime dependencies). It has two views, switched from a
+sidebar: **Chat** (`#/chat`, the default) lets you **run a prompt** through the router, and
+**Settings** (`#/settings`) **views** the roster, the pricing reference, and the cost-avoided
+rollup. The
 **pricing** card and a focused set of per-entry **roster** fields (`enabled`, `can_orchestrate`,
 `budget_usd_month`, `good_at`) are editable, with strict validation, an atomic write, a timestamped
 backup, and comment-preserving write-back. It binds `127.0.0.1` only — running a prompt spends real
@@ -227,6 +229,15 @@ resolved or sent to the browser: a `key_ref` is shown as its reference string on
 a pure `dispatch(method, path, body)` plus a `ThreadingHTTPServer`. Like the serve endpoint, POSTs
 require `Content-Type: application/json`, so a no-preflight cross-origin browser request can never
 reach a quota-spending view.
+
+**The panel's router owns the `#/` prefix and nothing else.** View state lives entirely in the URL
+fragment, which never reaches the server — that is what lets a multi-view panel stay one packaged
+file with no new route. A page has only one fragment, though, and plain in-page anchors want it
+too: the skip link is one. So a fragment that is not `#/…` is left alone rather than treated as an
+unknown view — falling back would silently reset the panel every time an ordinary anchor fired,
+throwing a reader out of the view they were in, and it would hit the keyboard user hardest because
+the skip link is the anchor they depend on. **Add a view by adding a key to `VIEWS`; never by
+widening what counts as a route.** The rule is asserted by `tests/test_gui.py::PanelLayoutTest`.
 
 ### Serve endpoint (`serve/`)
 
