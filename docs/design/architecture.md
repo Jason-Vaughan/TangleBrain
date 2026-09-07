@@ -46,16 +46,14 @@ by the orchestrator to the delegate child, and read back by `run_delegate` to st
 hermetically — it is verified live against one orchestrator (Claude Code), which is honest but is
 not a guarantee.
 
-The design response is the right one: a delegation that loses the variable is recorded rather than
-raising. **That failure used to be invisible** — a different orchestrator that does not forward
-environment to its MCP children produced a complete, correct-*looking* usage log in which every
-delegation was silently unparented, with nothing anywhere reporting it.
-
-It is now positively signalled: the delegate measurement seam knows a parent hop was expected, so
-the absence writes `linkage_lost: true`, and `--stats` and the GUI both show the lifetime count
+The design response is the right one, and it is signalled rather than silent. The delegate
+measurement seam knows a parent hop was expected, so a delegation that loses the variable is
+recorded with `linkage_lost: true`, and `--stats` and the GUI both show the lifetime count
 separately from the window-scoped parent tree. A top-level task with no parent stays an ordinary
 root, and legacy parentless delegate rows are inferred during rollup so the count covers history.
-The hop still degrades rather than raising — it is now merely visible while it does. Closed by
+The hop degrades rather than raising — it is merely visible while it does. This is what makes an
+orchestrator that does not forward environment to its MCP children detectable at all: its log would
+otherwise be complete and correct-*looking*, with every delegation silently unparented. Closed by
 [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123).
 
 ## Concurrency model

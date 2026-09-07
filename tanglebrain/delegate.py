@@ -276,13 +276,14 @@ def run_delegate(
     # Meter the sub-call for orchestration-tree observability. Tagged kind="delegate" so the rollup
     # keeps it OUT of the spend-avoided headline (the parent task already credits the whole job) and
     # in a separate by-backend breakdown. The parent task id, propagated from the orchestrator via
-    # PARENT_TASK_ID_ENV, links this sub-call to its top-level task (absent → recorded as unlinked).
+    # PARENT_TASK_ID_ENV, links this sub-call to its top-level task (absent → linkage_lost: true).
     #
     # LOAD-BEARING ASSUMPTION (verified live for claude, not asserted by any hermetic test): the
     # linkage depends on the orchestrator CLI forwarding its environment to the MCP delegate child it
     # spawns. That forwarding is the orchestrator's behavior, not TangleBrain's — if a CLI stops
     # forwarding env, or a roster adds TANGLEBRAIN_TASK_ID to an orchestrator's invoke.scrub_env, the
-    # linkage silently degrades to "unlinked" (never an error — the delegation itself is unaffected).
+    # linkage degrades rather than erroring (the delegation itself is unaffected) — but it is no
+    # longer silent: the absence is recorded as linkage_lost and counted in --stats (#123).
     #
     # record_task never raises; the extra guard is belt-and-suspenders — metering must never break a
     # delegation.

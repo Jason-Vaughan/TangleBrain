@@ -97,14 +97,11 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 
 - **Producer:** `cli.py` (mints `task_id`, injects `TANGLEBRAIN_TASK_ID`)
 - **Consumer:** `run_delegate`, via an orchestrator process **we do not own**
-- **Contract:** the env var name, and that a missing value degrades to a counted
-  `linkage_lost: true` rather than raising.
+- **Contract:** the env var name, and that a missing value degrades rather than raising.
 - **Crossing it means:** renaming the variable — or adding it to an orchestrator's
-  `invoke.scrub_env` — unparents every delegation with no error anywhere. Nothing raises, but since
-  [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123) the loss is **counted**: every
-  such delegation records `linkage_lost: true`, and `--stats` and the panel show the lifetime
-  figure. The breakage is detectable by an operator who looks, which it previously was not. See
-  [`architecture.md`](architecture.md).
+  `invoke.scrub_env` — unparents every delegation, and nothing raises. What that costs, and what
+  now reports it, is stated once in [`architecture.md`](architecture.md); read it there rather than
+  trusting a summary here.
 
 ### GUI panel endpoints *(internal, localhost-only)*
 
