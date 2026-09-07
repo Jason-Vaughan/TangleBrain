@@ -171,7 +171,10 @@ money.
   rather than discouraged.
 - **Mass assignment** — *mitigated* by the GUI's fixed editable allow-list.
 - **Excessive data exposure** — *mitigated structurally*. `key_ref` is never resolved outward;
-  prompt and response text is never persisted, so no endpoint can leak it.
+  prompt and response text is never persisted, so no endpoint can leak it. The persistence half is
+  structural wherever a model completion is reproduced and a judgement at the error diagnostics
+  enumerated in [`security-model.md`](security-model.md) § Known gaps — an endpoint rendering a
+  failure record inherits that qualification.
 - **Lack of rate limiting** — *accepted*. A local caller can exhaust backend quota. The mitigation
   is that only local callers exist.
 - **Security misconfiguration** — *the live risk*. The entire posture depends on two settings

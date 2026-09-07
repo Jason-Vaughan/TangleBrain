@@ -8,7 +8,7 @@ Every gap below has a tracking issue.
 
 ## Invariants
 
-The three highest-consequence rules in the project. These bind.
+The highest-consequence rules in the project. These bind.
 
 - **Nothing binds off-loopback.** Both `tanglebrain-gui` and `tanglebrain-serve` bind `127.0.0.1`
   and only `127.0.0.1`. Not a default — a prohibition.
@@ -31,6 +31,28 @@ The three highest-consequence rules in the project. These bind.
   ignore it. POSIX only; Windows mode-bit semantics do not map onto these bits, so the check is an
   explicit no-op there rather than a guess. *Retroactive: yes — applies wherever a credential file
   is read.* Flipping this to a hard failure is a breaking change and needs its own ruling.
+
+- **Prompt and response text is never written to disk.** Measurement persists derived counts and
+  routing metadata only: each task's text is run through a `chars/4` estimate and then discarded.
+
+  *Why:* structural beats procedural. A redaction filter can be bypassed by the next code path that
+  forgets it; "there is nothing to redact" cannot. This is also what makes the usage log safe to
+  keep forever, safe to render in a browser, and safe to attach to an issue.
+
+  **Where it is structural, and where it is a judgement — because the difference is the whole
+  claim.** On the success path nothing carries the text far enough to be written. The pressure is
+  the error path: an adapter's failure message is persisted into `failures[].error`, so a message
+  that quotes what it could not parse writes the backend's reply to disk. Every raise site handling
+  a model completion now calls `describe_shape` and reports size and field names rather than
+  content, so that half holds by construction and not by care. What remains is deliberate, narrower,
+  and enumerated under Known gaps — error-diagnostic strings kept verbatim on purpose, plus one
+  place where the shape summary must guess. Read the guarantee as structural wherever a completion
+  is reproduced, and as a judgement at the enumerated points.
+
+  > **Enforced.** `tests/test_measurement.py` drives a real malformed backend response through the
+  > parser, the router's failure collection, and `record_task`, then asserts neither the response
+  > nor the prompt appears in the file on disk. `tests/test_cli_adapter.py` pins `describe_shape`'s
+  > key filter, which is the only thing keeping content out of key position.
 
 - **A paid backend is never reachable without two independent gates, and is never preferred.**
   `settings.api_billing_enabled` **and** the entry's own `enabled`, both defaulting false, both
@@ -55,9 +77,13 @@ Three things, in order of what a compromise would cost:
 3. **Backend quota.** The local surfaces can spend quota without authentication. Cheaper than the
    first two, easier to trigger than either.
 
-Prompt and response content is explicitly **not** in this list. It is never persisted
-(`record_task` builds the record field by field and carries no prompt or response body),
-so there is no at-rest exposure to defend.
+Prompt and response content is very nearly **not** in this list, and it is worth being exact about
+why. The text is measured and discarded, so there is no at-rest exposure to defend on the success
+path. The reasoning this document used to give — that `record_task` builds its record field by
+field — was true and insufficient: an allowlist of field *names* says nothing about what a field's
+*value* carries in, and one of them carried a backend's reply. The enforcement is now a test that
+drives a real failure onto disk, and the residual paths are enumerated under Known gaps. Read this
+as *almost never, at points that are named* rather than as a fourth thing to protect.
 
 ## Trust boundaries
 
@@ -171,7 +197,32 @@ Recorded, not fixed. Each is a decision someone should make deliberately.
 2. **No enforcement of key-file permissions — only a warning.** The mode is now checked (see
    Direction), but a loose key file still runs. Refusing is a deliberate non-goal; if that ever
    changes it is a breaking change for existing setups, not a tightening.
-3. **No integrity check on the roster.** A modified roster silently changes where prompts go,
+3. **Error diagnostics are the one place text can reach the log.** The no-persistence invariant is
+   structural wherever a model completion is reproduced; these are the points where it rests on
+   judgement instead, kept verbatim because replacing them would make the commonest setup failures
+   undiagnosable. This list is the authoritative public accounting.
+   - An OpenAI-compatible backend's **HTTP error body**. Normally an `{"error": {...}}` envelope,
+     but a 400 or a content-filter rejection can echo the offending input — which would be the
+     prompt. Plausible rather than demonstrated: it depends on what the upstream returns, and no
+     reproduction was built.
+   - A failed CLI subprocess's **stderr**. The prompt is in `argv`, so a CLI that echoes its
+     arguments on failure can put prompt text into a persisted message.
+   - An **in-stream `error` event** from a streaming backend — the provider's own error envelope,
+     the same class as the first.
+   - `describe_shape`'s **identifier-shaped-key heuristic**. A key is named when it is
+     identifier-shaped and short, which keeps free text out of key position but reproduces a single
+     token like `patient_name_zaphod`. Unlike the three above this does not close: telling a schema
+     field name from content is not decidable, so it is a judgement by construction. Pinned as a
+     known limit by `tests/test_cli_adapter.py`.
+
+   The first three share one fix: an `AdapterError` carrying a separately **constructed** summary
+   for persistence, distinct from the rich message shown on stderr. That keeps the guarantee
+   structural rather than adding the redaction filter the invariant's rationale rejects. Sizing it
+   needs evidence of what a real provider returns on a 400, so it is recorded rather than scheduled.
+   Tracked as [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156).
+   (A CLI's own error `subtype` is also kept verbatim; it is a fixed enum, not free text, and
+   carries no echo risk.)
+4. **No integrity check on the roster.** A modified roster silently changes where prompts go,
    including to a paid or attacker-controlled backend. Consistent with the local-trust model — noted
    because "a config edit changes where your data goes" deserves to be stated out loud rather than
    assumed.

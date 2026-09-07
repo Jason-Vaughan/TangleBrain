@@ -91,6 +91,12 @@ values are references, never secrets, and are never logged or rendered resolved.
 This is the strongest property in the whole observability design — a filter can be bypassed by a new
 code path, but there is no filter here to bypass because there is nothing to filter.
 
+That holds without qualification for the measured text. It is narrower on the error path: a failed
+attempt persists the diagnostic that explains it, so the claim is structural at every adapter site
+that reproduces a completion — those describe shape rather than content — and a judgement at the
+provider- and CLI-produced strings kept verbatim so the commonest setup failures stay diagnosable.
+[`security-model.md`](security-model.md) § Known gaps enumerates them.
+
 ## Operational model
 
 **Developer-debugging.** The consumer is the operator reading `--stats` or the GUI panel. Not an

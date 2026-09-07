@@ -72,6 +72,10 @@ family** of tools, so it works the same whether you run it solo or as part of th
   the orchestrator reviews and synthesises the results.
 - **Cost measurement** — every routed task is logged with an estimated cloud-equivalent cost;
   `tanglebrain --stats` rolls up what you've spent versus avoided.
+- **Your prompts are not in the log** — text is measured, then discarded; only derived counts and
+  routing metadata are written. There is no redaction step to trust because nothing needing
+  redaction reaches the writer. The one qualification is on the error path, stated in full under
+  [Cost avoided](#cost-avoided-measurement).
 - **Knob GUI** — a localhost panel to view the roster, pricing, and rollup, edit a focused set of
   config knobs, and run a prompt.
 - **Gated paid-API tier** — bring-your-own-key overflow, off by default behind two independent
@@ -202,6 +206,25 @@ destination to the same directory and copies nothing; point `XDG_DATA_HOME` at a
 instead and the migration copies `~/.cache/tanglebrain` into it, so the "merged" view silently
 carries a third machine's history. See
 [`docs/design/operations.md`](docs/design/operations.md) for what that view does and does not cover.
+
+**What the log never contains: your prompts, and the model's replies.** Each task's text is run
+through the `chars/4` estimate and then discarded — only the derived counts and the routing metadata
+are written. That is what makes the log safe to keep forever, safe to render in a browser, and safe
+to paste into an issue. It is a property of the shape of the code rather than a filter you have to
+trust: there is no redaction step because nothing that would need redacting ever reaches the writer.
+
+**The exception, stated plainly: backend error messages.** When a backend fails, the diagnostic
+explaining why is persisted next to the failed attempt, because a router that hides why it fell back
+is not debuggable. Every one of those messages that could carry a model's reply now reports the
+reply's *shape* — `52 chars of text`, `object with keys ['result', 'subtype']` — instead of quoting
+it, and a test drives a real malformed response through the whole path onto disk to prove it. Kept
+verbatim is the narrower set of strings only a provider or a CLI produces: an HTTP error body, a
+stream's error envelope, a failed subprocess's stderr. Those are error metadata, not model output,
+and they stay readable because rendering `invalid api key` as `object with keys ['error']` would
+gut the diagnostic for the single most common setup failure there is. An upstream that echoes your
+request back inside one of them — a 400, a content-filter rejection — would put that text in the
+log; that turns on what the provider returns, not on TangleBrain.
+[`docs/design/security-model.md`](docs/design/security-model.md) carries the full accounting.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is
