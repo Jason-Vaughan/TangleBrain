@@ -218,8 +218,8 @@ Recorded, not fixed. Each is a decision someone should make deliberately.
    The diagnostic paths above share one fix: an `AdapterError` carrying a separately
    **constructed** summary for persistence, distinct from the rich message shown on stderr. That
    keeps the guarantee structural rather than adding the redaction filter the invariant's rationale
-   rejects. Sizing it
-   needs evidence of what a real provider returns on a 400, so it is recorded rather than scheduled.
+   rejects. Sizing it needs evidence of what a real provider returns on a 400, so it is recorded
+   rather than scheduled.
    Tracked as [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156).
    (A CLI's own error `subtype` is also kept verbatim; it is a fixed enum, not free text, and
    carries no echo risk.)
