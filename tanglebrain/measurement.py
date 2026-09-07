@@ -35,11 +35,16 @@ Design notes:
 - **All I/O is fault-tolerant.** A logging failure must never break the user's actual answer, and a
   corrupt log line must never break the rollup. Reads return sensible defaults; the writer swallows
   every exception. This mirrors the router's state-file idiom (:mod:`tanglebrain.router`).
+- **Swallowed is not the same as silent.** A lost append leaves the headline understating a figure
+  the product asks people to believe, so the writer says so once per process on stderr
+  (:func:`_note_lost_write`) while still swallowing the exception. The answer is unaffected; only
+  the operator's ability to trust ``--stats`` would have been.
 """
 from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -81,6 +86,21 @@ _LOG_LOCK = threading.Lock()
 # `_LOG_LOCK` for its whole body — and never waited on: a thread that finds a fold already running
 # has nothing to add by queueing behind it.
 _COMPACT_LOCK = threading.Lock()
+
+#: Whether this process has already said that a measurement write was lost. Once per *process*,
+#: not once per task: the recording path runs on every routed request, so a per-task warning is a
+#: stream the operator learns to scroll past — the same reasoning that fires the loose-key-file
+#: warning once per file (:mod:`tanglebrain.adapters.openai_compat`).
+#:
+#: The cost of that choice is that the note reports *that* the log stopped being complete and never
+#: how much of it is missing, so the message says so rather than letting a reader treat one line as
+#: one lost task.
+#:
+#: Deliberately unguarded, matching the loose-key-file ledger next door. ``delegate_many`` fans
+#: sub-tasks across threads, so two of them can in principle read this as unset and both print —
+#: and the whole cost of that is a duplicated line. A lock on the measurement path, taken from
+#: inside an exception handler, is a real hazard bought to prevent a cosmetic one.
+_LOST_WRITE_NOTED = False
 
 #: Byte ceiling on the row window. Once an append pushes the log past this, the oldest rows fold
 #: into the lifetime totals and leave the file (:func:`_compact_if_oversized`), so the log is
@@ -363,6 +383,61 @@ def cloud_equiv_usd(in_tokens: int, out_tokens: int, pricing: Pricing) -> float:
     )
 
 
+def _note_lost_write(exc: BaseException) -> None:
+    """Say once, on stderr, that a usage-log append was lost. Never raises.
+
+    :func:`record_task` swallows every exception because measurement must never break the answer.
+    That is right, and it has a cost: the log can stop recording with nobody told, and a
+    spend-avoided headline computed from an incomplete log while still labelled *lifetime* is worse
+    than no headline at all. This is the swallow's other half — the exception is still swallowed,
+    and the operator is told the number they are about to read has a hole in it.
+
+    Two properties decide whether that is useful in practice rather than noise:
+
+    - **Once per process** (:data:`_LOST_WRITE_NOTED`), because the recording path runs on every
+      routed request and a per-task warning teaches the operator to ignore the one that matters.
+      The message says so, so nobody reads one line as one lost task. The flag is a plain
+      test-and-set: a thread fan-out that loses two appends at the same instant can print twice,
+      which is a duplicated line and nothing more.
+    - **stderr, never stdout**, which carries the routed answer and gets piped. A notice that lands
+      in a caller's captured output has corrupted the thing measurement promised not to touch.
+
+    **The accepted limit.** The flag is set before the write, so a note that cannot be delivered is
+    not retried — a stderr that rejects this line will reject the next one, and retrying would only
+    buy the chance to raise inside an exception handler on every recorded task. The honest
+    consequence: if stderr is unusable, the loss stays silent, and the ``--stats`` health line is
+    what reaches that operator instead.
+
+    No prompt or response text can reach this message. The only values ``record_task`` derives from
+    them are character counts, so nothing it can raise carries text
+    (``data-model.md`` § Direction, "prompt and response text is never written to disk").
+
+    Args:
+        exc: The exception that lost the append. Rendered as ``Type: message`` — an ``OSError``\'s
+            message names the errno and the path, which is the whole diagnosis for the common case
+            (a read-only or full disk), and the type alone is still informative when a bare
+            exception stringifies to nothing.
+    """
+    global _LOST_WRITE_NOTED
+    try:
+        if _LOST_WRITE_NOTED:
+            return
+        _LOST_WRITE_NOTED = True
+        print(
+            f"tanglebrain: warning: a task could not be recorded to the usage log "
+            f"({type(exc).__name__}: {exc}). Its record is dropped rather than queued, so --stats "
+            "now understates what routing saved. Printed once per run, so it is not a count "
+            "of what was lost.",
+            file=sys.stderr,
+        )
+    except Exception:  # noqa: BLE001
+        # This runs inside `record_task`'s exception handler, where anything raised escapes the
+        # swallow and reaches the caller's answer. A broken stderr is the ordinary way that
+        # happens (a closed or full stream), and the notice is worth strictly less than the
+        # guarantee it would break, so it is the notice that gives way.
+        return
+
+
 def record_task(
     *,
     path: str,
@@ -380,7 +455,9 @@ def record_task(
     """Append one usage record for a routed task or a delegated sub-call. Never raises.
 
     A logging failure is dropped — measurement is a side-effect that must never affect the returned
-    answer.
+    answer — but it is not hidden: the first lost append of the process says so on stderr
+    (:func:`_note_lost_write`), because a headline summed from a log with a hole in it understates
+    while still claiming to be the lifetime figure.
 
     Args:
         path: Which execution path served the work — ``router`` | ``local`` | ``model`` |
@@ -411,6 +488,7 @@ def record_task(
             :func:`default_log_path`.
         pricing: Override the pricing. Defaults to :func:`load_pricing`.
     """
+    appended = False
     try:
         if pricing is None:
             pricing = load_pricing()
@@ -457,11 +535,21 @@ def record_task(
         with _LOG_LOCK:
             with target.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record) + "\n")
+        appended = True
         # Outside the lock deliberately — `_LOG_LOCK` is not reentrant and compaction holds it for
         # its whole body, so triggering from inside would deadlock rather than raise.
         _compact_if_oversized(target)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Measurement is a side-effect: a failure here must never affect the returned answer.
+        # Swallowed, but not silent — the note says the log now has a hole in it, which is the
+        # part the operator cannot see for themselves (:func:`_note_lost_write`).
+        #
+        # Gated on the append, so the sentence it prints is true by construction rather than by a
+        # neighbour's promise: a failure after the row landed lost no row. The only thing that
+        # runs after it is compaction, which catches its own failures at their own site and whose
+        # consequence — a log that stops pruning — is what the `--stats` health line reports.
+        if not appended:
+            _note_lost_write(exc)
         return
 
 

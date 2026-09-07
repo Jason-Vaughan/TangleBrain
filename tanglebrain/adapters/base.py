@@ -20,6 +20,68 @@ class AdapterError(RuntimeError):
     """
 
 
+#: Longest object key reproduced verbatim by :func:`describe_shape`. Schema field names are far
+#: shorter; anything longer is more likely to be content that happened to land in key position.
+_MAX_KEY_LEN = 40
+
+#: How many keys :func:`describe_shape` names before it stops and counts the rest. An envelope has
+#: a handful; a long list is noise in an error message rather than a diagnostic.
+_MAX_KEYS = 8
+
+
+def describe_shape(value: object) -> str:
+    """Describe a value's shape without reproducing its content.
+
+    Adapter errors are **persisted**: the router collects ``str(exc)`` into a task's ``failures``
+    and :func:`~tanglebrain.measurement.record_task` writes that into the usage log. So an error
+    that quotes the body it could not parse writes backend response text to disk, and
+    ``docs/design/data-model.md`` § Invariants guarantees that never happens — grounding it in
+    being *structural*: "a redaction filter can be bypassed by the next code path that forgets
+    it; there is nothing to redact cannot." Quoting a body makes it procedural. This keeps it
+    structural by never putting the content into the string in the first place.
+
+    What survives is what diagnoses a misconfigured backend: the size of what arrived and, for
+    an object, its field names. **Keys are named only when they look like schema** — an
+    identifier-shaped, short name. A key that is neither is content that happened to land in key
+    position, so it is counted rather than shown.
+
+    Args:
+        value: Anything an adapter received and could not use — decoded JSON, raw text, or a
+            fragment of either.
+
+    Returns:
+        A short, content-free description, e.g. ``52 chars of text`` or
+        ``object with keys ['result', 'subtype']``.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        return f"{len(value)} chars of text"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, dict):
+        if not value:
+            return "empty object"
+        named, hidden = [], 0
+        for key in value:
+            text = key if isinstance(key, str) else None
+            if text is not None and text.isidentifier() and len(text) <= _MAX_KEY_LEN:
+                named.append(text)
+            else:
+                hidden += 1
+        shown, extra = named[:_MAX_KEYS], max(0, len(named) - _MAX_KEYS)
+        unnamed = hidden + extra
+        if not shown:
+            return f"object with {len(value)} key(s), none schema-shaped"
+        suffix = f" (+{unnamed} more)" if unnamed else ""
+        return f"object with keys {shown!r}{suffix}"
+    if isinstance(value, (list, tuple)):
+        return f"array of {len(value)} item(s)"
+    return type(value).__name__
+
+
 @runtime_checkable
 class Adapter(Protocol):
     """A callable tier: turn a prompt into text.

@@ -10,7 +10,7 @@ to file paths — this maps the layout itself.
 
 ## Structure
 
-- `docs/` — <!-- describe -->
+- `docs/` — only `design/`: nine public design documents (architecture, api-contract, data-model,
 - `plugins/` — the Claude Code plugin this repo's own marketplace publishes
 - `tanglebrain/` — the package. Routing core at the top level (`router.py`, `selector.py`,
 - `tanglebrain.egg-info/` — build detritus from an editable install. Gitignored; ignore it.

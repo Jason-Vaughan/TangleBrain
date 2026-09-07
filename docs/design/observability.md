@@ -19,8 +19,11 @@ jobs, and the second one is served worse.
 
   *Why:* the signal exists to inform a human who is curious, not to gate anything. An observability
   path that can fail the operation it observes has inverted its own priority. The cost of this rule
-  is honest and worth naming: failures here are **silent by construction**, which is exactly why the
-  unlinked-delegation case below needs a positive signal rather than more error handling.
+  is honest and worth naming: swallowing means failures here are **silent by default**, which is
+  exactly why the unlinked-delegation case below needs a positive signal rather than more error
+  handling. A lost usage-log append is swallowed as ever, and also said once per process on
+  stderr, because a headline summed from a log with a hole in it understates while still labelled
+  *lifetime*.
 
 - **Observability never affects the answer.** Canonical statement, and the scope of the
   `measurement.py` broad-catch waiver, live in
@@ -84,6 +87,12 @@ values are references, never secrets, and are never logged or rendered resolved.
 
 This is the strongest property in the whole observability design — a filter can be bypassed by a new
 code path, but there is no filter here to bypass because there is nothing to filter.
+
+That holds without qualification for the measured text. It is narrower on the error path: a failed
+attempt persists the diagnostic that explains it, so the claim is structural at every adapter site
+that reproduces a completion — those describe shape rather than content — and a judgement at the
+provider- and CLI-produced strings kept verbatim so the commonest setup failures stay diagnosable.
+[`security-model.md`](security-model.md) § Known gaps enumerates them.
 
 ## Operational model
 

@@ -16,6 +16,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   delegate rows are inferred from `kind: delegate`, so the count covers existing history and is
   folded into `totals.json`; measurement still never raises and stores no prompt or response text.
 
+- **The no-persistence guarantee is now stated where users read, at the width it actually holds.**
+  "Prompt and response text is never written to disk" was a ratified invariant stated only where
+  contributors read. It is now in `README.md` and `docs/design/security-model.md` in the project's
+  own voice — a local-first router that does not keep your prompts has something to say a hosted
+  service cannot.
+
+  **Published at its real width, not its flattering one.** The claim is structural on the success
+  path and at every adapter site that reproduces a model completion; it is a judgement at the
+  error-diagnostic strings a provider or a CLI produces, which are kept verbatim so that a rejected
+  key or a missing binary stays diagnosable. Publishing the absolute version in the most public
+  place the guarantee appears would have overclaimed in exactly the place it costs most.
+
+  **Every place the absolute claim stood is reconciled, not just the new ones.** It appeared across
+  the design set — the invariant itself, the record description, the state-root rationale, the
+  OWASP data-exposure disposition, the NFR statement, the observability "nothing to filter"
+  paragraph, and the security model's own "what is actually being protected" list, which justified
+  itself with the very reasoning the previous entry withdrew. Qualifying one and republishing would
+  have left the rest propping up a security claim the project had already withdrawn.
+
+  **The residual set now has a durable public home.** `docs/design/security-model.md` § Known gaps
+  enumerates it and is the authoritative accounting, replacing a pointer into a build plan that
+  renumbers. Tracked as [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156): an
+  adapter error carrying a separately constructed summary for persistence closes the provider- and
+  CLI-diagnostic paths; the shape helper's identifier-shaped-key heuristic is a judgement by
+  construction and does not close.
+
+- **Backend response text no longer reaches `usage.jsonl`.** `docs/design/data-model.md` guarantees
+  that prompt and response text is never written to disk, and grounds that in being *structural* —
+  "there is nothing to redact". It was not. When a backend returned output an adapter could not
+  parse, the adapter put that raw output in its error message, the router kept the message
+  untruncated in the task's `failures`, and the record was written to the usage log. Reproduced
+  end-to-end: non-JSON prose from a backend landed verbatim in a record whose own docstring says it
+  carries derived counts only. Closes
+  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153).
+
+  **Fixed where the message is built, not where it is written.** Filtering at the persistence
+  boundary would be exactly the "redaction filter … bypassed by the next code path that forgets it"
+  that the guarantee's own rationale rejects. Every completion-bearing raise site in the CLI and
+  OpenAI-compatible adapters now describes the *shape* of what arrived instead of reproducing it;
+  the census test below is what knows how many there are.
+
+  **The errors got more useful, not less.** `response JSON missing 'text' field: object with keys
+  ['response', 'stats']` says immediately that the wrong parser is wired, which a dumped body never
+  did. Object keys are named only when they look like schema — identifier-shaped and short —
+  which catches free text in key position but **not** a single identifier-shaped token: a key like
+  `patient_name_zaphod` is still reproduced. That heuristic is the one place this guarantee is a
+  judgement rather than a structural property, and it is listed with the residuals below rather
+  than counted as covered. The failure signal #100 added is intact:
+  the reason and the entry id still persist.
+
+  **The guarantee now has a mechanism.** Its norm-registry entry listed enforcement as Critic
+  review, which is invisible between reviews — which is how this survived. A test now drives a real
+  unparseable response through the adapter, the router's failure shape, and `record_task`, and
+  fails if a body comes back; each adapter pins its own sites, and the shape helper's key filter is
+  tested directly. A census test additionally fails the moment a call site is added or removed —
+  because "every site is pinned" is a claim over a set that changes, and a claim like that needs
+  something other than a person to recompute it. The registry entry now names those tests instead
+  of naming a review.
+
+  **What this does not cover, stated rather than implied.** Three error paths still pass
+  third-party text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, that
+  endpoint's in-stream `error` envelope, and a failed CLI's stderr. All three are provider
+  diagnostics rather than completions — but a 400 can echo the offending input, and a CLI's argv
+  carries the prompt, so any of them could in principle carry input text into the log. Claude's own
+  `subtype` enum is listed alongside them for completeness — it is bounded and carries no echo
+  risk.
+
+  They are kept verbatim deliberately: replacing `invalid api key` or `claude: command not found`
+  with a shape would make the commonest setup failures undiagnosable.
+  Closing that properly means an error carrying a separately constructed summary for persistence,
+  distinct from the message shown on stderr — recorded on
+  [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153) rather than done here. The
+  identifier-shaped-key heuristic above is on that list too, and is the one item that fix does not
+  close: distinguishing a schema field name from content is not decidable, so that one is a judgement call by construction rather
+  than something a later fix closes.
+
+  **What this replaces, honestly:** the guarantee is structural at every site that reproduces a
+  completion, and a judgement at the points listed above. That is a narrower claim than the one
+  this project made before, which was structural everywhere and wrong. The design documents are
+  reconciled to that narrower claim by the no-persistence-guarantee entry in this same release, and
+  the residual set is tracked as
+  [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156).
+
+- **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
+  has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its
+  own state root — and nothing said so, so a second laptop's small number read as a lost history
+  rather than as the design working. The `--stats` help text and
+  [`docs/design/operations.md`](docs/design/operations.md) now state the scope with its reasoning
+  attached: a combined figure needs a stable machine identity, de-duplication of task ids across
+  hosts, and a conflict rule for compaction running independently on each machine — a
+  distributed-systems problem inside a router whose whole premise is local-first and
+  single-operator.
+
+  **Stated as a decision, not an omission**, and so not tracked as a gap: `docs/design/README.md`
+  reserves its gap table for open work and leaves ratified non-goals in the documents that own them.
+
+  **A combined view is still available, with a procedure.** The log is one JSON object per line so
+  two of them concatenate into a file the rollup reads — read it under a throwaway
+  `TANGLEBRAIN_STATE_DIR` rather than writing it back over a live log. It has to be that override
+  specifically: every entry point migrates a pre-0.21 cache-tier state root forward before reading
+  anything, `--stats` included, and `TANGLEBRAIN_STATE_DIR` is the one override the migration reads
+  too, so source and destination collapse and it copies nothing. `XDG_DATA_HOME` does not, so a
+  scratch root pointed at by it quietly acquires `~/.cache/tanglebrain`'s history. The honest limit
+  on the view itself is that a machine which has already folded rows into its `totals.json` is short
+  by whatever it folded; that file is one object and does not concatenate.
+
+  Stated in `README.md` as well as the two places the plan named: the README's own `--stats`
+  example carried the unscoped wording verbatim, above the command a first-time user actually runs,
+  so the surface most likely to teach the wrong assumption was the one still teaching it.
+
+  Nothing behaves differently. Three tests pin the help wording so the scope cannot drop out of
+  `--help` silently.
+
 - **`--stats` no longer asserts one pricing revision over a history that spans several.** The
   `Pricing ref:` line described the *current* `config/pricing.yaml` while the figure beside it
   summed tasks priced under whatever revision was in force when each one ran. It now describes the
@@ -44,6 +157,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   since it was introduced, so the span survives compaction destroying the rows behind it.
 
 ### Added
+
+- **A lost measurement write now says so, once per run.** `record_task` swallows every exception
+  because measurement must never break the answer, and the cost was that the usage log could stop
+  recording with nobody told — leaving `--stats` understating a figure still labelled *lifetime*.
+  The exception is still swallowed; the first lost append of a process now also prints a warning to
+  stderr naming the error — which for the disk failures that dominate carries the errno and the
+  path — and which direction the figure moves.
+
+  **Once per process, not once per task.** The recording path runs on every routed request, so a
+  per-task warning is a stream the operator learns to scroll past — the same reasoning that fires
+  the loose-key-file warning once per file. The message says so itself, so one line is never read
+  as one lost task.
+
+  **The notice cannot become the failure it reports.** It runs inside the handler that guarantees
+  the answer, so it swallows its own errors: an unusable stderr costs the notice, never the
+  response. The honest consequence is that a broken stderr leaves the loss unannounced.
+
+  It fires only when the row genuinely did not land. A failure *after* the append lost no row, and
+  compaction — the one thing that runs after it — catches its own failures at their own site.
 
 - **The usage log now prunes itself, capped by size** — recording a task checks the log, and
   crossing `MAX_LOG_BYTES` (5 MiB, roughly 15,000 records) folds the oldest rows into `totals.json`
@@ -86,6 +218,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leaves the totals inflated and the log over its cap — the unbounded case again. It asks far less
   of a failing disk to put a few hundred bytes back than to rewrite a megabyte of log, so it is
   much the less likely of the two, and it is stated rather than rounded away.
+
+### Internal
+
+- **CI now tests Python 3.13 and 3.14.** `requires-python` admits both, so pip installs
+  TangleBrain on them while the matrix stopped at 3.12 — the two newest interpreters the package
+  claims to support were the ones CI never exercised, and the interpreter the project is
+  developed on was among them. A version floor only helps if something notices; nothing tested
+  the promise at its upper end. The trove classifiers are widened to match, so `requires-python`,
+  the CI matrix and the advertised classifiers now agree. Closes
+  [#145](https://github.com/Jason-Vaughan/TangleBrain/issues/145).
 
 ## [0.21.0] - 2026-09-06
 

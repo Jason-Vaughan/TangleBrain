@@ -25,6 +25,12 @@ These bind. Departing from one is a decision to record and justify.
   forgets it; "there is nothing to redact" cannot. This is also what makes the usage log safe to
   keep forever and safe to render in a browser.
 
+  *Scope:* structural on the success path and at every adapter raise site that reproduces a model
+  completion — those report shape, not content. It is a judgement at the error-diagnostic strings a
+  provider or a CLI produces, which are kept verbatim on purpose;
+  [`security-model.md`](security-model.md) § Known gaps enumerates them and is the authoritative
+  accounting.
+
 - **An upgrade never writes the operator's roster.** It resolves outside the repo
   (`$TANGLEBRAIN_ROSTER` → XDG config → packaged example).
 
@@ -97,6 +103,10 @@ failovers behind a served task, or every attempt on a `kind: "failure"` record).
 Two things this record deliberately does **not** contain: the prompt and the response. Token counts
 are estimated with a uniform `chars/4` heuristic over the text, and the text is then discarded.
 There is no redaction step because there is nothing to redact.
+
+The one path that can carry text into a record is `failures[].error`. Every adapter message that
+could reproduce a completion reports its shape instead; the provider- and CLI-produced diagnostics
+kept verbatim are enumerated in [`security-model.md`](security-model.md) § Known gaps.
 
 `spend_avoided_usd` is `0.0` for `tier: api` (real spend avoids nothing) and for `kind: "failure"`
 records (a task no backend served avoided nothing), and equal to `cloud_equiv_usd` otherwise.
@@ -250,7 +260,8 @@ does not.**
 **The state root** resolves `TANGLEBRAIN_STATE_DIR` → `$XDG_DATA_HOME/tanglebrain` →
 `~/.local/share/tanglebrain`. It is the XDG **data** tier, not the cache tier: nothing under it is
 a cache. The usage log is the only record of accumulated spend-avoided and is never
-reconstructible — prompt and response text is never persisted, by design — and a config backup is
+reconstructible — prompt and response text is never persisted, by design (see the Invariants above
+for where that is structural and where it is a judgement) — and a config backup is
 the only copy of something the operator hand-edited. `~/.cache` is *defined* as a directory any
 cleanup tool may clear at will, so both were one `brew cleanup` from gone.
 

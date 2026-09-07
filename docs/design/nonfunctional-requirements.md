@@ -110,7 +110,9 @@ or renaming; recorded, not decided.
 Fully specified in [`security-model.md`](security-model.md). The NFR-level statements:
 
 - No secret is ever persisted, logged, or rendered — only `key_ref` references.
-- No prompt or response text is ever written to disk.
+- No prompt or response text is ever written to disk — structurally wherever a model completion is
+  reproduced, and a judgement at the error diagnostics [`security-model.md`](security-model.md)
+  § Known gaps enumerates.
 - No shell is ever invoked; `cmd` is `list[str]`.
 - Nothing binds off-loopback.
 

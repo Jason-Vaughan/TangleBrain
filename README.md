@@ -72,6 +72,10 @@ family** of tools, so it works the same whether you run it solo or as part of th
   the orchestrator reviews and synthesises the results.
 - **Cost measurement** — every routed task is logged with an estimated cloud-equivalent cost;
   `tanglebrain --stats` rolls up what you've spent versus avoided.
+- **Your prompts are not in the log** — text is measured, then discarded; only derived counts and
+  routing metadata are written. There is no redaction step to trust because nothing needing
+  redaction reaches the writer. The one qualification is on the error path, stated in full under
+  [Cost avoided](#cost-avoided-measurement).
 - **Knob GUI** — a localhost panel to view the roster, pricing, and rollup, edit a focused set of
   config knobs, and run a prompt.
 - **Gated paid-API tier** — bring-your-own-key overflow, off by default behind two independent
@@ -122,7 +126,7 @@ never clobber it. It's auto-discovered in order: `$TANGLEBRAIN_ROSTER` →
 # Route to the free local backend directly — works out of the box once a local server is running:
 .venv/bin/tanglebrain --local "Write a haiku about local inference."
 
-# Show the cost-avoided rollup across every routed task so far:
+# Show the cost-avoided rollup for every task this machine has routed:
 .venv/bin/tanglebrain --stats
 ```
 
@@ -175,12 +179,33 @@ Every routed task is logged as one JSON line in an append-only usage log
 estimated tokens, and the **cloud-equivalent cost it avoided** — what the work would have cost on a
 paid frontier API.
 
-`tanglebrain --stats` reports a **lifetime** figure, summed from two files: `totals.json` beside
-the log holds permanent aggregates, and the log holds the recent rows. Compaction folds the oldest
-rows into the totals and then drops them, so the log stays a bounded window without the lifetime
-figure shrinking as it shrinks. It runs on a size cap (5 MiB, roughly 15,000 records) — no
-maintenance, and nothing to schedule. Delete either file and the figure falls back to whatever the
-other one holds — a smaller number, never an error.
+`tanglebrain --stats` reports a **lifetime** figure for **this machine**, summed from two files:
+`totals.json` beside the log holds permanent aggregates, and the log holds the recent rows.
+Compaction folds the oldest rows into the totals and then drops them, so the log stays a bounded
+window without the lifetime figure shrinking as it shrinks. It runs on a size cap (5 MiB, roughly
+15,000 records) — no maintenance, and nothing to schedule. Delete either file and the figure falls
+back to whatever the other one holds — a smaller number, never an error.
+
+**Lifetime, not fleet-wide.** Each machine keeps its own log and totals, and nothing merges them —
+merging is a decided non-goal rather than a missing feature, because a combined figure would need
+stable machine identity, cross-host de-duplication and a conflict rule for compaction running
+independently on each. A second machine starting at zero is the design working. If you do want a
+combined view, the format is one JSON object per line so the logs concatenate. Read the result
+under a throwaway state root rather than writing it back over a live log:
+
+```sh
+mkdir -p /tmp/merged
+cat machine-a/usage.jsonl machine-b/usage.jsonl > /tmp/merged/usage.jsonl
+TANGLEBRAIN_STATE_DIR=/tmp/merged .venv/bin/tanglebrain --stats
+```
+
+**Use `TANGLEBRAIN_STATE_DIR` specifically, not `XDG_DATA_HOME`.** Every entry point migrates a
+pre-0.21 cache-tier state root forward before it reads anything, `--stats` included.
+`TANGLEBRAIN_STATE_DIR` is the one override the migration reads too, so it resolves source and
+destination to the same directory and copies nothing; point `XDG_DATA_HOME` at a scratch root
+instead and the migration copies `~/.cache/tanglebrain` into it, so the "merged" view silently
+carries a third machine's history. See
+[`docs/design/operations.md`](docs/design/operations.md) for what that view does and does not cover.
 
 Tokens are *estimated* with a uniform `chars/4` heuristic over the visible prompt + response — the
 authenticated CLIs expose no usable token counts, so one consistent (if approximate) methodology is
@@ -188,6 +213,31 @@ applied to every tier. The reference frontier price lives in
 [`tanglebrain/config/pricing.yaml`](https://github.com/Jason-Vaughan/TangleBrain/blob/main/tanglebrain/config/pricing.yaml) — tune it to whatever frontier
 model you want to compare against. A `placeholder` flag makes the rollup render a PLACEHOLDER caveat
 when the rates are rough. Logging is best-effort and never affects the returned answer.
+
+**What the log never contains: your prompts, and the model's replies.** Each task's text is run
+through the `chars/4` estimate and then discarded — only the derived counts and the routing metadata
+are written. That is what makes the log safe to keep forever and safe to render in a browser. It is
+a property of the shape of the code rather than a filter you have to trust: there is no redaction
+step because nothing that would need redacting ever reaches the writer.
+
+**The exception, stated plainly: backend error messages.** When a backend fails, the diagnostic
+explaining why is persisted next to the failed attempt, because a router that hides why it fell back
+is not debuggable. Every one of those messages that could carry a model's reply now reports the
+reply's *shape* — `52 chars of text`, `object with keys ['result', 'subtype']` — instead of quoting
+it, and a test drives a real malformed response onto disk to prove nothing of it survives.
+
+Two things are still kept as-is, deliberately. **Strings only a provider or a CLI produces** — an
+HTTP error body, a stream's error envelope, a failed subprocess's stderr — stay readable, because
+rendering `invalid api key` as `object with keys ['error']` would gut the diagnostic for the single
+most common setup failure there is. Those are error metadata rather than model output, but an
+upstream that echoes your request back inside one — a 400, a content-filter rejection — would put
+that text in the log; that turns on what the provider returns, not on TangleBrain. And **the shape
+summary itself has to guess once**: it names an object's keys when they look like schema, so a key
+that is a single identifier-shaped token is reproduced rather than counted, and that one can come
+from the model's own reply. Telling a schema field name from content is not decidable, so it is a
+judgement by construction rather than something a later fix closes.
+[`docs/design/security-model.md`](docs/design/security-model.md) enumerates both and is the
+authoritative accounting.
 
 **Editing the price never restates history.** Each task is priced when it runs and keeps that
 figure, so tuning `pricing.yaml` cannot retroactively inflate what you have already saved. The

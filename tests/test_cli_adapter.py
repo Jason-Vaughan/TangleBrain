@@ -6,14 +6,18 @@ session rather than an injected API key.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from tanglebrain.adapters.base import AdapterError
+from tanglebrain.adapters.base import AdapterError, describe_shape
 from tanglebrain.adapters.cli import (
     CliAdapter,
+    _parse_claude_json,
+    _parse_json_field,
     build_argv,
     scrubbed_env,
 )
@@ -378,6 +382,148 @@ class ConstructionTest(unittest.TestCase):
         entry = RosterEntry(id="x", tier="sub", invoke=Invoke(kind="cli", cmd=None))
         with self.assertRaises(AdapterError):
             CliAdapter.from_entry(entry)
+
+
+class ErrorMessagesCarryNoResponseTextTest(unittest.TestCase):
+    """A backend's output must not survive into the error raised about it.
+
+    `docs/design/data-model.md` § Invariants guarantees that prompt and response text is never written to
+    disk, and grounds that in being structural — "there is nothing to redact". Adapter errors
+    are persisted: the router collects `str(exc)` into `failures` and `record_task` writes that
+    into `usage.jsonl`. So an error that quotes the body it could not parse puts response text
+    on disk, and the guarantee becomes a redaction filter rather than a structural property.
+
+    These assert the message describes the SHAPE of what arrived and never reproduces it.
+    """
+
+    #: Distinctive enough that a substring check cannot pass by accident.
+    BODY = "Zaphod Beeblebrox ate the last Vogon poetry anthology"
+
+    def test_unparseable_stdout_is_described_not_quoted(self):
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_json_field(self.BODY, "text", label="local")
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        self.assertNotIn("Zaphod", msg)
+        # Still diagnostic: the reason and the size survive.
+        self.assertIn("not valid JSON", msg)
+        self.assertIn(str(len(self.BODY)), msg)
+
+    def test_missing_field_names_keys_not_values(self):
+        payload = json.dumps({"other": self.BODY})
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_json_field(payload, "text", label="local")
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        # Keys are the API's schema, not the model's words — they stay, and they are the
+        # thing that actually tells an operator which shape arrived.
+        self.assertIn("other", msg)
+
+    def test_non_text_field_value_is_not_quoted(self):
+        payload = json.dumps({"text": {"nested": self.BODY}})
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_json_field(payload, "text", label="local")
+        self.assertNotIn(self.BODY, str(ctx.exception))
+
+    def test_claude_unparseable_stdout_is_not_quoted(self):
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_claude_json(self.BODY)
+        self.assertNotIn(self.BODY, str(ctx.exception))
+
+    def test_claude_reported_error_does_not_quote_the_result(self):
+        payload = json.dumps({"is_error": True, "subtype": "overloaded", "result": self.BODY})
+        with self.assertRaises(AdapterError) as ctx:
+            _parse_claude_json(payload)
+        msg = str(ctx.exception)
+        self.assertNotIn(self.BODY, msg)
+        # The subtype is claude's own enum, not model output, and it is the diagnostic.
+        self.assertIn("overloaded", msg)
+
+
+class DescribeShapeTest(unittest.TestCase):
+    """`describe_shape` is the mechanism every raise site depends on — pin its edges directly.
+
+    Its key filter is the only thing standing between content and an error message when content
+    lands in *key* position, and every other test here would still pass if that filter were
+    removed, because their fixtures all use schema-shaped keys.
+    """
+
+    def test_text_is_reduced_to_a_length(self):
+        self.assertEqual(describe_shape("hello there"), "11 chars of text")
+
+    def test_schema_shaped_keys_are_named(self):
+        self.assertEqual(
+            describe_shape({"result": 1, "subtype": 2}), "object with keys ['result', 'subtype']"
+        )
+
+    def test_prose_in_key_position_is_counted_not_shown(self):
+        # The case the filter exists for: free text landing in key position.
+        prose = "the patient's name is Zaphod Beeblebrox"
+        out = describe_shape({prose: 1})
+        self.assertNotIn(prose, out)
+        self.assertNotIn("Zaphod", out)
+        self.assertEqual(out, "object with 1 key(s), none schema-shaped")
+
+    def test_a_single_identifier_shaped_token_is_reproduced(self):
+        # The filter's known limit, pinned so it stays known. It tests SHAPE, not content-ness —
+        # telling a schema field name from content is not decidable — so content that happens to be
+        # a single identifier-shaped token survives. A test using prose WITH SPACES does not cover
+        # this: it exercises the punctuation path instead. Change this only alongside a decision
+        # recorded in the residual list.
+        self.assertEqual(
+            describe_shape({"patient_name_zaphod": 1}), "object with keys ['patient_name_zaphod']"
+        )
+
+    def test_an_over_long_identifier_is_not_named(self):
+        # Identifier-shaped but far longer than any schema field — treated as content.
+        self.assertNotIn("a" * 60, describe_shape({"a" * 60: 1}))
+
+    def test_key_list_is_bounded(self):
+        self.assertIn("+4 more", describe_shape({f"k{i}": i for i in range(12)}))
+
+    def test_containers_and_scalars_use_one_vocabulary(self):
+        self.assertEqual(describe_shape([1, 2, 3]), "array of 3 item(s)")
+        self.assertEqual(describe_shape({}), "empty object")
+        self.assertEqual(describe_shape(None), "null")
+        self.assertEqual(describe_shape(1.5), "number")
+        self.assertEqual(describe_shape(True), "boolean")
+
+
+class DescribeShapeSiteCensusTest(unittest.TestCase):
+    """Every `describe_shape` call site must have a test that pins its body out.
+
+    "Every site is pinned" is a claim over a set that changes, so it needs something that
+    recomputes it. This counts the sites. It cannot prove a given site is pinned — only the
+    per-site assertions do that, and they live in this file and `test_openai_compat.py` — but it
+    fails the moment a site is added or removed, which is the moment the claim would otherwise stop
+    being true without anything saying so. Adding a site is a two-line change: write its pin, then
+    bump the count here.
+    """
+
+    #: Call sites per module, excluding `base.py` where the helper is defined. Bump ONLY together
+    #: with a matching per-site pin test — that pairing is what this census exists to enforce.
+    EXPECTED = {"cli.py": 5, "openai_compat.py": 5}
+
+    def test_site_count_matches_the_pinned_inventory(self):
+        adapters = Path(__file__).resolve().parent.parent / "tanglebrain" / "adapters"
+        actual = {
+            path.name: path.read_text(encoding="utf-8").count("describe_shape(")
+            for path in sorted(adapters.glob("*.py"))
+            if path.name not in {"base.py", "__init__.py"}
+        }
+        actual = {name: n for name, n in actual.items() if n}
+        self.assertEqual(
+            actual,
+            self.EXPECTED,
+            "describe_shape call sites changed. Every site needs a test asserting the body it "
+            "was given does NOT appear in the message (see ErrorMessagesCarryNoResponseTextTest "
+            "in this file and in test_openai_compat.py). Add the pin, then update EXPECTED.",
+        )
+
+    def test_the_helper_module_is_excluded_deliberately(self):
+        # base.py contains the definition and its docstring, not call sites; counting it would
+        # make the census drift for reasons that have nothing to do with coverage.
+        self.assertNotIn("base.py", self.EXPECTED)
 
 
 if __name__ == "__main__":
