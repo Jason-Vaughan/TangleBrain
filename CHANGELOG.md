@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The no-persistence guarantee is now stated where users read, at the width it actually holds.**
+  "Prompt and response text is never written to disk" was a ratified invariant stated only where
+  contributors read. It is now in `README.md` and `docs/design/security-model.md` in the project's
+  own voice — a local-first router that does not keep your prompts has something to say a hosted
+  service cannot.
+
+  **Published at its real width, not its flattering one.** The claim is structural on the success
+  path and at every adapter site that reproduces a model completion; it is a judgement at the
+  error-diagnostic strings a provider or a CLI produces, which are kept verbatim so that a rejected
+  key or a missing binary stays diagnosable. Publishing the absolute version in the most public
+  place the guarantee appears would have overclaimed in exactly the place it costs most.
+
+  **Every place the absolute claim stood is reconciled, not just the new ones.** It appeared across
+  the design set — the invariant itself, the record description, the state-root rationale, the
+  OWASP data-exposure disposition, the NFR statement, the observability "nothing to filter"
+  paragraph, and the security model's own "what is actually being protected" list, which justified
+  itself with the very reasoning the previous entry withdrew. Qualifying one and republishing would
+  have left the rest propping up a security claim the project had already withdrawn.
+
+  **The residual set now has a durable public home.** `docs/design/security-model.md` § Known gaps
+  enumerates it and is the authoritative accounting, replacing a pointer into a build plan that
+  renumbers. Tracked as [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156): an
+  adapter error carrying a separately constructed summary for persistence closes the provider- and
+  CLI-diagnostic paths; the shape helper's identifier-shaped-key heuristic is a judgement by
+  construction and does not close.
+
 - **Backend response text no longer reaches `usage.jsonl`.** `docs/design/data-model.md` guarantees
   that prompt and response text is never written to disk, and grounds that in being *structural* —
   "there is nothing to redact". It was not. When a backend returned output an adapter could not
@@ -61,9 +87,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **What this replaces, honestly:** the guarantee is structural at every site that reproduces a
   completion, and a judgement at the points listed above. That is a narrower claim than the one
-  this project made before, which was structural everywhere and wrong. The design documents under
-  `docs/design/` still state it without that qualification; reconciling them is the follow-up
-  chunk's work, named in the build plan so it is a deferral rather than a drop.
+  this project made before, which was structural everywhere and wrong. The design documents are
+  reconciled to that narrower claim by the no-persistence-guarantee entry in this same release, and
+  the residual set is tracked as
+  [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156).
 
 - **`--stats` now says the figure covers one machine, and that merging is a choice.** The rollup
   has always been per-machine — each install keeps its own `usage.jsonl` and `totals.json` under its
