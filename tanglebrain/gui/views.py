@@ -12,7 +12,14 @@ from __future__ import annotations
 
 from tanglebrain.adapters import AdapterError
 from tanglebrain.cli import run_once
-from tanglebrain.measurement import load_pricing, read_records, rollup, save_pricing, validate_pricing
+from tanglebrain.measurement import (
+    load_pricing,
+    probe_measurement_health,
+    read_records,
+    rollup,
+    save_pricing,
+    validate_pricing,
+)
 from tanglebrain.roster import RosterError, load_roster
 from tanglebrain.roster_edit import RosterEditError, save_roster_edits
 from tanglebrain.router import RouterError
@@ -103,15 +110,27 @@ def view_stats() -> dict:
     rows are compacted, which is the exact failure the totals file exists to prevent.
 
     Returns:
-        ``{summary, pricing_ref, is_placeholder}`` where ``summary`` is :func:`rollup`'s dict —
-        lifetime throughout, except the delegates' ``by_parent`` tree, which the panel labels as
-        covering the current window only.
+        ``{summary, pricing_ref, is_placeholder, health}`` where ``summary`` is :func:`rollup`'s
+        dict — lifetime throughout, except the delegates' ``by_parent`` tree, which the panel
+        labels as covering the current window only — and ``health`` is
+        :func:`probe_measurement_health`'s findings, empty when the store is sound.
+
+        The health probe runs on every *request* rather than once per process. That is the property
+        it was chosen for: the one-shot stderr notice ``record_task`` emits is printed at most once
+        for the life of a long-running ``gui`` process, so a store that breaks at hour six never
+        reaches this surface through it, while any later ``/api/stats`` call reports the condition
+        that is true when it is asked.
+
+        **The honest limit: the panel does not poll.** It fetches on load, after a run, and after a
+        pricing save, so an idle panel keeps showing the health of the store as it was at the last
+        of those. The freshness this buys is per-request, not per-second.
     """
     pricing = load_pricing()
     return {
         "summary": rollup(read_records(), read_totals()),
         "pricing_ref": pricing.reference_model,
         "is_placeholder": pricing.is_placeholder,
+        "health": probe_measurement_health(),
     }
 
 

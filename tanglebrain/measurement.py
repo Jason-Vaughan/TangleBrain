@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import textwrap
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -408,6 +409,14 @@ def _note_lost_write(exc: BaseException) -> None:
     consequence: if stderr is unusable, the loss stays silent, and the ``--stats`` health line is
     what reaches that operator instead.
 
+    **The once-per-process property has the same shape as a limit.** A short CLI invocation exits
+    and the next one may notice again, but ``serve`` and ``gui`` are long-lived: they print this
+    at hour zero and are silent for the rest of the process's life, however many appends are lost
+    afterwards. That is precisely the case :func:`probe_measurement_health` covers — it re-runs on
+    every render, so any later ``--stats`` or panel refresh reports the condition that is true when
+    it is asked, rather than the one that was true when the process started. (The panel does not
+    poll, so "later" means its next fetch, not continuously — see :func:`gui.views.view_stats`.)
+
     No prompt or response text can reach this message. The only values ``record_task`` derives from
     them are character counts, so nothing it can raise carries text
     (``data-model.md`` § Direction, "prompt and response text is never written to disk").
@@ -586,6 +595,172 @@ def _read_lines(log_path: str | os.PathLike[str] | None = None) -> list[tuple[st
             obj = None
         lines.append((raw, obj if isinstance(obj, dict) else None))
     return lines
+
+
+def _totals_unusable(totals_file: Path) -> bool:
+    """Is the lifetime totals file present *and* unreadable as a totals object?
+
+    Absence is not this condition. A log that has never crossed the compaction cap has no totals
+    file at all, and rolls up from its rows byte-identically to how it did before the file existed
+    — reporting that as damage would fire on every clean machine.
+
+    ``read_raw_totals`` returns ``None`` for unreadable bytes and unparseable text alike, and a
+    file that parses into something that is not an object is equally unusable, so the one
+    ``isinstance`` covers all three.
+
+    This predicate has two callers that must agree: :func:`compact_log` refuses to fold when it
+    holds, and :func:`probe_measurement_health` reports it. If they diverged, ``--stats`` would
+    tell an operator their store was fine while compaction silently declined to prune it.
+
+    Args:
+        totals_file: The totals path to examine.
+
+    Returns:
+        ``True`` when the file exists and cannot be read back as an object.
+    """
+    return totals_file.exists() and not isinstance(read_raw_totals(totals_file), dict)
+
+
+def probe_measurement_health(
+    log_path: str | os.PathLike[str] | None = None,
+    totals_path: str | os.PathLike[str] | None = None,
+) -> list[str]:
+    """Check, at ``--stats`` time, whether the measurement store can still do its job.
+
+    This is the counterpart to :func:`_note_lost_write`, answering a different question. The stderr
+    note tells the operator *at the moment a write is lost*; this tells them *when they go to trust
+    the number*. Neither substitutes for the other: the note is process-scoped and a long-lived
+    ``serve`` or ``gui`` process prints it once at hour zero and stays silent for the rest of its
+    life, while this runs afresh on every render.
+
+    **It reports a check, never a guarantee.** "The log directory is not writable" is something
+    this function actually asked the filesystem. "No writes were lost" is a completeness claim with
+    no mechanism behind it — nothing here reads history, and a permission restored between two
+    appends leaves a hole no probe can see. The findings are worded as the question that was asked
+    and the answer it got, at the moment it was asked.
+
+    **What the check is, precisely, because it is narrower than "can this be written".**
+    :func:`os.access` reads the *permission bits*; it does not attempt a write. A full disk, an
+    exhausted quota, an immutable flag, and root over a ``0444`` file all satisfy it while an
+    append would still fail — so a clean probe is evidence about permissions, not about capacity.
+    A trial append was the alternative and was rejected: it would write to the operator's log on
+    every ``--stats``, which is a side effect a read-only command must not have, and it would race
+    the very appends it is meant to describe. The narrower check with its limit stated is the
+    honest trade; the limit is written down rather than left for a reader to discover in the one
+    state it matters.
+
+    **It fires eagerly by preference.** The two failure directions are not symmetric: a finding
+    that need not have fired is a line the operator reads and dismisses, while silence over a store
+    that is genuinely broken is the exact defect this exists to prevent. Where the choice arises,
+    it reports.
+
+    The log and the totals file fail independently and are reported separately — a read-only log
+    says nothing about whether the lifetime figure is sound, and an unusable totals file says
+    nothing about whether new tasks are being recorded.
+
+    Args:
+        log_path: Override the usage-log path. Defaults to :func:`default_log_path`.
+        totals_path: Override the totals path. Defaults to :func:`default_totals_path`.
+
+    Returns:
+        One human-readable finding per failed check, in the order checked; empty when every check
+        passed. Never raises — the caller is a renderer, and a probe that broke the command it
+        exists to annotate would have inverted its own priority
+        (``docs/design/observability.md`` § Invariants). A check that cannot be performed at all
+        yields a finding saying so rather than nothing: silence renders identically to a healthy
+        store, so swallowing would hide the one answer the operator most needs.
+    """
+    findings: list[str] = []
+    # Resolution is inside the guard, not before it. `default_log_path()` consults the state root,
+    # which reads the environment and can itself fail; resolving outside would have left the one
+    # promise this function makes — that it never raises — false for the very first line of it.
+    try:
+        log = Path(log_path) if log_path is not None else default_log_path()
+        totals_file = Path(totals_path) if totals_path is not None else default_totals_path()
+    except Exception as exc:  # noqa: BLE001 -- boundary: the probe must never break `--stats`
+        return [
+            f"the measurement store could not be located — {type(exc).__name__} while resolving "
+            "its paths; whether it is recording is unknown"
+        ]
+    try:
+        if log.is_symlink() and not log.exists():
+            # A dangling symlink is neither `exists()` nor meaningfully absent. It would take the
+            # ancestor walk below, which inspects a directory that is perfectly writable while
+            # `open(log, "a")` resolves the link and fails on wherever it points. Verified, not
+            # reasoned: a link into a 0o500 directory raises PermissionError on append.
+            findings.append(
+                f"the usage-log path is a symlink whose target does not exist — checked that {log} "
+                f"resolves; appending would follow it to {os.readlink(log)}"
+            )
+        elif log.exists() and not log.is_file():
+            # A directory or socket sitting on the log path is the worst of the three states and
+            # was the one that reported nothing: `is_file()` sent it down the does-not-exist
+            # branch, where `mkdir(parents=True, exist_ok=True)` succeeds against an existing
+            # directory and the append then raises on every task. Neither a permission check nor
+            # an ancestor walk describes it, so it gets its own finding.
+            findings.append(
+                f"the usage-log path is not a regular file — checked the file type of {log}; "
+                "nothing can be appended to it"
+            )
+        elif log.is_file():
+            # Once the log exists, the append target is the file. A writable directory holding a
+            # read-only log loses every task, and the directory check alone would call that fine.
+            if not os.access(log, os.W_OK):
+                findings.append(
+                    f"the usage log is not writable — checked write permission on {log}; "
+                    "tasks routed now are not being recorded"
+                )
+        else:
+            # `record_task` appends through `mkdir(parents=True, exist_ok=True)`, so an append
+            # succeeds exactly when the nearest *existing* ancestor is writable — not when
+            # `log.parent` is, which may not exist at all. Checking `log.parent` alone reported
+            # nothing for a read-only state root holding no log directory yet, which is precisely
+            # the silence this probe exists to break: every append raises and the rollup stays
+            # clean forever. Walking up keeps a fresh install quiet, because there the ancestor
+            # that does exist is writable.
+            anchor = log.parent
+            while not anchor.exists() and anchor != anchor.parent:
+                anchor = anchor.parent
+            if not os.access(anchor, os.W_OK):
+                if anchor == log.parent:
+                    findings.append(
+                        f"the usage-log directory is not writable — checked write permission on "
+                        f"{anchor}; no log can be created there"
+                    )
+                else:
+                    findings.append(
+                        f"the usage-log directory does not exist and cannot be created — checked "
+                        f"write permission on {anchor}, the nearest existing parent of "
+                        f"{log.parent}; no log can be created there"
+                    )
+    # Broad on purpose, and separately from the totals check below so one fault cannot hide the
+    # other's finding. `--stats` has no handler around this call, and the Direction norm is that
+    # observability degrades to less information rather than to an error: a probe that raised
+    # would break the very command it exists to annotate.
+    #
+    # It degrades to a *finding*, never to silence. Silence here renders exactly like a healthy
+    # store, so swallowing would make the one state the operator most needs to see — "I could not
+    # tell" — indistinguishable from "all well". Only the exception's type reaches the message:
+    # `record_task` derives nothing from prompt or response text, so there is none to leak, and
+    # naming the type keeps the honest limit honest without widening what is printed.
+    except Exception as exc:  # noqa: BLE001 -- boundary: the probe must never break `--stats`
+        findings.append(
+            f"the usage log could not be checked — {type(exc).__name__} while probing {log}; "
+            "whether tasks are being recorded is unknown"
+        )
+    try:
+        if _totals_unusable(totals_file):
+            findings.append(
+                f"the lifetime totals file cannot be read — checked that {totals_file} parses as "
+                "an object; the figures above cover only the rows still on disk, and compaction "
+                "is refusing to fold, so the log is no longer being pruned"
+            )
+    except Exception as exc:  # noqa: BLE001 -- boundary: same contract as the log check above
+        findings.append(
+            f"the lifetime totals file could not be checked — {type(exc).__name__} while probing "
+            f"{totals_file}; whether the figures above are complete is unknown"
+        )
+    return findings
 
 
 def read_records(log_path: str | os.PathLike[str] | None = None) -> list[dict]:
@@ -860,9 +1035,9 @@ def compact_log(
         # Reading as zeros is right for a rollup, which only renders; it is wrong for a writer,
         # which destroys. Refusing keeps both halves on disk. The log grows meanwhile, which is a
         # smaller problem than a wrong headline.
-        # `read_raw_totals` returns `None` for unreadable bytes as well as unparseable ones, so
-        # this covers both — the file is present and cannot be trusted either way.
-        if totals_file.exists() and not isinstance(read_raw_totals(totals_file), dict):
+        # Shared with the `--stats` health probe so the two cannot drift: an operator must never
+        # be told the store is fine by one and have the other silently decline to prune.
+        if _totals_unusable(totals_file):
             raise CompactionRefusedError(
                 f"{totals_file} exists but cannot be read as a totals object; refusing to fold "
                 f"{len(lines) - keep_recent} row(s) onto it. Move or repair the file first — the "
@@ -1036,7 +1211,7 @@ def _compact_if_oversized(log: Path) -> None:
         _COMPACT_LOCK.release()
 
 
-def format_rollup(summary: dict, pricing: Pricing) -> str:
+def format_rollup(summary: dict, pricing: Pricing, health: list[str] | None = None) -> str:
     """Render a rollup summary as a human-readable block for the CLI.
 
     **The reference-pricing label describes the figure, not the configuration.** Each record was
@@ -1059,10 +1234,23 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
     rates would catch both and is an accepted limit rather than open work — this line exists to stop
     one label being asserted over a mixed history, which it does.
 
+    **The health findings are rendered here, not gathered here.** :func:`probe_measurement_health`
+    touches the filesystem; this function does not, so a rollup can still be formatted from records
+    alone. An empty list renders byte-identically to a rollup that knows nothing about health,
+    which is the same idiom the failure and origin lines already follow: a line appears only once
+    it has something to say.
+
+    **They take the warning glyph** under the block's criterion: ``⚠`` marks a figure that cannot
+    be trusted as printed, ``ℹ`` marks benign context about a figure that can. The criterion — and
+    why it is stated rather than inferred from the two lines that happen to use each glyph — has
+    one home in ``docs/design/observability.md`` § Store health, so a ruling change lands once.
+
     Args:
         summary: The aggregate from :func:`rollup`.
         pricing: The currently-configured pricing — the placeholder caveat, and the fallback
             reference-model label described above.
+        health: Findings from :func:`probe_measurement_health`. ``None`` and ``[]`` both render
+            nothing; the caller decides whether probing is wanted at all.
 
     Returns:
         A multi-line string suitable for printing.
@@ -1111,6 +1299,22 @@ def format_rollup(summary: dict, pricing: Pricing) -> str:
         lines.append(
             "  ⚠ pricing: PLACEHOLDER — figures are illustrative; set real rates in "
             "config/pricing.yaml and flip placeholder to false."
+        )
+    for finding in health or ():
+        # Wrapped rather than emitted as one long line. A finding names a path and a consequence,
+        # which runs past 200 characters on a real store; left unwrapped the terminal folds it at
+        # the window edge with no indent, and a block that is meant to read as informative
+        # arrives looking like a stack trace. The hanging indent keeps the continuation visibly
+        # subordinate to its own bullet when several findings render at once.
+        lines.extend(
+            textwrap.wrap(
+                f"⚠ measurement: {finding}.",
+                width=96,
+                initial_indent="  ",
+                subsequent_indent="      ",
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
         )
 
     delegates = summary.get("delegates") or {}

@@ -11,6 +11,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import random
 import shutil
 import threading
@@ -38,6 +39,7 @@ from tanglebrain.measurement import (
     fold_records_into_totals,
     format_rollup,
     load_pricing,
+    probe_measurement_health,
     record_task,
     read_records,
     rollup,
@@ -1945,6 +1947,264 @@ class PersistedRecordCarriesNoResponseTextTest(unittest.TestCase):
         written = self._log_after_failed_parse(self.BODY)
         self.assertNotIn(self.PROMPT, written)
         self.assertNotIn("Marvin", written)
+
+
+@unittest.skipIf(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    "root ignores the mode bits this probe reads, so every unwritable case would read as healthy",
+)
+class MeasurementHealthTest(unittest.TestCase):
+    """The `--stats` health probe: what it reports, what it stays quiet about, and its wording.
+
+    Every unwritable case is driven by a real mode change on a real temp path rather than a patched
+    `os.access`, because the thing under test is whether the probe asks the operating system the
+    right question about the right path. A mocked answer would pass against a probe that checked
+    the wrong file.
+    """
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(self._cleanup)
+        self.log = self.dir / LOG_FILENAME
+        self.totals = self.dir / "totals.json"
+
+    def _cleanup(self):
+        # Restore write permission first: a 0o500 directory cannot have its children unlinked.
+        with contextlib.suppress(OSError):
+            self.dir.chmod(0o700)
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _probe(self):
+        return probe_measurement_health(log_path=self.log, totals_path=self.totals)
+
+    # --- quiet cases: the states that are ordinary rather than damaged -------------------------
+
+    def test_healthy_store_reports_nothing(self):
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.totals.write_text(json.dumps({"tasks": 1}), encoding="utf-8")
+        self.assertEqual(self._probe(), [])
+
+    def test_missing_log_directory_is_not_degraded(self):
+        # A fresh install has never routed a task, so it has no log and no directory. Reporting
+        # that as damage would fire the health line on every clean machine, which is how an
+        # honesty signal gets trained out of the reader.
+        absent = self.dir / "never-created"
+        self.assertEqual(
+            probe_measurement_health(
+                log_path=absent / LOG_FILENAME, totals_path=absent / "totals.json"
+            ),
+            [],
+        )
+
+    def test_a_readonly_state_root_with_no_log_directory_yet_is_reported(self):
+        # `record_task` appends through `mkdir(parents=True, exist_ok=True)`, so the append
+        # succeeds exactly when the nearest EXISTING ancestor is writable. A probe that looked only
+        # at `log.parent` reported nothing here — every append raises and the rollup stays clean
+        # forever, which is the silence this whole feature exists to break.
+        self.dir.chmod(0o500)
+        absent = self.dir / "not-created-yet"
+        findings = probe_measurement_health(
+            log_path=absent / LOG_FILENAME, totals_path=absent / "totals.json"
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn(str(self.dir), findings[0])
+        self.assertIn("nearest existing parent", findings[0])
+
+    def test_missing_totals_is_not_degraded(self):
+        # Absence is the normal state of a log that has never crossed the compaction cap.
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.assertFalse(self.totals.exists())
+        self.assertEqual(self._probe(), [])
+
+    # --- damaged cases: each one exercised in the damaged state, not the fallback --------------
+
+    def test_unwritable_log_directory_is_reported(self):
+        self.dir.chmod(0o500)
+        findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("directory", findings[0])
+        self.assertIn(str(self.dir), findings[0])
+
+    def test_unwritable_log_file_is_reported(self):
+        # The append target once the log exists is the file, not the directory — a writable
+        # directory holding a read-only log still loses every task.
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.log.chmod(0o400)
+        findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn(str(self.log), findings[0])
+
+    def test_a_dangling_symlink_on_the_log_path_is_reported(self):
+        # Neither `exists()` nor absent. It used to take the ancestor walk, which inspects a
+        # directory that is perfectly writable — while `open(log, "a")` follows the link and
+        # fails on wherever it points. Driven through the real failure: the target sits in a
+        # 0o500 directory, so the append raises PermissionError.
+        target_dir = self.dir / "unwritable"
+        target_dir.mkdir()
+        self.log.symlink_to(target_dir / "target.jsonl")
+        target_dir.chmod(0o500)
+        self.addCleanup(target_dir.chmod, 0o700)
+        with self.assertRaises(OSError):
+            with open(self.log, "a", encoding="utf-8") as fh:
+                fh.write("x")
+        findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("symlink", findings[0])
+
+    def test_a_non_regular_file_on_the_log_path_is_reported(self):
+        # The worst of the three states and the one that used to report nothing: `is_file()` sent
+        # a directory down the does-not-exist branch, where `mkdir(parents=True, exist_ok=True)`
+        # succeeds against it and every append then raises.
+        (self.dir / LOG_FILENAME).mkdir()
+        findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("not a regular file", findings[0])
+        self.assertIn(str(self.log), findings[0])
+
+    def test_present_but_unreadable_totals_is_reported(self):
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.totals.write_text("{not json at all", encoding="utf-8")
+        findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn(str(self.totals), findings[0])
+
+    def test_totals_that_parses_but_is_not_an_object_is_reported(self):
+        # Compaction refuses on anything that is not a dict, so the probe's condition has to be
+        # the same predicate — a JSON array is present, parses, and is still unusable.
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.totals.write_text("[1, 2, 3]", encoding="utf-8")
+        self.assertEqual(len(self._probe()), 1)
+
+    def test_the_probe_condition_is_compactions_own_refusal_condition(self):
+        # If these ever disagree, one of them is lying to the operator: the health line would
+        # promise pruning is fine while compaction refuses, or the reverse.
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.totals.write_text("[1, 2, 3]", encoding="utf-8")
+        with self.assertRaises(CompactionRefusedError):
+            compact_log(keep_recent=0, log_path=self.log, totals_path=self.totals)
+        self.assertEqual(len(self._probe()), 1)
+
+    def test_log_and_totals_fail_independently_and_are_named_separately(self):
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.totals.write_text("{not json at all", encoding="utf-8")
+        self.log.chmod(0o400)
+        findings = self._probe()
+        self.assertEqual(len(findings), 2)
+        self.assertTrue(any(str(self.log) in f for f in findings))
+        self.assertTrue(any(str(self.totals) in f for f in findings))
+
+    # --- the contract the probe owes the caller -----------------------------------------------
+
+    def test_probe_never_raises(self):
+        # `record_task` swallows everything, so a probe that raised would be invisible there and
+        # fatal in `--stats`, which has no such handler. Driven through a real failure rather
+        # than a patched one: the path is a directory, so every file operation on it errors.
+        self.assertIsInstance(
+            probe_measurement_health(log_path=self.dir, totals_path=self.dir), list
+        )
+        # And when path resolution itself blows up — the one step that used to sit outside the
+        # guard, where a raise would have escaped into `--stats`, which has no handler.
+        with patch(
+            "tanglebrain.measurement.default_log_path", side_effect=RuntimeError("no state root")
+        ):
+            findings = probe_measurement_health()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("could not be located", findings[0])
+
+    def test_an_unprobeable_store_reports_rather_than_going_quiet(self):
+        # Silence renders identically to a healthy store, so a swallowed probe failure would make
+        # "I could not tell" look like "all well" — the one substitution this signal must not make.
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        with patch("tanglebrain.measurement.os.access", side_effect=PermissionError("boom")):
+            findings = self._probe()
+        self.assertEqual(len(findings), 1)
+        self.assertIn("could not be checked", findings[0])
+        self.assertIn("PermissionError", findings[0])
+
+    def test_findings_state_the_check_not_a_guarantee(self):
+        # "no writes lost" is a completeness claim with no mechanism behind it; the probe knows
+        # only what it asked the filesystem, at the moment it asked.
+        self.log.write_text('{"kind": "task"}\n', encoding="utf-8")
+        self.totals.write_text("{not json at all", encoding="utf-8")
+        self.log.chmod(0o400)
+        for finding in self._probe():
+            self.assertIn("checked", finding)
+            for overclaim in ("no writes lost", "all writes", "every write", "guarantee"):
+                self.assertNotIn(overclaim, finding)
+
+
+class HealthLineRenderingTest(unittest.TestCase):
+    """How the health findings render into the `--stats` block."""
+
+    def test_healthy_rollup_keeps_todays_shape(self):
+        # An all-green store renders byte-identically to a rollup that knows nothing about health,
+        # matching the existing failure-line and origin-line idiom.
+        summary = rollup([{"kind": "task", "model": "m1"}])
+        self.assertEqual(
+            format_rollup(summary, FIXED), format_rollup(summary, FIXED, health=[])
+        )
+
+    def test_findings_render_under_the_measurement_topic(self):
+        out = format_rollup(
+            rollup([{"kind": "task", "model": "m1"}]), FIXED, health=["the log is unwritable"]
+        )
+        self.assertIn("measurement:", out)
+        self.assertIn("the log is unwritable", out)
+
+    def test_each_finding_gets_its_own_line(self):
+        out = format_rollup(
+            rollup([{"kind": "task", "model": "m1"}]), FIXED, health=["first thing", "second thing"]
+        )
+        rendered = [ln for ln in out.splitlines() if "measurement:" in ln]
+        self.assertEqual(len(rendered), 2)
+
+    def test_long_findings_wrap_with_a_hanging_indent(self):
+        # Found by running `--stats` against a damaged store rather than by reading the code: a
+        # real finding names an absolute path and a consequence and runs past 200 characters, and
+        # unwrapped it folds at the terminal edge with no indent — a block meant to read as
+        # informative arriving looking like a stack trace.
+        finding = (
+            "the lifetime totals file cannot be read — checked that "
+            "/Users/someone/Library/Application Support/tanglebrain/totals.json parses as an "
+            "object; the figures above cover only the rows still on disk, and compaction is "
+            "refusing to fold, so the log is no longer being pruned"
+        )
+        out = format_rollup(rollup([{"kind": "task", "model": "m1"}]), FIXED, health=[finding])
+        body = [ln for ln in out.splitlines() if "measurement:" in ln or ln.startswith("      ")]
+        self.assertGreater(len(body), 1, "a finding this long must wrap")
+        for line in body:
+            self.assertLessEqual(len(line), 100, f"line runs long: {line!r}")
+        self.assertTrue(
+            all(ln.startswith("      ") for ln in body[1:]),
+            "continuations must sit indented under their own bullet",
+        )
+
+    def test_a_long_path_is_never_broken_across_lines(self):
+        # The contract is wrap-at-word-boundaries, NOT hard-fold. A path is one unbreakable token:
+        # splitting it would keep every line under the width and make the single most useful thing
+        # in the finding impossible to copy. So an over-long path overflows the width on purpose —
+        # this pins that choice rather than the width.
+        path = "/" + "deeply-nested-directory/" * 6 + "totals.json"
+        out = format_rollup(
+            rollup([{"kind": "task", "model": "m1"}]),
+            FIXED,
+            health=[f"the lifetime totals file cannot be read — checked that {path} parses"],
+        )
+        self.assertIn(path, out)
+        self.assertTrue(
+            any(len(ln) > 96 for ln in out.splitlines()),
+            "the unbreakable path is expected to overflow rather than be mangled",
+        )
+
+    def test_the_health_line_uses_the_warning_glyph(self):
+        # Pins the glyph against the block's criterion, which has one home in
+        # `docs/design/observability.md` § Store health and is not restated here: ⚠ marks a figure
+        # that cannot be trusted as printed, ℹ marks benign context about one that can.
+        out = format_rollup(
+            rollup([{"kind": "task", "model": "m1"}]), FIXED, health=["the log is unwritable"]
+        )
+        self.assertIn("⚠ measurement:", out)
+        self.assertNotIn("ℹ measurement:", out)
 
 
 if __name__ == "__main__":

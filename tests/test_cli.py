@@ -680,6 +680,32 @@ class MainTest(unittest.TestCase):
         self.assertIn("Tasks routed:   11", out.getvalue())
         self.assertIn("$4.25", out.getvalue())
 
+    def test_stats_reports_measurement_health_at_the_call_site(self):
+        # Pins `probe_measurement_health()` at the CLI call site, for the same reason the test
+        # above pins `read_totals()`: without this, deleting the `health=` argument from `--stats`
+        # leaves every probe and renderer test green, and the chunk's titular surface is the one
+        # end with no coverage. Driven through a genuinely damaged store rather than a patch, so
+        # a probe wired to the wrong paths would fail here too.
+        (Path(self.state) / "totals.json").write_text("{not json", encoding="utf-8")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["--stats"])
+        self.assertEqual(code, 0)
+        self.assertIn("⚠ measurement:", out.getvalue())
+        self.assertIn("totals.json", out.getvalue())
+
+    def test_stats_on_a_sound_store_prints_no_health_line(self):
+        # The other half: a health line on every invocation would be trained out of the reader
+        # within a day, so the quiet case is as much a contract as the loud one.
+        (Path(self.state) / "totals.json").write_text(
+            json.dumps({"tasks": 1}), encoding="utf-8"
+        )
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["--stats"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("measurement:", out.getvalue())
+
     def test_missing_prompt_without_stats_errors(self):
         # argparse parser.error exits with code 2.
         with redirect_stderr(io.StringIO()):

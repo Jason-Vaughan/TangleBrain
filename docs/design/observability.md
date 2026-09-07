@@ -3,7 +3,10 @@
 ## The honest summary
 
 TangleBrain has **one signal**: an append-only JSONL usage log. No metrics backend, no tracing, no
-alerting, no health endpoint.
+alerting, no health endpoint. The store's own health is checked where it is *read* — see
+[Store health](#store-health) — which is a property of the rollup, not a fourth signal: it has no
+endpoint of its own and nothing polls it. It rides the rollup a reader already asked for, in
+`--stats` and in the `/api/stats` body the panel fetches, and is stored nowhere.
 
 For a single-operator local tool whose consumer is a human running `--stats`, that is the right
 depth — and this document says so rather than filing three absent signals as gaps. What it does
@@ -118,6 +121,66 @@ says so instead of labelling it with whichever one is configured today.
 Documentation consistently calls these estimates. Keep it that way — the number's credibility rests
 on not overclaiming it.
 
+## Store health
+
+The measurement store can be broken in ways that produce a *plausible* number rather than an error,
+which is the failure mode a rollup is worst at showing. `--stats` and the GUI panel therefore run a
+probe at render time and report what it found.
+
+**It reports a check, never a guarantee.** "The usage log is not writable — checked write permission
+on `<path>`" is something the probe actually asked the filesystem. "No writes were lost" would be a
+completeness claim with no mechanism behind it: nothing reads history, and a permission restored
+between two appends leaves a hole no probe can see. Findings are worded as the question asked and
+the answer it got, at the moment it was asked.
+
+**And the check is narrower than "can this be written".** It reads permission bits. A full disk, an
+exhausted quota, an immutable flag, and root over a `0444` file all pass it while an append would
+still fail, so a quiet probe is evidence about permissions and not about capacity. A trial append
+was rejected as the alternative: `--stats` is a read-only command and must not write to the log to
+describe it, and a trial write would race the appends it is meant to characterise. The narrower
+check with its limit stated is the trade — which is the same stance the rest of this page takes,
+since a signal that overclaims is worse than one that is explicit about its edge.
+
+**Conditions are reported separately, because they fail independently.** `probe_measurement_health`
+is the authority on which ones exist; two are worth stating here because their *consequences* differ
+and neither implies the other:
+
+A **log that cannot be appended to** means tasks routed *now* are not being recorded; it says
+nothing about whether the lifetime figure is sound. The probe covers the several ways that happens
+— the file unwritable, the directory unwritable, the directory absent *and* uncreatable, a
+non-regular file or a dangling symlink on the path — because they are one condition to the operator
+and several to the filesystem.
+
+A **`totals.json` that is present but unreadable** means the opposite: the figures cover only the
+rows still on disk, and — because compaction refuses to fold onto a totals file it cannot read —
+the log has also stopped being pruned. One condition, two consequences, and the wording names both.
+
+**Absence is not damage — but an absence that cannot be repaired is.** A machine that has never
+routed a task has no log directory, and a log that has never crossed the compaction cap has no
+`totals.json`. Both are ordinary states of a fresh install, and reporting them would fire the signal
+on every clean machine until the reader learned to ignore it. What *is* reported is a missing log
+directory that also cannot be created: recording appends through `mkdir(parents=True)`, so the check
+is write permission on the nearest **existing** ancestor, not on the directory itself. A read-only
+state root would otherwise stay silent while every append raised.
+
+**It degrades to a finding, never to silence.** A probe that cannot run reports that it could not
+run. Silence renders identically to a healthy store, so swallowing would make "I could not tell"
+indistinguishable from "all well" — the one substitution this signal exists to prevent.
+
+**The glyph is a criterion, not a precedent.** `⚠` means *the figure above cannot be trusted as
+printed* — placeholder rates make it illustrative, a broken store makes it short. `ℹ` means *benign
+context about a figure you can trust*, which is what a pricing span is. Stated that way it decides
+the next annotation line too, instead of leaving it to be re-derived from two examples: the health
+line takes `⚠` not because a check failed but because the figure beside it is not trustworthy —
+which is also why `⚠ pricing: PLACEHOLDER`, where nothing failed and no check ran, takes the same
+glyph. A benign state wearing `⚠` and a real fault wearing `ℹ` are one defect, pointed two ways.
+
+This is the counterpart to the once-per-process stderr notice on a lost append, answering a
+different question: the notice tells the operator *when it happens*, the health line tells them
+*when they go to trust the number*. Neither substitutes for the other — a long-lived `serve` or
+`gui` process prints the notice once at hour zero and stays silent afterwards, while the probe
+re-runs on every render.
+
 ## What is deliberately absent
 
 | Signal | Status | Reasoning |
@@ -125,7 +188,7 @@ on not overclaiming it.
 | Metrics backend | Absent, correct | One operator, no time series worth scraping. |
 | Distributed tracing | Absent, defensible | The parent-task tree already covers the one cross-process relationship. |
 | Alerting | Absent, correct | Nothing to alert; nobody on call. |
-| Health endpoint | Absent, correct | Not a service. Failure is visible in the response. |
+| Health endpoint | Absent, correct | Not a service. Failure is visible in the response. A store-health *probe* runs when `--stats` or the panel renders, but nothing polls it and it is not reachable over the network — that is a rollup caveat, not an endpoint. |
 | Structured error log | Folded into the usage log | Failures are `kind: "failure"` records carrying the per-backend attempt list (#100). |
 
 ## Gaps

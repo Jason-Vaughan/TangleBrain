@@ -24,6 +24,7 @@ from tanglebrain.adapters import AdapterError
 from tanglebrain.classifier import TRIVIAL, classify
 from tanglebrain.measurement import (
     format_rollup,
+    probe_measurement_health,
     load_pricing,
     read_records,
     record_task,
@@ -448,7 +449,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.stats:
-        print(format_rollup(rollup(read_records(), read_totals()), load_pricing()))
+        print(
+            format_rollup(
+                rollup(read_records(), read_totals()),
+                load_pricing(),
+                health=probe_measurement_health(),
+            )
+        )
         return 0
 
     if args.prompt is None:
