@@ -413,7 +413,9 @@ def _note_lost_write(exc: BaseException) -> None:
     and the next one may notice again, but ``serve`` and ``gui`` are long-lived: they print this
     at hour zero and are silent for the rest of the process's life, however many appends are lost
     afterwards. That is precisely the case :func:`probe_measurement_health` covers — it re-runs on
-    every render, so it is what a panel left open all day actually shows.
+    every render, so any later ``--stats`` or panel refresh reports the condition that is true when
+    it is asked, rather than the one that was true when the process started. (The panel does not
+    poll, so "later" means its next fetch, not continuously — see :func:`gui.views.view_stats`.)
 
     No prompt or response text can reach this message. The only values ``record_task`` derives from
     them are character counts, so nothing it can raise carries text

@@ -4,9 +4,9 @@
 
 TangleBrain has **one signal**: an append-only JSONL usage log. No metrics backend, no tracing, no
 alerting, no health endpoint. The store's own health is checked where it is *read* — see
-[Store health](#store-health) — which is a property of the rollup, not a fourth signal: no endpoint
-serves it, nothing polls it, and it produces no data beyond the line in front of the reader who
-asked for it.
+[Store health](#store-health) — which is a property of the rollup, not a fourth signal: it has no
+endpoint of its own and nothing polls it. It rides the rollup a reader already asked for, in
+`--stats` and in the `/api/stats` body the panel fetches, and is stored nowhere.
 
 For a single-operator local tool whose consumer is a human running `--stats`, that is the right
 depth — and this document says so rather than filing three absent signals as gaps. What it does

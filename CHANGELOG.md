@@ -39,9 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The line takes the warning glyph under the block's criterion — `⚠` marks a figure that cannot be
   trusted as printed, `ℹ` marks benign context about one that can — stated in
-  `docs/design/observability.md` § Store health rather than restated here. That page also carries
-  the full list of conditions and the limits of the check: it reads permission bits, so a full disk
-  or an exhausted quota passes it while an append would still fail. Closes
+  `docs/design/observability.md` § Store health rather than restated here. The check reads permission
+  bits, so a full disk or an exhausted quota passes it while an append would still fail; that limit
+  is stated there too. Closes
   [#152](https://github.com/Jason-Vaughan/TangleBrain/issues/152).
 
 - **Lost delegate linkage is now a positive lifetime signal (#123).** A delegated sub-call that
