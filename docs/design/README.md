@@ -53,6 +53,7 @@ not backlog.
 
 | Gap | Issue |
 |---|---|
+| No single test spans a real adapter error through the real router onto disk | [#157](https://github.com/Jason-Vaughan/TangleBrain/issues/157) |
 | A persisted backend error can carry request text if the provider echoes it | [#156](https://github.com/Jason-Vaughan/TangleBrain/issues/156) |
 | A lost delegate hop is indistinguishable from a parentless record | [#123](https://github.com/Jason-Vaughan/TangleBrain/issues/123) |
 | Capability routing ranks by cost only — it routes down, never up | [#97](https://github.com/Jason-Vaughan/TangleBrain/issues/97) |
