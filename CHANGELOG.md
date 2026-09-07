@@ -41,6 +41,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The weekly CI canary's comment now names both extras it resolves** — `".[delegate,dev]"`, not
+  `".[delegate]"`. The job runs `make test`, which builds the venv from `pip install -e
+  ".[delegate,dev]"`, so the canary has always resolved `ruff` and `mypy` too and would catch an
+  upstream break in either. The comment understated its own coverage in the direction that costs
+  something: a reader deciding whether the dev toolchain needs a separate watch was told it was
+  uncovered when it was not, and the likely result is machinery built to solve a solved problem.
+  Comment only; no workflow behaviour changes. Closes
+  [#146](https://github.com/Jason-Vaughan/TangleBrain/issues/146).
+
+  Credit to **@7487**, who found the same discrepancy and opened
+  [#167](https://github.com/Jason-Vaughan/TangleBrain/pull/167) against it. That PR was not merged
+  because external contributions are re-implemented rather than merged and because it modified
+  `.github/workflows/`, a boundary this project enforces — a boundary that, as it happens, was only
+  published in `CONTRIBUTING.md` earlier today. The observation was theirs; the bytes here are ours.
+
 - **`CONTRIBUTING.md` now mirrors the full seven-point security checklist** from
   [`Jason-Vaughan/.github`](https://github.com/Jason-Vaughan/.github/blob/main/CONTRIBUTING.md),
   replacing the five-bullet condensation that predated it. Contributors are now told, in the
