@@ -46,17 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   third-party text through verbatim: an HTTP error body from an OpenAI-compatible endpoint, that
   endpoint's in-stream `error` envelope, and a failed CLI's stderr. All three are provider
   diagnostics rather than completions — but a 400 can echo the offending input, and a CLI's argv
-  carries the prompt, so any of them could in principle carry input text into the log. A fourth,
-  claude's own `subtype` enum, is bounded and carries no echo risk; it is listed alongside them for
-  completeness rather than as a risk.
+  carries the prompt, so any of them could in principle carry input text into the log. Claude's own
+  `subtype` enum is listed alongside them for completeness — it is bounded and carries no echo
+  risk.
 
   They are kept verbatim deliberately: replacing `invalid api key` or `claude: command not found`
   with a shape would make the commonest setup failures undiagnosable.
   Closing that properly means an error carrying a separately constructed summary for persistence,
   distinct from the message shown on stderr — recorded on
   [#153](https://github.com/Jason-Vaughan/TangleBrain/issues/153) rather than done here. The
-  identifier-shaped-key heuristic above is the fourth item on that list: distinguishing a schema
-  field name from content is not decidable, so that one is a judgement call by construction rather
+  identifier-shaped-key heuristic above is on that list too, and is the one item that fix does not
+  close: distinguishing a schema field name from content is not decidable, so that one is a judgement call by construction rather
   than something a later fix closes.
 
   **What this replaces, honestly:** the guarantee is structural at every site that reproduces a
