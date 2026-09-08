@@ -744,11 +744,12 @@ class StatusFooterTest(unittest.TestCase):
         self.assertIn('role="status"', footer)
 
     def test_the_hidden_attribute_can_actually_hide_it(self):
-        # `[hidden] { display: none }` is a UA rule and `.statusbar { display: flex }` is an
-        # author rule, so the author rule wins and `hidden` becomes decorative. Without the
-        # explicit override the bar is permanently visible and, in the common case, permanently
-        # empty — which trains the reader to stop looking at the one strip that only appears
-        # when something is wrong. Nothing else in this suite would notice.
+        # `[hidden] { display: none }` is a UA rule, so any author `display` on this element
+        # outranks it and turns `hidden` into decoration — leaving the bar permanently visible
+        # and, in the common case, permanently empty, which trains the reader to stop looking at
+        # the one strip that only appears when something is wrong. The layout rules live on the
+        # inner column precisely so the outer strip stays free of one; this pins the guard that
+        # makes adding one safe, and nothing else in this suite would notice its absence.
         self.assertRegex(
             self.panel,
             r"\.statusbar\[hidden\]\s*\{[^}]*display:\s*none",
@@ -784,6 +785,27 @@ class StatusFooterTest(unittest.TestCase):
         # the reader may not be on — so the footer must say so itself.
         self.assertRegex(self.panel, r"(?m)^\s*renderStatusBar\(null\);")
         self.assertIn("status unavailable", self.panel)
+
+    def test_the_bar_shares_the_content_column_s_width(self):
+        # The strip spans the pane; its text must line up with the cards it qualifies. These are
+        # two independent max-widths that only look right while they agree, and disagreeing is
+        # silent — on a wide window the items simply drift to the left of everything they annotate.
+        widths = dict(re.findall(r"\.(wrap|statusbar-inner)\s*\{[^}]*max-width:\s*(\d+)px", self.panel))
+        self.assertEqual(
+            {"wrap", "statusbar-inner"}, set(widths),
+            "both the content column and the status bar's inner column must declare a max-width",
+        )
+        self.assertEqual(
+            widths["wrap"], widths["statusbar-inner"],
+            "the status bar's column drifted out of alignment with the content column",
+        )
+
+        # And the text has to actually be put in that column. Writing to the outer strip's
+        # innerHTML replaces the column element itself, which loses the alignment silently and
+        # for good — the bar keeps working, just wrong, which is why the width check above
+        # cannot see it.
+        self.assertNotRegex(self.panel, r"(?m)^\s*bar\.innerHTML\s*=")
+        self.assertRegex(self.panel, r"(?m)^\s*slot\.innerHTML\s*=")
 
     def test_the_footer_does_not_overlap_the_panes_it_annotates(self):
         # `position: fixed` would cover the sidebar and sit on top of the scrolling content;

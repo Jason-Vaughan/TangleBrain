@@ -73,7 +73,10 @@
   .main:focus { outline: none; }
   /* `flex: 1 0 auto` rather than a plain `flex: 1`: the content sets its own height and grows
      the pane, it is never compressed to fit one. */
-  .wrap { max-width: 920px; width: 100%; margin: 0 auto; flex: 1 0 auto; padding: 24px 20px 64px; }
+  /* 960 rather than the 920 this column used to declare: `box-sizing: border-box` is global, so
+     the padding that moved here from `.main` comes out of max-width. 960 - 2x20 is the same 920
+     of content as before — the footer's arrival must not narrow the page behind it. */
+  .wrap { max-width: 960px; width: 100%; margin: 0 auto; flex: 1 0 auto; padding: 24px 20px 64px; }
   /* Kept so a later display rule on a view or its container cannot beat the bare attribute.
      The status footer below is exactly that occasion, arriving as predicted: `[hidden]` is a UA
      rule, any author `display` beats it, and a bar that cannot hide is worse than no bar. */
@@ -88,12 +91,20 @@
   .statusbar {
     position: sticky; bottom: 0; margin-top: auto;
     background: var(--card-bg); border-top: 1px solid var(--border);
-    padding: 8px 20px; font-size: .78rem;
+    font-size: .78rem;
+  }
+  /* `[hidden]` is a UA rule, and any author `display` on this element would outrank it and leave
+     the bar permanently visible and — in the common case — permanently empty. That is the trap
+     the `.view[hidden]` note above describes; nothing declares one here today, and this is what
+     keeps that safe to stop checking. */
+  .statusbar[hidden] { display: none; }
+  /* The bar's background and rule span the whole pane; its text lines up with the column it
+     qualifies. Same box as `.wrap`, or on a wide window the items start at the pane's edge while
+     the cards they annotate sit hundreds of pixels to the right. */
+  .statusbar-inner {
+    max-width: 960px; margin: 0 auto; padding: 8px 20px;
     display: flex; flex-wrap: wrap; gap: 2px 18px;
   }
-  /* The author `display: flex` above outranks the UA's `[hidden] { display: none }`, so without
-     this the bar would be permanently visible and permanently empty. */
-  .statusbar[hidden] { display: none; }
   .statusbar .item { color: var(--amber); }
   /* Muted, not amber: "we could not ask" is a different claim from "we asked and it is bad". */
   .statusbar .item.unknown { color: var(--text-muted); }
@@ -210,7 +221,9 @@
         without interrupting what the reader is doing. Empty and hidden until `/api/stats`
         answers — an empty bar would read as "checked, all clear", which is the one thing the
         no-answer case must not look like. -->
-   <footer class="statusbar" id="statusbar" role="status" aria-label="Panel status" hidden></footer>
+   <footer class="statusbar" id="statusbar" role="status" aria-label="Panel status" hidden>
+     <div class="statusbar-inner" id="statusbarItems"></div>
+   </footer>
   </main>
 </div>
 
@@ -285,15 +298,18 @@ function money(n) { return "$" + (Number(n) || 0).toFixed(2); }
 // absence: see below.
 function renderStatusBar(items) {
   const bar = $("statusbar");
+  // Two elements on purpose: `bar` is the full-width strip that carries the background, the rule
+  // and the `hidden` state; `items` is the centred column inside it that the text sits in.
+  const slot = $("statusbarItems");
   if (items === null) {
     // A store that could not be reached must not render identically to a healthy one. An empty
     // bar is the panel saying "asked, nothing to report"; this is the panel saying "could not
     // ask", which is the state in which the figures above are least trustworthy.
-    bar.innerHTML = `<span class="item unknown">status unavailable — /api/stats did not answer.</span>`;
+    slot.innerHTML = `<span class="item unknown">status unavailable — /api/stats did not answer.</span>`;
     bar.hidden = false;
     return;
   }
-  bar.innerHTML = items.map((html) => `<span class="item">${html}</span>`).join("");
+  slot.innerHTML = items.map((html) => `<span class="item">${html}</span>`).join("");
   // Nothing to say is the common case, and a permanently empty bar would train the reader to
   // stop looking at the one strip that only ever appears when something is wrong.
   bar.hidden = items.length === 0;
