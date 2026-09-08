@@ -55,7 +55,7 @@ delegate = ["mcp >= 2, < 3"]
 # an API break. The canary argument that justifies a wide range for a runtime dependency does not
 # transfer here — no user resolves a dev tool, so an unannounced upgrade is pure noise. Bump these
 # deliberately; a tool release that reds the gate is fixed, not un-gated.
-dev = ["ruff >= 0.16, < 0.17", "mypy >= 2.3, < 2.4", "types-PyYAML >= 6, < 7"]
+dev = ["ruff >= 0.16.6, < 0.17", "mypy >= 2.3, < 2.4", "types-PyYAML >= 6, < 7"]
 
 [project.urls]
 Homepage = "https://github.com/Jason-Vaughan/TangleBrain"
