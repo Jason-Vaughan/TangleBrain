@@ -126,6 +126,9 @@
        content instead of at the foot of the screen; long ones still pin it. */
     .main { width: 100%; min-height: 0; }
     .wrap { padding: 20px 16px 48px; }
+    /* Follows `.wrap`'s narrow-viewport inset. Only the horizontal value has to agree — the
+       vertical ones differ by design, a strip being shorter than a page. */
+    .statusbar-inner { padding: 8px 16px; }
   }
 
   /* ---- content -------------------------------------------------------------------------- */
