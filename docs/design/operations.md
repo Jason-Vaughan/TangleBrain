@@ -235,6 +235,17 @@ a directory conventionally treated as disposable.
   of the problem a version cap cannot solve: a cap prevents a known breakage, but only something
   that *runs* catches a compatible-range release that changes behavior. `workflow_dispatch` is
   enabled alongside it, so the canary can be exercised without waiting a week.
+- **Dependabot is the third mechanism, and it answers the question the other two cannot.** The cap
+  prevents a known break; the canary catches a break inside the allowed range; neither says a new
+  major *exists*. `.github/dependabot.yml` watches pip and the workflow actions weekly, so a cap
+  becomes a decision rather than a wall. Routine bumps arrive grouped; majors deliberately do not,
+  so each is its own accept-or-reject. **Two things to know before merging one of its PRs:**
+  `versioning-strategy: increase` raises the *lower* bound too, so an in-range bump can narrow what
+  a user may install — a breaking change under
+  [`deprecation-policy.md`](deprecation-policy.md) § Dependency floors that the packaging tests do
+  not catch. And zero pull requests means "nothing to update" and "Dependabot is not running"
+  equally; if a month passes with no bump at all, check the repository's Dependabot settings rather
+  than concluding the surface is quiet.
 
 ## Release
 

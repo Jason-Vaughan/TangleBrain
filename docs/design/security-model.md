@@ -184,7 +184,13 @@ threat model here is "a web page the operator visited", and only that.
   keeping the dependency surface deliberately small (stdlib GUI, no agent framework) — every
   dependency avoided is one that cannot be compromised. Also mitigated by bounding every
   declared dependency at the next major, so a major cannot land in a fresh resolve unannounced, and
-  by a weekly scheduled CI run that notices an upstream break without waiting for a push. The `mcp`
+  by a weekly scheduled CI run that notices an upstream break without waiting for a push. Dependabot
+  watches both the Python surface and the workflow actions weekly — the actions matter here
+  specifically, because `publish.yml` holds `id-token: write` for PyPI trusted publishing and
+  nothing else was watching what it pins. Coverage there is four of its five actions:
+  `pypa/gh-action-pypi-publish` is pinned at a *branch* ref, which the updater does not
+  version-update, so that one follows upstream's release line rather than arriving as a reviewable
+  bump. The `mcp`
   requirement pins a major at both ends for the same reason — this exact shape already broke the
   published package once (v0.20.1). Note the delegate extra now installs `httpx2` alongside
   TangleBrain's own `httpx`: mcp 2.x moved HTTP stacks, so an install that opts into `[delegate]`

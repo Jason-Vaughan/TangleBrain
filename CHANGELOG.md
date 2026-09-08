@@ -23,17 +23,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cap into a decision. The failure it is aimed at is real: v0.20.1 was a hotfix for `mcp` 2.0.0
   removing an import path the delegate extra needed, found by an install rather than by CI.
 
-  **`versioning-strategy: increase` is set explicitly on the pip ecosystem, and that is the point
-  of the change.** The `auto` default resolves to `increase` or `widen` from Dependabot's own
-  app-vs-library classification, and `widen` would rewrite `httpx >= 0.27, < 1` into a constraint
-  permitting both 0.x and 1.x — dissolving the cap rather than forcing the decision the cap exists
-  for. It is *not* set to make majors visible: all three strategies cross an upper bound, so a
-  major surfaces either way. It governs what the resulting PR does to `pyproject.toml`.
+  **`versioning-strategy: increase` is set explicitly on the pip ecosystem.** The `auto` default
+  resolves to `increase` or `widen` from Dependabot's own app-vs-library classification, and `widen`
+  rewrites a capped requirement into one permitting both the old major and the new — dissolving the
+  cap rather than forcing the decision it exists for. It is *not* set to make majors visible: every
+  strategy crosses an upper bound, so a major surfaces either way.
+
+  **If you merge one of its pull requests, read the floor change and not just the green check.**
+  `increase` raises the *lower* bound too, so a routine in-range release can narrow what a user is
+  allowed to install — a breaking change under `docs/design/deprecation-policy.md` § Dependency
+  floors, owed an announcement, and one the packaging tests do not catch because they assert upper
+  bounds only.
 
   Minor and patch bumps are grouped into one review unit per ecosystem; **majors deliberately are
   not**, so each opens its own pull request — a cap exists to force one decision at a time, and
   grouping majors would bundle two unrelated ones into a single accept-or-reject.
   `tests/test_packaging.py` pins both properties beside the upper-bound assertions they protect.
+  Two limits are worth knowing and live in `docs/design/operations.md`: `pypa/gh-action-pypi-publish`
+  is pinned at a branch ref that the updater cannot version-update, and zero pull requests means
+  "nothing to update" and "Dependabot is not running" equally.
 
 
 ## [0.23.0] - 2026-09-07

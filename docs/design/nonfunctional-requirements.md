@@ -134,6 +134,15 @@ Fully specified in [`security-model.md`](security-model.md). The NFR-level state
   resolution conflicts for anyone installing TangleBrain alongside other packages, a real cost paid
   to prevent a break semver already announces. A weekly scheduled CI run covers what a cap cannot —
   a compatible-range release that changes behavior rather than API.
+- **Dependabot covers what neither of those does: saying a new major exists.** A cap turns a break
+  into a version this project is quietly pinned behind, and the canary only reports a break *inside*
+  the allowed range — so between them nothing announces that `httpx` 1.0 shipped. Weekly, on pip and
+  on the workflow actions. `versioning-strategy: increase` is set explicitly, because the `auto`
+  default can resolve to `widen`, which would dissolve the caps above rather than force the decision
+  they exist for; `tests/test_packaging.py` pins that beside the bound assertions it protects.
+  **`increase` also raises floors**, so merging one of its pull requests can incur the announcement
+  [`deprecation-policy.md`](deprecation-policy.md) § Dependency floors requires — the bound tests do
+  not catch that, and the reviewer of the bot's PR is what stands in for them.
 
 ## Maintainability
 

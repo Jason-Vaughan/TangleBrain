@@ -6,6 +6,13 @@
 # which is a canary, not an upgrade path. Dependabot is the piece that turns a cap from a wall
 # into a decision — the failure it is aimed at is v0.20.1, where `mcp >= 1.0` let 2.0.0 remove an
 # import path the delegate extra needed, and a user's install found it before CI did.
+#
+# LIMIT, stated because zero pull requests is the success signal and the failure signal alike: a
+# schema rejection, this file never being read, or Dependabot disabled at the repo level all look
+# exactly like "everything is current". Nothing here can detect that, and no evidence can exist
+# before merge, because Dependabot reads the default branch. The weekly CI canary bounds the
+# exposure meanwhile. If a month passes with no bump of any kind, check the repository's Dependabot
+# settings and its logs before concluding the dependency surface is quiet.
 version: 2
 
 updates:
@@ -16,14 +23,28 @@ updates:
 
     # THE LOAD-BEARING LINE. `auto` resolves to `increase` or `widen` from Dependabot's own
     # app-vs-library guess, which is undocumented for pip, and the two produce materially
-    # different manifests. `widen` rewrites `>= 0.27, < 1` into a constraint permitting both 0.x
-    # and 1.x — it does not move the decision forward, it dissolves it, and the cap stops meaning
-    # anything. `increase` commits to the new major one at a time, with the PR as the place the
-    # decision gets made. Inheriting `auto` makes that a coin flip on a classifier.
+    # different manifests. `widen` rewrites a capped requirement into one permitting both the old
+    # major and the new — it does not move the decision forward, it dissolves it, and the cap stops
+    # meaning anything. `increase` commits to the new major one at a time, with the PR as the place
+    # the decision gets made. Inheriting `auto` makes that a coin flip on a classifier.
     #
-    # (Not a guard against majors going unreported: `increase`, `increase-if-necessary` and
-    # `widen` all cross an upper bound, so a major surfaces under any of them. The choice is about
-    # what the PR does to pyproject.toml, not whether it appears.)
+    # NOT a guard against majors going unreported: `increase`, `increase-if-necessary` and `widen`
+    # all cross an upper bound, so a major surfaces under any of them. This governs what the PR
+    # does to pyproject.toml, not whether it appears.
+    #
+    # `increase-if-necessary` was the real alternative and is rejected on the ambiguity that
+    # matters: it leaves an in-range release alone (no floor churn, which would be the better
+    # half), but its documented out-of-range behaviour is "widen the requirement" while the same
+    # reference's worked example shows an increase. Which one a `>= x, < y` constraint gets is not
+    # determinable from the docs, and the losing case is the one that erases the cap. When the cap
+    # is the thing being protected, the strategy that never widens is the conservative choice.
+    #
+    # THE COST, because it is not free and nothing else here would say so: `increase` raises the
+    # LOWER bound as well, so a routine in-range release proposes narrowing e.g. the httpx floor.
+    # That is a breaking change for installs under docs/design/deprecation-policy.md § Dependency
+    # floors, and it owes an announcement and a blast radius. `DependencyBoundTest` asserts upper
+    # bounds only and will not catch it. Whoever merges one of these PRs incurs that obligation —
+    # read the floor change, not just the green check.
     versioning-strategy: increase
 
     # Routine bumps arrive as one review unit; a MAJOR does not. Majors are deliberately left out
@@ -45,6 +66,12 @@ updates:
   # `id-token: write` for PyPI trusted publishing, so its actions are the highest-privilege
   # dependency in the repo. No `versioning-strategy` here: a tag pin has no range to widen or
   # increase, so the option would be inert.
+  #
+  # Coverage is four of five, and the gap is the privileged one: `pypa/gh-action-pypi-publish` is
+  # pinned at `@release/v1`, a BRANCH ref, and the updater versions tags rather than branches. That
+  # ref auto-follows upstream's v1 line instead — a different trade (no review gate, no pinning)
+  # that this config neither creates nor fixes. Stated so the coverage claim above is not read as
+  # including it.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

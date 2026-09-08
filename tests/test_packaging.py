@@ -114,11 +114,6 @@ class DependencyBoundTest(unittest.TestCase):
             f"the mcp requirement must stay below the next major; got {requirement!r}",
         )
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DependabotConfigTest(unittest.TestCase):
     """The Dependabot config makes a claim about a provider, so pin the half that is ours.
 
@@ -160,14 +155,31 @@ class DependabotConfigTest(unittest.TestCase):
         # github-actions is not incidental: `publish.yml` holds `id-token: write` for PyPI
         # trusted publishing, so its pinned actions are the highest-privilege dependency here and
         # nothing else watches them.
+        #
+        # A floor, not an exact set. Watching a *further* ecosystem is the direction this test is
+        # named for, and an equality assertion would red on it — turning "cover the supply chain"
+        # into "cover exactly this much of it", which is the opposite instruction.
         ecosystems = {u["package-ecosystem"] for u in self._config()["updates"]}
-        self.assertEqual({"pip", "github-actions"}, ecosystems)
+        self.assertLessEqual({"pip", "github-actions"}, ecosystems)
 
     def test_major_bumps_are_not_grouped_away(self):
         # A cap exists to force one deliberate decision per major. A group covering `major` would
         # bundle two unrelated majors into a single accept-or-reject, which is the decision the
         # cap was protecting, taken away again by the tooling meant to surface it.
+        #
+        # Every entry must HAVE a group, asserted rather than assumed: without it the loop below
+        # iterates nothing and reports success over a config that groups everything by default.
+        seen = 0
         for entry in self._config()["updates"]:
-            for name, group in (entry.get("groups") or {}).items():
+            groups = entry.get("groups") or {}
+            with self.subTest(ecosystem=entry["package-ecosystem"]):
+                self.assertTrue(groups, "no groups — routine bumps would arrive one PR per package")
+            for name, group in groups.items():
+                seen += 1
                 with self.subTest(ecosystem=entry["package-ecosystem"], group=name):
                     self.assertNotIn("major", group.get("update-types", []))
+        self.assertTrue(seen, "no group was examined — this test would pass over anything")
+
+
+if __name__ == "__main__":
+    unittest.main()
