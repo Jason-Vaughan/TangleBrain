@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **TangleBrain now tells you when the v0.21.0 state move left your usage log short**
+  ([#197](https://github.com/Jason-Vaughan/TangleBrain/issues/197)). Every command checks, at
+  startup, whether `~/.cache/tanglebrain` still holds usage records the current log does not, and
+  says so on one line of stderr if it does. The fix for the underlying race shipped separately; it
+  stops the truncation happening again and does nothing for a store where it already happened,
+  which had no signal at all — the re-run guard is "does the destination exist", so no later run
+  ever retried a short file, and the lifetime spend-avoided figure understated in silence.
+
+  **This release only reports. It does not repair, and it never writes to your data.** Putting the
+  legacy records back means merging them *underneath* everything logged since the move; a copy
+  would delete that history. Repair is therefore an explicitly invoked command with a dry run, in a
+  later release. Until then the one thing to do is what the notice says: **keep
+  `~/.cache/tanglebrain`.** It holds the only copy of the missing records, and nothing can be
+  recovered from it once it is deleted.
+
+  Records are compared, never file sizes — after the move the current log grows on every run while
+  the legacy one is frozen, so a log truncated at migration and used for a week is *larger* than the
+  file it is missing records from, and a size check calls that healthy. It allows for compaction
+  too, which folds the oldest rows out of a healthy log and would otherwise make a heavy user's
+  intact store look robbed; where a fold has gone deep enough that the two cannot be told apart, the
+  notice says so rather than claiming data loss.
+
+  **What it costs, and two things it deliberately does not do.** An intact store whose log has not
+  folded past the migration boundary costs two small reads, independent of log size; after such a
+  fold every command pays a scan, permanently, and an inconclusive notice repeats on every
+  invocation with no flag to silence it — suppressing it would mean remembering it fired, and
+  remembering means writing to the store. A legacy root you have **already deleted** cannot be
+  reported on at all, being indistinguishable from a machine that never had one. And a legacy log
+  that cannot be read says *that*, rather than letting an unreadable file look like a clean bill.
+
+  The full reasoning — why each of those holds, and what the detector rests on — is in
+  `docs/design/observability.md` § Migrated-log integrity, so it stays in one place as the detector
+  changes.
+
 ### Changed
 
 - **The knob panel is two views behind a sidebar, not one scrolling column** ([#166](https://github.com/Jason-Vaughan/TangleBrain/issues/166)).

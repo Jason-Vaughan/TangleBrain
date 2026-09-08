@@ -38,6 +38,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tanglebrain.adapters.base import AdapterError
+from tanglebrain.integrity import warn_if_migration_incomplete
 from tanglebrain.router import RouterError, migrate_state_root
 from tanglebrain.delegate import (
     DEFAULT_DELEGATE_MAX_TOKENS,
@@ -235,6 +236,9 @@ def main() -> None:
     # Move a pre-0.21 cache-tier state root forward before anything reads it. Idempotent,
     # never raises; the notice goes to stderr so a piped answer stays clean.
     migrate_state_root()
+    # Then say so if that move — or the v0.21.0 one that predates the unique staging name —
+    # left the log short. Read-only: it reports, and never touches the operator's data.
+    warn_if_migration_incomplete()
     mcp.run()
 
 
