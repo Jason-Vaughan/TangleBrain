@@ -204,6 +204,19 @@ over a log that already has rows** — the legacy file is frozen at migration ti
 discards everything recorded since. Append instead (`cat old >> new`), and only after checking the
 two do not overlap.
 
+**"There is a file called `usage.jsonl.<hex>.tmp` in my state root."**
+An abandoned staging copy from an interrupted migration. Nothing reads it and deleting it is safe.
+The first-run copy forward from `~/.cache/tanglebrain` stages each entry as `<name>.<hex>.tmp`
+beside its destination and moves it into place with `os.replace`, so a copy killed part-way never
+leaves a partial file at the real path — which matters because the re-run guard is "does the
+destination exist". The staging entry is discarded in a `finally`, so an error or `Ctrl-C` clears
+it; `SIGKILL` or power loss between the copy and the move orphans one. No later run reclaims it:
+the name is unique per process, so nothing can find it again, and sweeping the directory for the
+suffix would reintroduce the shared-name collision the unique name exists to prevent. It is
+deliberately visible rather than dotfile-hidden, because an orphan is the operator's to delete and
+they cannot delete what they cannot see. Deleting it loses nothing — the migration copies and
+never deletes, so the original is still in the legacy root.
+
 ## Backup and recovery
 
 | Asset | Backup | Recovery |

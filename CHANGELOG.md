@@ -55,6 +55,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `integrity.py`, neither of which the severed text reached.
 - **Coverage output is gitignored** (`.coverage`, `.coverage.*`, `htmlcov/`). A build artifact that
   had reached a branch once already.
+- **The migration's staging orphan is documented in the operations runbook**
+  ([#198](https://github.com/Jason-Vaughan/TangleBrain/issues/198)). A `SIGKILL` or power loss
+  during the first-run copy forward leaves a `<name>.<hex>.tmp` file in the state root, deliberately
+  visible so the operator can delete it. The only place that said so was the 0.21.0/0.22.0 repair
+  paragraph above — version-scoped history, not something an operator arriving on 0.23+ would
+  think to consult. `docs/design/operations.md` § Runbook now carries it: what the file is,
+  when it is left behind, and that nothing reads it and deleting it is safe. Documentation only;
+  no behaviour change.
 
 ## [0.23.0] - 2026-09-07
 
