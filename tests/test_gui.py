@@ -159,7 +159,10 @@ class ViewStatsTest(unittest.TestCase):
                  / "tanglebrain" / "gui" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("d.health", panel, "the panel must read the payload key view_stats writes")
         self.assertIn("⚠ measurement:", panel)
-        self.assertIn("esc(finding)", panel, "server-composed findings must stay escaped")
+        # Escaping used to be the call site's job (`esc(finding)`), which put the obligation on
+        # every future caller. It now happens once inside the status bar's item builder, so a
+        # caller cannot forget it. Same property, enforced structurally instead of by convention.
+        self.assertIn("esc(text)", panel, "server-composed findings must stay escaped")
 
     def test_includes_delegate_breakdown(self):
         recs = [
@@ -567,10 +570,10 @@ class PanelLayoutTest(unittest.TestCase):
         self.assertRegex(opening_tag, r"(?:^|\s)hidden(?:\s|$)")
 
     def test_hidden_survives_a_later_display_rule(self):
-        # Nothing sets `display` on a view or its ancestors today — `.app` is the flex container
-        # and `.main`/`.wrap` carry none. The rule is defensive: whatever first gives a view or its
-        # container a display rule would otherwise beat the bare `hidden` attribute and paint both
-        # views at once. A sticky banner above the views is the near occasion (#162).
+        # The rule is defensive: any author `display` on a view or its container beats the bare
+        # `hidden` attribute — a UA rule — and paints both views at once. `.wrap`, the views'
+        # immediate container, carries none, which is what keeps this belt-and-braces; `.main`
+        # above it is a flex column, so the hazard is one rule away rather than hypothetical.
         self.assertIn(".view[hidden] { display: none; }", self.panel)
 
     def test_the_active_view_is_announced_not_just_painted(self):
@@ -784,7 +787,11 @@ class StatusFooterTest(unittest.TestCase):
         # failed /api/stats leaves the Settings card showing an error, but that card is on a view
         # the reader may not be on — so the footer must say so itself.
         self.assertRegex(self.panel, r"(?m)^\s*renderStatusBar\(null\);")
-        self.assertIn("status unavailable", self.panel)
+        # The message is the operator's to word (VRF-008 asks them), so this pins the property
+        # rather than the phrasing: the null branch renders a visible item in the "unknown"
+        # style, which is the muted one — "could not ask" must not paint like "asked, and it is
+        # bad", and must not be nothing at all.
+        self.assertRegex(self.panel, r'statusItem\(\s*"[^"]+",\s*"unknown"\s*\)')
 
     def test_the_bar_shares_the_content_column_s_width(self):
         # The strip spans the pane; its text must line up with the cards it qualifies. These are
@@ -806,6 +813,67 @@ class StatusFooterTest(unittest.TestCase):
         # cannot see it.
         self.assertNotRegex(self.panel, r"(?m)^\s*bar\.innerHTML\s*=")
         self.assertRegex(self.panel, r"(?m)^\s*slot\.innerHTML\s*=")
+
+    #: The statements in `renderStatusBar` whose ORDER is the behaviour, as (token, pattern).
+    #: Matched in source order and compared as a sequence, because every interesting way to break
+    #: this function leaves all of them present and only moves one.
+    TOGGLE_STATEMENTS = (
+        ("show", r"bar\.hidden = false;"),
+        ("hide", r"bar\.hidden = true;"),
+        ("fill-unknown", r"slot\.innerHTML = statusItem\("),
+        ("clear", r'slot\.innerHTML = "";'),
+        ("fill-items", r"slot\.innerHTML = items\.map"),
+    )
+
+    def _toggle_sequence(self):
+        """Return the toggle/fill statements of `renderStatusBar`, in source order.
+
+        Returns:
+            list[str]: One token per matched statement, e.g. ``["show", "fill-unknown", ...]``.
+        """
+        body = self.panel[self.panel.index("function renderStatusBar("):]
+        body = body[: body.index("\nasync function loadStats()")]
+        combined = re.compile("|".join(f"(?P<{tok.replace('-', '_')}>{pat})"
+                                       for tok, pat in self.TOGGLE_STATEMENTS))
+        return [m.lastgroup.replace("_", "-") for m in combined.finditer(body)]
+
+    def test_the_bar_actually_becomes_visible(self):
+        # Every other assertion in this class is about markup and CSS that a broken toggle would
+        # leave untouched: drop or invert either line and the bar is stuck in one state forever
+        # while the suite stays green.
+        seq = self._toggle_sequence()
+        self.assertIn("show", seq, "nothing ever unhides the bar")
+        self.assertIn("hide", seq, "nothing ever hides the bar when there is nothing to report")
+
+    def test_the_bar_is_shown_before_it_is_filled(self):
+        # A live region populated while `display: none` is not announced by most assistive tech,
+        # and unhiding an already-populated one is not reliably announced either — so filling
+        # first silently costs exactly the transition `role="status"` was added for: a finding
+        # appearing after a run. The order is the whole behaviour and it is invisible on screen,
+        # so only this test and VRF-008 can catch a reversal.
+        #
+        # Asserted as a sequence rather than "a show appears before this fill": with two branches
+        # there is always an earlier `show` to find, so a positional check passes against a
+        # reversed branch. This pins each branch's own order.
+        self.assertEqual(
+            ["show", "fill-unknown", "clear", "hide", "show", "fill-items"],
+            self._toggle_sequence(),
+            "renderStatusBar's branches must each unhide before they write, and clear before they hide",
+        )
+
+    def test_an_error_response_is_not_read_as_data(self):
+        # `fetch` resolves on 500, and this server answers a failed read view with a well-formed
+        # `{"error": ...}` body — not a hypothesis: `DispatchTest.test_read_view_error_is_clean_
+        # json_500` pins that it does. Without an `r.ok` check that body parses and every consumer
+        # reads it as data — the status bar sees no findings and hides, which is the one state it
+        # exists to prevent. Pinned at `getJSON` because all four consumers pass through it; the
+        # two tests together are as close as a JS-engine-free suite gets to the round trip.
+        self.assertRegex(self.panel, r"(?m)^\s*if \(!r\.ok\) throw ")
+
+    def test_the_failure_path_leaves_a_trace(self):
+        # The bar states what the code knows — the read failed — and the console carries why.
+        # Without it an unexpected payload shape reads to the operator as a dead server.
+        self.assertIn('console.error("stats:", e)', self.panel)
 
     def test_the_footer_does_not_overlap_the_panes_it_annotates(self):
         # `position: fixed` would cover the sidebar and sit on top of the scrolling content;

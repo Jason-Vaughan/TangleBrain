@@ -17,10 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pane scrolls within, visible from every view. Same wording, same refresh points — it is a move,
   not a second copy.
 
-  **A failed `/api/stats` renders as "status unavailable", never as an empty bar.** The bar is
-  hidden when the store answered and had nothing to report, so silence would otherwise be
-  indistinguishable from a clean bill of health — the same defect the migrated-log detector was
-  built to avoid, one surface out.
+  **A failed `/api/stats` says so, and never renders as an empty bar.** The bar is hidden when the
+  store answered and had nothing to report, so silence would otherwise be indistinguishable from a
+  clean bill of health — the same defect the migrated-log detector was built to avoid, one surface
+  out. That required fixing the panel's shared `getJSON`, which never checked `r.ok`: this server
+  answers a failed read view with a well-formed `{"error": …}` body at HTTP 500, `fetch` does not
+  reject on 500, and so *every* consumer was reading an error response as data — the stats card as
+  zeroes, the roster as an empty table, and the footer as nothing to report. Each now reaches the
+  failure branch it already had.
 
   Sticky inside the centre pane rather than fixed, so it never covers the sidebar or the scrolling
   content. `#188` also proposes configurable extra figures (tasks routed, spend avoided, the

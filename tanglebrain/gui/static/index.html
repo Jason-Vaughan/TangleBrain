@@ -62,8 +62,8 @@
 
   /* A column so the status footer can be pushed to the bottom of a short view by `margin-top:
      auto` and pinned to the viewport by `position: sticky` on a long one. `min-height: 100vh`
-     is what gives the short case a bottom to be pushed to. The padding moved to `.wrap`: it
-     belongs to the content, and left on `.main` it would sit *below* the sticky bar. */
+     is what gives the short case a bottom to be pushed to. The page padding belongs to `.wrap`
+     and not here: on `.main` it would sit *below* the sticky bar. */
   .main {
     flex: 1 1 auto; min-width: 0; min-height: 100vh;
     display: flex; flex-direction: column; padding: 0;
@@ -73,13 +73,13 @@
   .main:focus { outline: none; }
   /* `flex: 1 0 auto` rather than a plain `flex: 1`: the content sets its own height and grows
      the pane, it is never compressed to fit one. */
-  /* 960 rather than the 920 this column used to declare: `box-sizing: border-box` is global, so
-     the padding that moved here from `.main` comes out of max-width. 960 - 2x20 is the same 920
-     of content as before — the footer's arrival must not narrow the page behind it. */
+  /* `box-sizing: border-box` is global, so the side padding comes OUT of max-width rather than
+     adding to it: 960 - 2x20 is a 920px content column. Change one of the two and the column
+     silently resizes. `.statusbar-inner` mirrors both so the bar's text stays aligned with it. */
   .wrap { max-width: 960px; width: 100%; margin: 0 auto; flex: 1 0 auto; padding: 24px 20px 64px; }
-  /* Kept so a later display rule on a view or its container cannot beat the bare attribute.
-     The status footer below is exactly that occasion, arriving as predicted: `[hidden]` is a UA
-     rule, any author `display` beats it, and a bar that cannot hide is worse than no bar. */
+  /* `[hidden]` is a UA rule, so any author `display` on a view or its container would beat it and
+     leave a hidden view showing. `.wrap` carries none, which is what makes this belt-and-braces
+     rather than load-bearing — and what makes adding one safe. */
   .view[hidden] { display: none; }
 
   /* ---- status footer ---------------------------------------------------------------------- */
@@ -286,6 +286,12 @@ window.addEventListener("hashchange", () => {
 // ---- data -----------------------------------------------------------------------------------
 async function getJSON(url) {
   const r = await fetch(url);
+  // `fetch` rejects only on a transport failure, and this server answers a failed read view with a
+  // well-formed `{"error": ...}` body at HTTP 500 (and an unknown path at 404). Both parse, so
+  // without this check an error response reads as data: the stats card renders zeroes, the roster
+  // renders an empty table, and the status footer — whose whole purpose is that an unreadable
+  // store must not look like a healthy one — sees an empty findings list and hides.
+  if (!r.ok) throw new Error(`${url} answered ${r.status}`);
   return r.json();
 }
 
@@ -296,26 +302,39 @@ function money(n) { return "$" + (Number(n) || 0).toFixed(2); }
 // already navigated to the card. The footer is visible from every view, including the Settings
 // view itself, so this is a move and not a second copy.
 //
-// `items` is a list of ready-to-insert HTML fragments — every value inside one is either a
-// literal written here or already through `esc()`. `null` is a distinct third state, not an
-// absence: see below.
+// `items` is a list of plain strings; escaping happens here, once, so a caller cannot forget it.
+// `null` is a distinct third state, not an absence: see below.
+function statusItem(text, extraClass) {
+  return `<span class="item${extraClass ? " " + extraClass : ""}">${esc(text)}</span>`;
+}
+
 function renderStatusBar(items) {
   const bar = $("statusbar");
   // Two elements on purpose: `bar` is the full-width strip that carries the background, the rule
   // and the `hidden` state; `items` is the centred column inside it that the text sits in.
   const slot = $("statusbarItems");
+  // Unhidden BEFORE the content is written, in every branch. Content injected into a
+  // `display: none` subtree is not announced by most assistive tech, and unhiding an
+  // already-populated region is not reliably announced either — so the one transition this live
+  // region exists for, a finding appearing after a run, is the one that would stay silent.
   if (items === null) {
     // A store that could not be reached must not render identically to a healthy one. An empty
     // bar is the panel saying "asked, nothing to report"; this is the panel saying "could not
-    // ask", which is the state in which the figures above are least trustworthy.
-    slot.innerHTML = `<span class="item unknown">status unavailable — /api/stats did not answer.</span>`;
+    // ask", which is the state in which the figures above are least trustworthy. The wording
+    // claims only what this code knows: the read failed, not why, and not that the server is down.
     bar.hidden = false;
+    slot.innerHTML = statusItem("the panel could not read /api/stats.", "unknown");
     return;
   }
-  slot.innerHTML = items.map((html) => `<span class="item">${html}</span>`).join("");
   // Nothing to say is the common case, and a permanently empty bar would train the reader to
   // stop looking at the one strip that only ever appears when something is wrong.
-  bar.hidden = items.length === 0;
+  if (items.length === 0) {
+    slot.innerHTML = "";
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  slot.innerHTML = items.map((text) => statusItem(text)).join("");
 }
 
 async function loadStats() {
@@ -346,7 +365,7 @@ async function loadStats() {
     // and are escaped like any other server value.
     const status = [];
     if (d.is_placeholder) status.push(`⚠ pricing: PLACEHOLDER — figures illustrative until the anchor is ratified.`);
-    for (const finding of d.health || []) status.push(`⚠ measurement: ${esc(finding)}.`);
+    for (const finding of d.health || []) status.push(`⚠ measurement: ${finding}.`);
     renderStatusBar(status);
     const dg = s.delegates || {};
     if (dg.count) {
@@ -371,8 +390,12 @@ async function loadStats() {
     $("statsCard").innerHTML = html;
   } catch (e) {
     $("statsCard").innerHTML = `<span class="err">failed to load stats</span>`;
+    // The panel's only debugging channel. Without it the operator investigates a healthy server
+    // while the actual error — which may be a payload shape this code did not expect, not a
+    // transport failure at all — is unrecoverable from the surface.
+    console.error("stats:", e);
     // The card's error is on the Settings view only. Without this the Chat view would show a
-    // clean footer while the store was unreachable.
+    // clean footer while the store was unreadable.
     renderStatusBar(null);
   }
 }
