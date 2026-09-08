@@ -794,19 +794,23 @@ class StatusFooterTest(unittest.TestCase):
         # bad", and must not be nothing at all.
         self.assertRegex(self.panel, r'statusItem\(\s*"[^"]+",\s*"unknown"\s*\)')
 
-    def test_the_bar_shares_the_content_column_s_width(self):
-        # The strip spans the pane; its text must line up with the cards it qualifies. These are
-        # two independent max-widths that only look right while they agree, and disagreeing is
-        # silent — on a wide window the items simply drift to the left of everything they annotate.
-        widths = dict(re.findall(r"\.(wrap|statusbar-inner)\s*\{[^}]*max-width:\s*(\d+)px", self.panel))
-        self.assertEqual(
-            {"wrap", "statusbar-inner"}, set(widths),
-            "both the content column and the status bar's inner column must declare a max-width",
-        )
-        self.assertEqual(
-            widths["wrap"], widths["statusbar-inner"],
-            "the status bar's column drifted out of alignment with the content column",
-        )
+    def test_the_bar_shares_the_content_column_s_geometry(self):
+        # The strip spans the pane; its text must line up with the cards it qualifies. Both the
+        # width and the inset have to agree, and disagreeing is silent — on a wide window the
+        # items simply drift left of everything they annotate. Rather than assert two copies stay
+        # equal, the geometry is declared once in `:root` and this pins that both columns read it:
+        # a hard-coded value in either is the drift, before it can happen.
+        for selector in (r"\.wrap", r"\.statusbar-inner"):
+            block = re.search(selector + r"\s*\{([^}]*)\}", self.panel)
+            self.assertIsNotNone(block, f"{selector} must exist")
+            body = block.group(1)
+            with self.subTest(selector=selector):
+                self.assertIn("var(--content-max)", body, "width must come from the shared token")
+                self.assertIn("var(--content-inset)", body, "inset must come from the shared token")
+                self.assertNotRegex(
+                    body, r"max-width:\s*\d",
+                    "a literal max-width here is exactly the drift the token exists to prevent",
+                )
 
         # And the text has to actually be put in that column. Writing to the outer strip's
         # innerHTML replaces the column element itself, which loses the alignment silently and
@@ -867,6 +871,23 @@ class StatusFooterTest(unittest.TestCase):
             "renderStatusBar's branches must each unhide before they write, and clear before they hide",
         )
 
+    def test_a_200_that_is_not_a_stats_payload_is_not_read_as_data(self):
+        # The last unsafe door into the invariant: a 200 whose body this code does not recognise
+        # leaves `health` and `is_placeholder` undefined, so the findings list is empty and the
+        # bar hides — "asked, and all clear" over a response nobody could read. Chunk 03 reshapes
+        # this payload, which is what makes it worth a guard rather than a comment.
+        self.assertRegex(self.panel, r'(?m)^\s*if \(!d \|\| typeof d !== "object"')
+        self.assertIn('"summary" in d', self.panel)
+        self.assertIn('"health" in d', self.panel)
+
+    def test_a_failed_read_reports_what_the_server_said(self):
+        # `server.py` composes `{"error": str(exc)}` and silences its own request logging, so that
+        # body is the only rendering of the cause anywhere. Throwing on the status alone leaves a
+        # bare number, and VRF-008's corrupt-pricing step walks straight into it.
+        self.assertIn("body.error", self.panel)
+        self.assertRegex(self.panel, r"(?m)^\s*console\.error\(\"roster:\", e\);")
+        self.assertRegex(self.panel, r"(?m)^\s*console\.error\(\"pricing:\", e\);")
+
     def test_an_error_response_is_not_read_as_data(self):
         # `fetch` resolves on 500, and this server answers a failed read view with a well-formed
         # `{"error": ...}` body — not a hypothesis: `DispatchTest.test_read_view_error_is_clean_
@@ -874,12 +895,13 @@ class StatusFooterTest(unittest.TestCase):
         # reads it as data — the status bar sees no findings and hides, which is the one state it
         # exists to prevent. Pinned at `getJSON` because all four consumers pass through it; the
         # two tests together are as close as a JS-engine-free suite gets to the round trip.
-        self.assertRegex(self.panel, r"(?m)^\s*if \(!r\.ok\) throw ")
+        self.assertRegex(self.panel, r"(?m)^\s*if \(!r\.ok\) \{")
+        self.assertRegex(self.panel, r"(?m)^\s*throw new Error\(`\$\{url\} answered ")
 
     def test_the_failure_path_leaves_a_trace(self):
         # The bar states what the code knows — the read failed — and the console carries why.
         # Without it an unexpected payload shape reads to the operator as a dead server.
-        self.assertIn('console.error("stats:", e)', self.panel)
+        self.assertRegex(self.panel, r'(?m)^\s*console\.error\("stats:", e\);')
 
     def test_the_footer_does_not_overlap_the_panes_it_annotates(self):
         # `position: fixed` would cover the sidebar and sit on top of the scrolling content;

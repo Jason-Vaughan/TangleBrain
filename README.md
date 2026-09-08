@@ -261,7 +261,10 @@ A thin **localhost-only** web panel over the config — zero extra dependencies 
 The panel has two views, switched from the sidebar and addressable by fragment. **Chat**
 (`#/chat`, where it opens) lets you **run a prompt** through the router, showing which tier/model
 served it. **Settings** (`#/settings`) holds the knobs: the cost-avoided rollup, the roster, and the
-pricing reference. The **pricing card is
+pricing reference. A **status footer** sits beneath both, carrying the signals that qualify every
+figure on the page — the placeholder-pricing caveat and any measurement-health finding — so they
+do not depend on which view you are on. It is absent when there is nothing to report, and says so
+plainly when the figures could not be read at all. The **pricing card is
 editable** — change the rates / reference label / placeholder flag and Save; it writes the tracked
 `tanglebrain/config/pricing.yaml` (strict validation, atomic write, a backup to the state dir, and
 the methodology header preserved), so the edit is git-visible for you to commit. The **roster is

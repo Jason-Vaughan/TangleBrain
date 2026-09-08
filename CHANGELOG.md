@@ -24,7 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answers a failed read view with a well-formed `{"error": …}` body at HTTP 500, `fetch` does not
   reject on 500, and so *every* consumer was reading an error response as data — the stats card as
   zeroes, the roster as an empty table, and the footer as nothing to report. Each now reaches the
-  failure branch it already had.
+  failure branch it already had, and each logs the cause: the server silences its own per-request
+  logging, so the `{"error": …}` body it composes is the only rendering of that cause anywhere,
+  and the panel now reads it rather than reporting a bare status code. A 200 whose body is not a
+  recognisable stats payload takes the same path — a status the panel cannot read is not a clean
+  bill of health. `docs/design/boundaries.md` records that HTTP status is now part of the GUI
+  endpoint contract.
 
   Sticky inside the centre pane rather than fixed, so it never covers the sidebar or the scrolling
   content. `#188` also proposes configurable extra figures (tasks routed, spend avoided, the

@@ -16,6 +16,11 @@
        --primary-dark on buttons, --primary-bright on focus. Ratios are asserted in
        tests/test_gui_contrast.py — change a value here and it will tell you what it broke. */
     --border: #222; --field-border: #666;
+    /* The centre column's geometry. Two elements share it — the content and the status bar's
+       inner column — and they must agree or the bar's text drifts away from the cards it
+       qualifies. Declared once so they cannot disagree. Not colours: `load_palette` skips any
+       token that is not a colour literal, so the contrast guards do not see these. */
+    --content-max: 960px; --content-inset: 20px;
   }
   * { box-sizing: border-box; }
   body {
@@ -73,10 +78,12 @@
   .main:focus { outline: none; }
   /* `flex: 1 0 auto` rather than a plain `flex: 1`: the content sets its own height and grows
      the pane, it is never compressed to fit one. */
-  /* `box-sizing: border-box` is global, so the side padding comes OUT of max-width rather than
-     adding to it: 960 - 2x20 is a 920px content column. Change one of the two and the column
-     silently resizes. `.statusbar-inner` mirrors both so the bar's text stays aligned with it. */
-  .wrap { max-width: 960px; width: 100%; margin: 0 auto; flex: 1 0 auto; padding: 24px 20px 64px; }
+  /* `box-sizing: border-box` is global, so the side inset comes OUT of max-width rather than
+     adding to it: 960 - 2x20 is a 920px content column. */
+  .wrap {
+    max-width: var(--content-max); width: 100%; margin: 0 auto; flex: 1 0 auto;
+    padding: 24px var(--content-inset) 64px;
+  }
   /* `[hidden]` is a UA rule, so any author `display` on a view or its container would beat it and
      leave a hidden view showing. `.wrap` carries none, which is what makes this belt-and-braces
      rather than load-bearing — and what makes adding one safe. */
@@ -102,7 +109,7 @@
      qualifies. Same box as `.wrap`, or on a wide window the items start at the pane's edge while
      the cards they annotate sit hundreds of pixels to the right. */
   .statusbar-inner {
-    max-width: 960px; margin: 0 auto; padding: 8px 20px;
+    max-width: var(--content-max); margin: 0 auto; padding: 8px var(--content-inset);
     display: flex; flex-wrap: wrap; gap: 2px 18px;
   }
   .statusbar .item { color: var(--amber); }
@@ -125,10 +132,9 @@
        would guarantee a scrollbar on every page. Short views end with the bar directly under the
        content instead of at the foot of the screen; long ones still pin it. */
     .main { width: 100%; min-height: 0; }
-    .wrap { padding: 20px 16px 48px; }
-    /* Follows `.wrap`'s narrow-viewport inset. Only the horizontal value has to agree — the
-       vertical ones differ by design, a strip being shorter than a page. */
-    .statusbar-inner { padding: 8px 16px; }
+    /* One override, and both columns follow it. */
+    :root { --content-inset: 16px; }
+    .wrap { padding: 20px var(--content-inset) 48px; }
   }
 
   /* ---- content -------------------------------------------------------------------------- */
@@ -291,7 +297,21 @@ async function getJSON(url) {
   // without this check an error response reads as data: the stats card renders zeroes, the roster
   // renders an empty table, and the status footer — whose whole purpose is that an unreadable
   // store must not look like a healthy one — sees an empty findings list and hides.
-  if (!r.ok) throw new Error(`${url} answered ${r.status}`);
+  if (!r.ok) {
+    // `server.py` answers a raising read view with `{"error": str(exc)}` and silences its own
+    // per-request logging, so that body is the ONLY place the cause is rendered in the whole
+    // system. Throwing on the status alone leaves the operator a bare number — and VRF-008's
+    // corrupt-pricing step walks straight into it.
+    let detail = " (no JSON body)";
+    try {
+      const body = await r.json();
+      detail = body && body.error ? `: ${body.error}` : "";
+    } catch (parseError) {
+      // Keep the marker: a non-JSON error body is itself worth knowing about, and the status
+      // below still carries the fact of the failure.
+    }
+    throw new Error(`${url} answered ${r.status}${detail}`);
+  }
   return r.json();
 }
 
@@ -340,6 +360,13 @@ function renderStatusBar(items) {
 async function loadStats() {
   try {
     const d = await getJSON("/api/stats");
+    // A 200 is not the same as an answer this code understands. Without this, an unrecognised
+    // body leaves `health` and `is_placeholder` undefined, the findings list empty, and the bar
+    // hidden — the panel's "asked, and all clear" state over a response it could not read. The
+    // throw lands in the catch below, which is already the could-not-read path.
+    if (!d || typeof d !== "object" || !("summary" in d) || !("health" in d)) {
+      throw new Error("/api/stats returned an unrecognised payload");
+    }
     const s = d.summary || {};
     const tiers = Object.entries(s.by_tier || {}).map(([k, v]) => `${esc(k)} ${v}`).join(", ") || "—";
     // Origin split (#74): shown only once some record is actually tagged — all-untagged history
@@ -438,7 +465,10 @@ async function loadRoster() {
       </tr>`;
     }).join("");
     $("rosterCard").innerHTML = banner + `<table><thead><tr><th>id</th><th>tier</th><th>invoke</th><th>config <span class="muted" style="font-weight:400">(editable)</span></th></tr></thead><tbody>${rows}</tbody></table>`;
-  } catch (e) { $("rosterCard").innerHTML = `<span class="err">failed to load roster</span>`; }
+  } catch (e) {
+    console.error("roster:", e);
+    $("rosterCard").innerHTML = `<span class="err">failed to load roster</span>`;
+  }
 }
 
 function renderPricing(p) {
@@ -457,7 +487,10 @@ function renderPricing(p) {
 
 async function loadPricing() {
   try { renderPricing(await getJSON("/api/pricing")); }
-  catch (e) { $("pricingCard").innerHTML = `<span class="err">failed to load pricing</span>`; }
+  catch (e) {
+    console.error("pricing:", e);
+    $("pricingCard").innerHTML = `<span class="err">failed to load pricing</span>`;
+  }
 }
 
 async function savePricing() {
