@@ -163,6 +163,7 @@ class ViewStatsTest(unittest.TestCase):
         # every future caller. It now happens once inside the status bar's item builder, so a
         # caller cannot forget it. Same property, enforced structurally instead of by convention.
         self.assertIn("esc(text)", panel, "server-composed findings must stay escaped")
+        self.assertIn("esc(extraClass)", panel, "both interpolations escape, or neither is safe")
 
     def test_includes_delegate_breakdown(self):
         recs = [
@@ -831,8 +832,13 @@ class StatusFooterTest(unittest.TestCase):
         Returns:
             list[str]: One token per matched statement, e.g. ``["show", "fill-unknown", ...]``.
         """
-        body = self.panel[self.panel.index("function renderStatusBar("):]
-        body = body[: body.index("\nasync function loadStats()")]
+        start = self.panel.index("function renderStatusBar(")
+        body = self.panel[start:]
+        # Ends at the next top-level function, whichever it is: naming the neighbour meant that
+        # inserting anything between the two silently widened the slice and the sequence with it.
+        end = re.search(r"\n(?:async )?function ", body[1:])
+        self.assertIsNotNone(end, "renderStatusBar must be followed by another function")
+        body = body[: end.start() + 1]
         combined = re.compile("|".join(f"(?P<{tok.replace('-', '_')}>{pat})"
                                        for tok, pat in self.TOGGLE_STATEMENTS))
         return [m.lastgroup.replace("_", "-") for m in combined.finditer(body)]

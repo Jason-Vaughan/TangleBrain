@@ -305,7 +305,7 @@ function money(n) { return "$" + (Number(n) || 0).toFixed(2); }
 // `items` is a list of plain strings; escaping happens here, once, so a caller cannot forget it.
 // `null` is a distinct third state, not an absence: see below.
 function statusItem(text, extraClass) {
-  return `<span class="item${extraClass ? " " + extraClass : ""}">${esc(text)}</span>`;
+  return `<span class="item${extraClass ? " " + esc(extraClass) : ""}">${esc(text)}</span>`;
 }
 
 function renderStatusBar(items) {
