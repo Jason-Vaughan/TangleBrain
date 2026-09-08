@@ -38,6 +38,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The four GitHub Actions majors, taken together**
+  ([#204](https://github.com/Jason-Vaughan/TangleBrain/pull/204),
+  [#205](https://github.com/Jason-Vaughan/TangleBrain/pull/205),
+  [#206](https://github.com/Jason-Vaughan/TangleBrain/pull/206),
+  [#207](https://github.com/Jason-Vaughan/TangleBrain/pull/207)). `actions/checkout` 4 → 7,
+  `actions/setup-python` 5 → 7, `actions/upload-artifact` 4 → 7, `actions/download-artifact` 4 → 8.
+  Re-implemented on `main` rather than merged, per the clean room policy in `CONTRIBUTING.md` — the
+  same standard Dependabot's bytes get as anyone else's.
+
+  **The jumps are smaller than they look.** Three of the four actions crossed a major purely to
+  move to Node 24, a change their own release notes call "not a breaking change per-se but we're
+  treating it as such". Of the genuine breaks across all seven majors, every one is gated behind an
+  input this project does not set or a trigger it does not use: `download-artifact` v5 changed the
+  path layout for artifacts fetched **by ID** and we fetch by name; `setup-python` v7 removed
+  `pip-install`, which was never passed; `checkout` v7 now refuses to check out a fork PR under
+  `pull_request_target` or `workflow_run`, and neither workflow uses either trigger.
+
+  **Both artifact actions moved in one commit on purpose.** From upload v7 / download v8 they share
+  a direct-upload contract — upload can skip zipping, download decides whether to decompress from
+  `Content-Type`. Neither option is used here, but bumping one alone would straddle that contract
+  for as long as the second change stayed unmerged. `download-artifact` v8 also promotes a digest
+  mismatch from a warning to an error, which is the behaviour worth having on the one path that
+  reaches PyPI.
+
+  **What is verified, and what waits for a release.** `checkout@v7` and `setup-python@v7` ran green
+  across the whole Python 3.10–3.14 matrix on the upstream PRs, which touched `ci.yml`. The artifact
+  pair lives only in `publish.yml`, which triggers on `release: published` — so nothing exercises it
+  until the next release, and the checks on #205 and #207 ran the unchanged `ci.yml` and say nothing
+  about it. Recorded rather than glossed: the first real test of that round trip is the next
+  release, and it fails loudly and recoverably if it fails at all.
+
 - **Dependabot now watches Python dependencies and workflow actions weekly**
   ([#137](https://github.com/Jason-Vaughan/TangleBrain/issues/137)). Reported by
   [@be-student](https://github.com/be-student), with thanks — they also opened
