@@ -204,6 +204,27 @@ over a log that already has rows** — the legacy file is frozen at migration ti
 discards everything recorded since. Append instead (`cat old >> new`), and only after checking the
 two do not overlap.
 
+**"There is a `usage.jsonl.<hex>.tmp` file in my state root."**
+A staging copy the first-run migration did not get to clean up. Nothing reads it, and on a machine
+where no `tanglebrain` process is currently starting, deleting it is safe — the migration copies and
+never removes anything, so the original is still in `~/.cache/tanglebrain`. **Delete one while a
+migration is actually running and that run reports `could not move state from …`**; nothing is lost
+and the next startup completes the move, but the alarm is real and you caused it. The two cases look
+identical from the filename, so if in doubt, wait until nothing is starting up.
+
+Why it is there at all: the migration writes each entry to `<name>.<hex>.tmp` beside where it is
+going and then `os.replace`s it into position, so a copy killed halfway never leaves a truncated
+file at the real path. That matters more than it sounds, because the guard against re-running is
+"does the destination already exist" — a half-written `usage.jsonl` would be treated as done and
+would understate your lifetime figure forever, with nothing to say so.
+
+Why it survives: the cleanup runs in a `finally`, so an error or `Ctrl-C` takes the staging file
+with it. `SIGKILL` and power loss do not. Nothing reclaims it afterwards either, and that is
+deliberate rather than unfinished — the name is unique precisely so that no other process can touch
+it, which also means no later run can find it, and sweeping the directory for the suffix would put
+back the shared-name collision the unique name exists to prevent. It is left visible rather than
+hidden for the same reason: an orphan is yours to delete, and you cannot delete what you cannot see.
+
 ## Backup and recovery
 
 | Asset | Backup | Recovery |
