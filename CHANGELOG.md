@@ -39,9 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not**, so each opens its own pull request — a cap exists to force one decision at a time, and
   grouping majors would bundle two unrelated ones into a single accept-or-reject.
   `tests/test_packaging.py` pins both properties beside the upper-bound assertions they protect.
-  Two limits are worth knowing and live in `docs/design/operations.md`: `pypa/gh-action-pypi-publish`
-  is pinned at a branch ref that the updater cannot version-update, and zero pull requests means
-  "nothing to update" and "Dependabot is not running" equally.
+  Two limits are worth knowing: `pypa/gh-action-pypi-publish` is pinned at a branch ref that the
+  updater cannot version-update, so actions coverage is four of five and the gap is the privileged
+  one (`docs/design/security-model.md`); and zero pull requests means "nothing to update" and
+  "Dependabot is not running" equally (`docs/design/operations.md`).
 
 
 ## [0.23.0] - 2026-09-07

@@ -231,9 +231,10 @@ a directory conventionally treated as disposable.
   It was caught by a user-facing break, not by CI.
 - **CI runs weekly on a `schedule:` trigger as well as on push and pull request.** The scheduled
   run resolves dependencies fresh — no lockfile, no cache — so an upstream release that breaks the
-  published package surfaces on its own rather than waiting for someone to push. This is the half
-  of the problem a version cap cannot solve: a cap prevents a known breakage, but only something
-  that *runs* catches a compatible-range release that changes behavior. `workflow_dispatch` is
+  published package surfaces on its own rather than waiting for someone to push. This is what a
+  version cap cannot do: a cap prevents a known breakage, but only something that *runs* catches a
+  compatible-range release that changes behavior. It is not the whole remainder — see the next
+  bullet for the part neither of them covers. `workflow_dispatch` is
   enabled alongside it, so the canary can be exercised without waiting a week.
 - **Dependabot is the third mechanism, and it answers the question the other two cannot.** The cap
   prevents a known break; the canary catches a break inside the allowed range; neither says a new
