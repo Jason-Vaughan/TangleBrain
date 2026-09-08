@@ -85,6 +85,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Coverage output is gitignored** (`.coverage`, `.coverage.*`, `htmlcov/`). A build artifact that
   had reached a branch once already.
 
+- **The migration's staging orphan has a home in the operations runbook**
+  ([#198](https://github.com/Jason-Vaughan/TangleBrain/issues/198)). Reported by
+  [@7487](https://github.com/7487), with thanks — they also opened
+  [#216](https://github.com/Jason-Vaughan/TangleBrain/pull/216) with a working entry, and its
+  diagnosis is kept here. Re-implemented rather than merged, per the clean room policy in
+  `CONTRIBUTING.md`; the credit is for the contribution, not a claim about who wrote these bytes.
+
+  `migrate_state_root` stages each entry as `<name>.<hex>.tmp` beside its destination and
+  `os.replace`s it into position. Cleanup sits in a `finally`, so an error or `Ctrl-C` takes the
+  staging file with it; `SIGKILL` and power loss leave one behind, deliberately visible because an
+  orphan is the operator's to delete. The only place that said so was the 0.21.0/0.22.0 repair
+  paragraph — addressed to operators upgrading across that specific pair, and no use at all to
+  someone arriving on 0.23+ who finds the file and has never run either.
+
+  **The reconstruction adds one thing their entry did not have:** "deleting it is safe" holds for an
+  orphan and not for a staging file a migration is using *right now*, and the two are
+  indistinguishable by filename while every console script migrates on startup. Deleting a live one
+  makes `os.replace` raise and the run print `could not move state from …`; nothing is lost and the
+  next startup finishes the move, but an operator told flatly that deletion is safe would have
+  caused an alarm the runbook promised could not happen.
+
 ## [0.23.0] - 2026-09-07
 
 ### Added
