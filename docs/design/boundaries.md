@@ -108,9 +108,19 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 - **Producer:** `tanglebrain/gui/views.py` + `server.py`
 - **Consumer:** `gui/static/*.html` (vanilla JS, same repo — the one boundary where both sides move
   together)
-- **Contract:** JSON shapes, and the **fixed allow-list of editable roster fields** (`enabled`,
-  `can_orchestrate`, `budget_usd_month`, `good_at`) which is the mass-assignment control. Widening
-  it is a security change.
+- **Contract:** JSON shapes, **HTTP status as the success signal**, and the **fixed allow-list of
+  editable roster fields** (`enabled`, `can_orchestrate`, `budget_usd_month`, `good_at`) which is
+  the mass-assignment control. Widening the allow-list is a security change.
+- **Status is part of the contract, and it did not used to be.** The panel's shared `getJSON`
+  requires 2xx: a non-2xx body is an error, never data. Before that, `{"error": …}` at HTTP 500
+  parsed and every consumer read it as an empty payload — zeroed figures, an empty roster table,
+  and a status footer that hid itself over a store it could not read. A read view that wants to
+  report a problem *in* its payload must therefore answer 200 and put the problem in a field, as
+  `health` does; answering non-2xx now means "this response is not data".
+- **The error body is a rendering, not a courtesy.** `server.py` overrides `log_message` to
+  silence per-request stderr, so `{"error": str(exc)}` is the only place the cause appears
+  anywhere in the system. The panel reads it and logs it to the browser console. Dropping the
+  field, or replacing it with a generic string, removes the sole diagnostic for a failed read.
 
 ### Plugin manifest *(external)*
 

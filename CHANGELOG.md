@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A persistent status footer in the knob panel**
+  ([#188](https://github.com/Jason-Vaughan/TangleBrain/issues/188)). The placeholder-pricing caveat
+  and the measurement-health findings both rendered inside the Settings stats card, which the
+  Chat/Settings split (#166) put a navigation click away from the view you land on. Both say *the
+  numbers you are looking at may not mean what you think*, so both now sit in chrome the centre
+  pane scrolls within, visible from every view. Same wording, same refresh points — it is a move,
+  not a second copy.
+
+  **A failed `/api/stats` says so, and never renders as an empty bar.** The bar is hidden when the
+  store answered and had nothing to report, so silence would otherwise be indistinguishable from a
+  clean bill of health — the same defect the migrated-log detector was built to avoid, one surface
+  out. That required fixing the panel's shared `getJSON`, which never checked `r.ok`: this server
+  answers a failed read view with a well-formed `{"error": …}` body at HTTP 500, `fetch` does not
+  reject on 500, and so *every* consumer was reading an error response as data — the stats card as
+  zeroes, the roster as an empty table, and the footer as nothing to report. Each now reaches the
+  failure branch it already had, and each logs the cause: the server silences its own per-request
+  logging, so the `{"error": …}` body it composes is the only rendering of that cause anywhere,
+  and the panel now reads it rather than reporting a bare status code. A 200 whose body is not a
+  recognisable stats payload takes the same path — a status the panel cannot read is not a clean
+  bill of health. `docs/design/boundaries.md` records that HTTP status is now part of the GUI
+  endpoint contract.
+
+  Sticky inside the centre pane rather than fixed, so it never covers the sidebar or the scrolling
+  content. `#188` also proposes configurable extra figures (tasks routed, spend avoided, the
+  billing gate); those are **not** built here — they need a home for display preferences, which is
+  a decision this Car deliberately does not take.
+
 ### Internal
 
 - **Dependabot now watches Python dependencies and workflow actions weekly**
