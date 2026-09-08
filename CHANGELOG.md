@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one (`docs/design/security-model.md`); and zero pull requests means "nothing to update" and
   "Dependabot is not running" equally (`docs/design/operations.md`).
 
+- **Two severed entries in `PROJECT-MAP.md` repaired, and the mechanism that severed them
+  written down.** The `docs/` and `tanglebrain/` bullets both ended mid-list with an unclosed
+  parenthesis. They were not written that way: #155 wrote a correct three-line `docs/` description
+  and #159's project-map wrap-step deleted its two continuation lines. The step reads the list
+  line-by-line, so any bullet wrapped across lines loses everything after the first. Both entries
+  are now single physical lines — over the soft wrap deliberately, because a long line survives the
+  next wrap-step and a wrapped one does not — and the file's header comment says so, since nothing
+  in this repo can enforce it. `tanglebrain/` also now names `cli.py` as the primary surface and
+  `integrity.py`, neither of which the severed text reached.
+- **Coverage output is gitignored** (`.coverage`, `.coverage.*`, `htmlcov/`). A build artifact that
+  had reached a branch once already.
+
 ## [0.23.0] - 2026-09-07
 
 ### Added
