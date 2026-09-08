@@ -60,14 +60,43 @@
   .navlink.active { background: var(--elevated-bg); color: var(--primary); }
   .navlink:focus-visible { outline: 2px solid var(--primary-bright); outline-offset: 1px; }
 
-  .main { flex: 1 1 auto; min-width: 0; padding: 24px 20px 64px; }
+  /* A column so the status footer can be pushed to the bottom of a short view by `margin-top:
+     auto` and pinned to the viewport by `position: sticky` on a long one. `min-height: 100vh`
+     is what gives the short case a bottom to be pushed to. The padding moved to `.wrap`: it
+     belongs to the content, and left on `.main` it would sit *below* the sticky bar. */
+  .main {
+    flex: 1 1 auto; min-width: 0; min-height: 100vh;
+    display: flex; flex-direction: column; padding: 0;
+  }
   /* The skip target is only focusable to receive that focus; it is not an interactive control,
      so a focus ring on it would say otherwise. Focus remains visible on every real control. */
   .main:focus { outline: none; }
-  .wrap { max-width: 920px; margin: 0 auto; }
+  /* `flex: 1 0 auto` rather than a plain `flex: 1`: the content sets its own height and grows
+     the pane, it is never compressed to fit one. */
+  .wrap { max-width: 920px; width: 100%; margin: 0 auto; flex: 1 0 auto; padding: 24px 20px 64px; }
   /* Kept so a later display rule on a view or its container cannot beat the bare attribute.
-     Nothing sets one today; a sticky banner above the views is the near occasion (#162). */
+     The status footer below is exactly that occasion, arriving as predicted: `[hidden]` is a UA
+     rule, any author `display` beats it, and a bar that cannot hide is worse than no bar. */
   .view[hidden] { display: none; }
+
+  /* ---- status footer ---------------------------------------------------------------------- */
+  /* Chrome, not content. The placeholder-pricing caveat and the measurement-health findings
+     qualify every figure the panel shows, and both rendered only inside the Settings stats card
+     — one navigation click from the view you land on. Sticky rather than fixed: fixed would
+     cover the sidebar and need the body reserving space for a bar that is usually absent.
+     Inside `.main`, so it spans exactly the pane whose figures it qualifies. */
+  .statusbar {
+    position: sticky; bottom: 0; margin-top: auto;
+    background: var(--card-bg); border-top: 1px solid var(--border);
+    padding: 8px 20px; font-size: .78rem;
+    display: flex; flex-wrap: wrap; gap: 2px 18px;
+  }
+  /* The author `display: flex` above outranks the UA's `[hidden] { display: none }`, so without
+     this the bar would be permanently visible and permanently empty. */
+  .statusbar[hidden] { display: none; }
+  .statusbar .item { color: var(--amber); }
+  /* Muted, not amber: "we could not ask" is a different claim from "we asked and it is bad". */
+  .statusbar .item.unknown { color: var(--text-muted); }
   .view-title { font-size: 1.3rem; margin: 0 0 4px; letter-spacing: .3px; }
   .view-sub { color: var(--text-muted); font-size: .8rem; margin-bottom: 20px; }
 
@@ -81,7 +110,11 @@
     .brand { padding-bottom: 12px; }
     .nav { flex-direction: row; }
     .navlink { padding: 8px 14px; }
-    .main { width: 100%; padding: 20px 16px 48px; }
+    /* The sidebar is stacked above the pane here, so a pane that still demanded a full viewport
+       would guarantee a scrollbar on every page. Short views end with the bar directly under the
+       content instead of at the foot of the screen; long ones still pin it. */
+    .main { width: 100%; min-height: 0; }
+    .wrap { padding: 20px 16px 48px; }
   }
 
   /* ---- content -------------------------------------------------------------------------- */
@@ -172,6 +205,12 @@
       <div class="card" id="pricingCard"><span class="muted">loading…</span></div>
     </section>
    </div>
+
+   <!-- `role="status"` is a polite live region: a finding that appears after a run is announced
+        without interrupting what the reader is doing. Empty and hidden until `/api/stats`
+        answers — an empty bar would read as "checked, all clear", which is the one thing the
+        no-answer case must not look like. -->
+   <footer class="statusbar" id="statusbar" role="status" aria-label="Panel status" hidden></footer>
   </main>
 </div>
 
@@ -236,6 +275,30 @@ async function getJSON(url) {
 
 function money(n) { return "$" + (Number(n) || 0).toFixed(2); }
 
+// The panel's two honesty signals live here rather than in the Settings stats card. Both say
+// "the numbers may not mean what you think", and a card-bound caveat says it only to a reader who
+// already navigated to the card. The footer is visible from every view, including the Settings
+// view itself, so this is a move and not a second copy.
+//
+// `items` is a list of ready-to-insert HTML fragments — every value inside one is either a
+// literal written here or already through `esc()`. `null` is a distinct third state, not an
+// absence: see below.
+function renderStatusBar(items) {
+  const bar = $("statusbar");
+  if (items === null) {
+    // A store that could not be reached must not render identically to a healthy one. An empty
+    // bar is the panel saying "asked, nothing to report"; this is the panel saying "could not
+    // ask", which is the state in which the figures above are least trustworthy.
+    bar.innerHTML = `<span class="item unknown">status unavailable — /api/stats did not answer.</span>`;
+    bar.hidden = false;
+    return;
+  }
+  bar.innerHTML = items.map((html) => `<span class="item">${html}</span>`).join("");
+  // Nothing to say is the common case, and a permanently empty bar would train the reader to
+  // stop looking at the one strip that only ever appears when something is wrong.
+  bar.hidden = items.length === 0;
+}
+
 async function loadStats() {
   try {
     const d = await getJSON("/api/stats");
@@ -253,14 +316,19 @@ async function loadStats() {
       ${hasOrigin ? `<div class="stat"><div class="label">By origin</div><div class="value mono" style="font-size:.95rem">${origins}</div></div>` : ""}
       <div class="stat"><div class="label">Est. tokens (in / out)</div><div class="value mono" style="font-size:.95rem">${(s.in_tokens_est||0).toLocaleString()} / ${(s.out_tokens_est||0).toLocaleString()}</div></div>
     </div>`;
-    if (d.is_placeholder) html += `<div class="caveat">⚠ pricing: PLACEHOLDER — figures illustrative until the anchor is ratified.</div>`;
-    // Measurement health. Re-probed on every /api/stats request rather than once per process:
+    // The placeholder caveat and the measurement-health findings are routed to the status footer
+    // instead of this card — same wording, same refresh points, seen from every view.
+    //
+    // Measurement health is re-probed on every /api/stats request rather than once per process:
     // this panel is long-lived, so the one-shot stderr notice `record_task` emits is printed at
     // most once for the process's whole life and is effectively invisible here. Note the panel
     // does not poll — this refreshes on load, after a run, and after a pricing save — so an idle
     // panel shows the store as it was at the last of those. Findings are server-composed strings
     // and are escaped like any other server value.
-    for (const finding of d.health || []) html += `<div class="caveat">⚠ measurement: ${esc(finding)}.</div>`;
+    const status = [];
+    if (d.is_placeholder) status.push(`⚠ pricing: PLACEHOLDER — figures illustrative until the anchor is ratified.`);
+    for (const finding of d.health || []) status.push(`⚠ measurement: ${esc(finding)}.`);
+    renderStatusBar(status);
     const dg = s.delegates || {};
     if (dg.count) {
       const backends = Object.entries(dg.by_backend || {}).map(([k, v]) => `${esc(k)} ${v.count || 0}`).join(", ") || "—";
@@ -282,7 +350,12 @@ async function loadStats() {
       <div class="caveat">Informational — delegate spend is already credited within its parent task's “spend avoided”.</div>`;
     }
     $("statsCard").innerHTML = html;
-  } catch (e) { $("statsCard").innerHTML = `<span class="err">failed to load stats</span>`; }
+  } catch (e) {
+    $("statsCard").innerHTML = `<span class="err">failed to load stats</span>`;
+    // The card's error is on the Settings view only. Without this the Chat view would show a
+    // clean footer while the store was unreachable.
+    renderStatusBar(null);
+  }
 }
 
 async function loadRoster() {

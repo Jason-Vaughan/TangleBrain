@@ -713,5 +713,87 @@ class PanelLayoutTest(unittest.TestCase):
         self.assertIn("loadStats(); loadRoster(); loadPricing();", self.panel)
 
 
+class StatusFooterTest(unittest.TestCase):
+    """The persistent status footer (#188).
+
+    Asserted against the shipped source for the reason `PanelLayoutTest` gives: there is no JS
+    engine in this suite, and the alternative to reading the file is asserting nothing about the
+    surface an operator actually looks at.
+
+    What these guard is not styling. The footer exists because two signals that qualify every
+    figure in the panel — the placeholder-pricing caveat and the measurement-health findings —
+    rendered only inside the Settings stats card once the panel split into views, which put them
+    a navigation click away from the view you land on. The failure mode is each of those signals
+    quietly not arriving, in a strip that is invisible whenever it has nothing to say.
+    """
+
+    def setUp(self):
+        self.panel = PANEL.read_text(encoding="utf-8")
+
+    def test_the_footer_ships_and_starts_hidden(self):
+        self.assertIn('id="statusbar"', self.panel)
+        footer = re.search(r"<footer[^>]*id=\"statusbar\"[^>]*>", self.panel)
+        self.assertIsNotNone(footer, "the status bar must be a <footer>, not a bare div")
+        self.assertIn("hidden", footer.group(0), "an empty bar must not ship visible")
+
+    def test_the_footer_is_a_live_region(self):
+        # Findings can appear after a run, with the reader's attention on the output pane. A
+        # polite live region announces that; a plain <footer> would change silently for anyone
+        # not looking at the bottom of the screen.
+        footer = re.search(r"<footer[^>]*id=\"statusbar\"[^>]*>", self.panel).group(0)
+        self.assertIn('role="status"', footer)
+
+    def test_the_hidden_attribute_can_actually_hide_it(self):
+        # `[hidden] { display: none }` is a UA rule and `.statusbar { display: flex }` is an
+        # author rule, so the author rule wins and `hidden` becomes decorative. Without the
+        # explicit override the bar is permanently visible and, in the common case, permanently
+        # empty — which trains the reader to stop looking at the one strip that only appears
+        # when something is wrong. Nothing else in this suite would notice.
+        self.assertRegex(
+            self.panel,
+            r"\.statusbar\[hidden\]\s*\{[^}]*display:\s*none",
+            "an author display rule on .statusbar must be undone for [hidden]",
+        )
+
+    def test_both_signals_are_routed_to_the_footer(self):
+        # The two ends of the contract: the payload keys `view_stats` writes, and the call that
+        # puts them in the bar. `test_the_panel_actually_renders_the_health_findings` pins the
+        # health wire itself; this pins where it now terminates.
+        # Anchored to the start of a line, so commenting the call out is a failure rather
+        # than a substring that still matches. A plain `assertIn` passed against `// render…`.
+        self.assertRegex(self.panel, r"(?m)^\s*renderStatusBar\(status\);")
+        stats_fn = self.panel[self.panel.index("async function loadStats()"):]
+        stats_fn = stats_fn[: stats_fn.index("async function loadRoster()")]
+        self.assertIn("status.push", stats_fn)
+        self.assertIn("d.is_placeholder", stats_fn)
+        self.assertIn("d.health", stats_fn)
+
+    def test_the_caveats_left_the_stats_card(self):
+        # A move, not a copy. The footer is visible on the Settings view too, so leaving the
+        # originals in place would show every caveat twice to the reader most likely to be
+        # reading them.
+        stats_fn = self.panel[self.panel.index("async function loadStats()"):]
+        stats_fn = stats_fn[: stats_fn.index("async function loadRoster()")]
+        self.assertNotIn('class="caveat">⚠ pricing:', stats_fn)
+        self.assertNotIn('class="caveat">⚠ measurement:', stats_fn)
+
+    def test_an_unreachable_store_is_not_rendered_as_a_clean_one(self):
+        # The rule this repo already learned from the usage-log detector: silence renders
+        # identically to health, in the one signal whose false all-clear is most expensive. A
+        # failed /api/stats leaves the Settings card showing an error, but that card is on a view
+        # the reader may not be on — so the footer must say so itself.
+        self.assertRegex(self.panel, r"(?m)^\s*renderStatusBar\(null\);")
+        self.assertIn("status unavailable", self.panel)
+
+    def test_the_footer_does_not_overlap_the_panes_it_annotates(self):
+        # `position: fixed` would cover the sidebar and sit on top of the scrolling content;
+        # sticky inside the centre pane scrolls with it and stops at its foot. The Car's second
+        # Key Constraint is exactly this, and it is one CSS word away from being violated.
+        bar = re.search(r"\.statusbar\s*\{([^}]*)\}", self.panel)
+        self.assertIsNotNone(bar)
+        self.assertIn("position: sticky", bar.group(1))
+        self.assertNotIn("position: fixed", bar.group(1))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -218,7 +218,11 @@ The signal degrades safely and never raises.
 vanilla HTML/CSS/JS page, zero extra runtime dependencies). It has two views, switched from a
 sidebar: **Chat** (`#/chat`, the default) lets you **run a prompt** through the router, and
 **Settings** (`#/settings`) **views** the roster, the pricing reference, and the cost-avoided
-rollup. The
+rollup. Beneath both sits a **persistent status footer** carrying the two signals that qualify
+every figure the panel shows — the placeholder-pricing caveat and the measurement-health findings
+— so neither depends on which view you happen to be on. It is absent when there is nothing to
+report, and says so explicitly when `/api/stats` cannot be reached, because a store that could not
+be read must not render like a healthy one. The
 **pricing** card and a focused set of per-entry **roster** fields (`enabled`, `can_orchestrate`,
 `budget_usd_month`, `good_at`) are editable, with strict validation, an atomic write, a timestamped
 backup, and comment-preserving write-back. It binds `127.0.0.1` only — running a prompt spends real

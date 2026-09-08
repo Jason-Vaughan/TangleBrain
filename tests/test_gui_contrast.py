@@ -142,6 +142,12 @@ PAIRS = [
     ("subscription pill", "primary-bright", "card-bg", NORMAL_TEXT),
     ("paid-api pill", "amber", "card-bg", NORMAL_TEXT),
     ("cost caveat", "amber", "card-bg", NORMAL_TEXT),
+    # --- the status footer (#188). No new tokens; these are existing colours on a surface that
+    # did not exist before, which this module's docstring requires a row for: a new *pairing* is
+    # exactly what the two structural tests cannot see. The bar sits on --card-bg like the
+    # sidebar, so both rows are read against that.
+    ("caveat in the status footer", "amber", "card-bg", NORMAL_TEXT),
+    ("status footer's \"could not ask\" line (muted)", "text-muted", "card-bg", NORMAL_TEXT),
     ("error text in a card", "danger", "card-bg", NORMAL_TEXT),
     ("error text in the output pane", "danger", "elevated-bg", NORMAL_TEXT),
     ("enabled button outline", "primary-dark", "card-bg", UI_COMPONENT),

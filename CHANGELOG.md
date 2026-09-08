@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A persistent status footer in the knob panel**
+  ([#188](https://github.com/Jason-Vaughan/TangleBrain/issues/188)). The placeholder-pricing caveat
+  and the measurement-health findings both rendered inside the Settings stats card, which the
+  Chat/Settings split (#166) put a navigation click away from the view you land on. Both say *the
+  numbers you are looking at may not mean what you think*, so both now sit in chrome the centre
+  pane scrolls within, visible from every view. Same wording, same refresh points — it is a move,
+  not a second copy.
+
+  **A failed `/api/stats` renders as "status unavailable", never as an empty bar.** The bar is
+  hidden when the store answered and had nothing to report, so silence would otherwise be
+  indistinguishable from a clean bill of health — the same defect the migrated-log detector was
+  built to avoid, one surface out.
+
+  Sticky inside the centre pane rather than fixed, so it never covers the sidebar or the scrolling
+  content. `#188` also proposes configurable extra figures (tasks routed, spend avoided, the
+  billing gate); those are **not** built here — they need a home for display preferences, which is
+  a decision this Car deliberately does not take.
+
 ### Internal
 
 - **Dependabot now watches Python dependencies and workflow actions weekly**
