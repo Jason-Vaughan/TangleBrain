@@ -13,9 +13,9 @@ jobs:
     name: Build distributions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -36,7 +36,13 @@ jobs:
           python -m build
           python -m twine check dist/*
 
-      - uses: actions/upload-artifact@v4
+      # Upload and download must move as a pair. From upload v7 / download v8 the two
+      # share a direct-upload contract: upload can skip zipping (`archive: false`) and
+      # download decides whether to decompress by sniffing Content-Type. Neither option
+      # is used here — this is a directory, so it zips, and the round trip is by name —
+      # but bumping one side alone puts a producer and a consumer of that contract on
+      # either side of it. Bump both, or neither.
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -51,7 +57,11 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      # download v8 defaults `digest-mismatch` to `error`: a download whose hash does not
+      # match the server's now fails the job instead of logging a warning. That is the
+      # behaviour we want on the one path that uploads to PyPI — a corrupted dist should
+      # never reach the publish step — so the default is taken deliberately, not by omission.
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
