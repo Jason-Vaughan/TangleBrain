@@ -103,6 +103,12 @@ a calendar deadline would expire against users who simply had no reason to upgra
 
 ## Dependency floors
 
+**A Dependabot pull request can incur this rule, and its green check does not say so.**
+`.github/dependabot.yml` sets `versioning-strategy: increase`, which raises the *lower* bound as
+well as crossing the upper one — so an ordinary in-range bump narrows what a user may install.
+`tests/test_packaging.py` asserts ceilings only and will not catch it. Whoever merges the bump is
+the announcement's author; read the floor change, not just the check.
+
 This is the clause that governed the `mcp >= 2` floor
 ([#90](https://github.com/Jason-Vaughan/TangleBrain/issues/90)) and the one most easily got wrong,
 because **no TangleBrain code has to change for a user's install to break.**

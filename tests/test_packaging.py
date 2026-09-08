@@ -16,6 +16,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import yaml
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - exercised on 3.10 only, where the check skips
@@ -23,6 +25,7 @@ else:  # pragma: no cover - exercised on 3.10 only, where the check skips
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+DEPENDABOT_PATH = REPO_ROOT / ".github" / "dependabot.yml"
 
 
 @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+; covered by the 3.11/3.12 CI jobs")
@@ -110,6 +113,72 @@ class DependencyBoundTest(unittest.TestCase):
             spec,
             f"the mcp requirement must stay below the next major; got {requirement!r}",
         )
+
+class DependabotConfigTest(unittest.TestCase):
+    """The Dependabot config makes a claim about a provider, so pin the half that is ours.
+
+    Nothing here can observe what Dependabot actually does — that is the provider's behaviour, and
+    the evidence for it is a citation in the pull request, not an assertion. What *is* ours is the
+    option we set, and it is the one line the feature turns on: `versioning-strategy: increase`.
+
+    Left at the `auto` default it resolves to `increase` or `widen` from Dependabot's own
+    app-vs-library classification, and `widen` rewrites `>= 0.27, < 1` into a constraint permitting
+    both 0.x and 1.x. That erases the upper bound the test above exists to enforce — so the two
+    tests defend one invariant from opposite ends, and dropping this line would quietly undo the
+    other. It is exactly the shape of defect this module was written for: nothing exercises it at
+    runtime, and a bad value is discovered months later in someone else's resolve.
+    """
+
+    def _config(self) -> dict:
+        """Return the parsed Dependabot config.
+
+        Returns:
+            The config as a dict. Fails the test if the file is absent or not a mapping.
+        """
+        self.assertTrue(DEPENDABOT_PATH.is_file(), f"{DEPENDABOT_PATH} is missing")
+        loaded = yaml.safe_load(DEPENDABOT_PATH.read_text(encoding="utf-8"))
+        self.assertIsInstance(loaded, dict, "dependabot.yml did not parse as a mapping")
+        return loaded
+
+    def test_every_pip_entry_pins_versioning_strategy_to_increase(self):
+        entries = [u for u in self._config()["updates"] if u["package-ecosystem"] == "pip"]
+        self.assertTrue(entries, "no pip ecosystem is configured — nothing watches pyproject.toml")
+        for entry in entries:
+            with self.subTest(directory=entry.get("directory")):
+                self.assertEqual(
+                    entry.get("versioning-strategy"), "increase",
+                    "a pip entry left versioning-strategy unset or widened: `widen` dissolves the "
+                    "upper bounds asserted above instead of forcing the decision they exist for",
+                )
+
+    def test_both_ecosystems_named_by_the_supply_chain_gap_are_watched(self):
+        # github-actions is not incidental: `publish.yml` holds `id-token: write` for PyPI
+        # trusted publishing, so its pinned actions are the highest-privilege dependency here and
+        # nothing else watches them.
+        #
+        # A floor, not an exact set. Watching a *further* ecosystem is the direction this test is
+        # named for, and an equality assertion would red on it — turning "cover the supply chain"
+        # into "cover exactly this much of it", which is the opposite instruction.
+        ecosystems = {u["package-ecosystem"] for u in self._config()["updates"]}
+        self.assertLessEqual({"pip", "github-actions"}, ecosystems)
+
+    def test_major_bumps_are_not_grouped_away(self):
+        # A cap exists to force one deliberate decision per major. A group covering `major` would
+        # bundle two unrelated majors into a single accept-or-reject, which is the decision the
+        # cap was protecting, taken away again by the tooling meant to surface it.
+        #
+        # Every entry must HAVE a group, asserted rather than assumed: without it the loop below
+        # iterates nothing and reports success over a config that groups everything by default.
+        seen = 0
+        for entry in self._config()["updates"]:
+            groups = entry.get("groups") or {}
+            with self.subTest(ecosystem=entry["package-ecosystem"]):
+                self.assertTrue(groups, "no groups — routine bumps would arrive one PR per package")
+            for name, group in groups.items():
+                seen += 1
+                with self.subTest(ecosystem=entry["package-ecosystem"], group=name):
+                    self.assertNotIn("major", group.get("update-types", []))
+        self.assertTrue(seen, "no group was examined — this test would pass over anything")
 
 
 if __name__ == "__main__":
