@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **Dependabot now watches Python dependencies and workflow actions weekly**
+  ([#137](https://github.com/Jason-Vaughan/TangleBrain/issues/137)). Reported by
+  [@be-student](https://github.com/be-student), with thanks — they also opened
+  [#144](https://github.com/Jason-Vaughan/TangleBrain/pull/144) with a working configuration, and
+  several of its judgement calls are kept here. Re-implemented rather than merged, per the clean
+  room policy in `CONTRIBUTING.md`; the credit is for the contribution, not a claim about who wrote
+  these bytes.
+
+  Every dependency already carries an upper bound, and weekly CI already resolves fresh. Neither
+  says a new major *exists* — a cap converts a break into a version this project is quietly pinned
+  behind, and the canary reports a break inside the allowed range. This is the piece that turns a
+  cap into a decision. The failure it is aimed at is real: v0.20.1 was a hotfix for `mcp` 2.0.0
+  removing an import path the delegate extra needed, found by an install rather than by CI.
+
+  **`versioning-strategy: increase` is set explicitly on the pip ecosystem, and that is the point
+  of the change.** The `auto` default resolves to `increase` or `widen` from Dependabot's own
+  app-vs-library classification, and `widen` would rewrite `httpx >= 0.27, < 1` into a constraint
+  permitting both 0.x and 1.x — dissolving the cap rather than forcing the decision the cap exists
+  for. It is *not* set to make majors visible: all three strategies cross an upper bound, so a
+  major surfaces either way. It governs what the resulting PR does to `pyproject.toml`.
+
+  Minor and patch bumps are grouped into one review unit per ecosystem; **majors deliberately are
+  not**, so each opens its own pull request — a cap exists to force one decision at a time, and
+  grouping majors would bundle two unrelated ones into a single accept-or-reject.
+  `tests/test_packaging.py` pins both properties beside the upper-bound assertions they protect.
+
+
 ## [0.23.0] - 2026-09-07
 
 ### Added

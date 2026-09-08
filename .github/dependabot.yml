@@ -1,0 +1,59 @@
+# Dependabot exists here to close a specific gap, and the shape below follows from it.
+#
+# Every dependency carries an upper bound (#92). A cap stops a known major landing silently; it
+# does nothing to say a new major EXISTS, so it converts a break into a version this project is
+# quietly pinned behind. Weekly CI resolves fresh and catches a break inside the allowed range,
+# which is a canary, not an upgrade path. Dependabot is the piece that turns a cap from a wall
+# into a decision — the failure it is aimed at is v0.20.1, where `mcp >= 1.0` let 2.0.0 remove an
+# import path the delegate extra needed, and a user's install found it before CI did.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+
+    # THE LOAD-BEARING LINE. `auto` resolves to `increase` or `widen` from Dependabot's own
+    # app-vs-library guess, which is undocumented for pip, and the two produce materially
+    # different manifests. `widen` rewrites `>= 0.27, < 1` into a constraint permitting both 0.x
+    # and 1.x — it does not move the decision forward, it dissolves it, and the cap stops meaning
+    # anything. `increase` commits to the new major one at a time, with the PR as the place the
+    # decision gets made. Inheriting `auto` makes that a coin flip on a classifier.
+    #
+    # (Not a guard against majors going unreported: `increase`, `increase-if-necessary` and
+    # `widen` all cross an upper bound, so a major surfaces under any of them. The choice is about
+    # what the PR does to pyproject.toml, not whether it appears.)
+    versioning-strategy: increase
+
+    # Routine bumps arrive as one review unit; a MAJOR does not. Majors are deliberately left out
+    # of the group so each opens its own pull request, because a cap exists to force one decision
+    # at a time and a group would bundle two unrelated majors into a single accept-or-reject.
+    groups:
+      python-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+    # Room for the grouped PR plus several individual majors. Tighter throttles a major out of
+    # sight, which is the one update this config exists to surface.
+    open-pull-requests-limit: 5
+
+  # Workflow actions are pinned by tag and nothing watches them. `publish.yml` holds
+  # `id-token: write` for PyPI trusted publishing, so its actions are the highest-privilege
+  # dependency in the repo. No `versioning-strategy` here: a tag pin has no range to widen or
+  # increase, so the option would be inert.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      workflow-actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
