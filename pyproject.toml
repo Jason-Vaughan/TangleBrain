@@ -10,8 +10,9 @@
 # This is a BUILD requirement, not a runtime one: it is resolved when building from an sdist, never
 # by someone installing the wheel. So it owes no announcement under
 # docs/design/deprecation-policy.md § Dependency floors, which governs what a *user* may install.
-# It was the only one of Dependabot's five pip proposals that fixed anything — the httpx and PyYAML
-# raises were declined because no advisory touches their allowed ranges.
+# That asymmetry is the rule, recorded in that document: a build requirement carries the ceiling and
+# is exempt from the announcement, and it is why this floor could move while a runtime floor raise
+# has to earn its way past an announcement first.
 #
 # WHY 84 AND NOT 83, since the change that justifies this is fixed in 83.0.0: 83 is the security
 # minimum and `>= 83, < 85` would be equally safe. 84 is simply the current major, which keeps the
