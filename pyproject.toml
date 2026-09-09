@@ -67,7 +67,7 @@ classifiers = [
 # Raising a ceiling is a deliberate act with a migration behind it, not a version bump.
 dependencies = [
     "httpx >= 0.27, < 1",
-    "PyYAML >= 6.0, < 7",
+    "PyYAML >= 6.0.3, < 7",
 ]
 
 # Optional: the MCP local-delegate server (C2b). Keeps the core install lean — only consumers
