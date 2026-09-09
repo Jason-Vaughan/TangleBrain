@@ -1,5 +1,22 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# setuptools carries a floor because `>= 68` is vulnerable to two advisories the project has no
+# reason to keep accepting: GHSA HIGH below 78.1.1 and MODERATE below 83.0.0. This is the only
+# floor raise of the five Dependabot proposed that fixes anything — the httpx and PyYAML ones
+# were declined, because no advisory touches their allowed ranges and raising a *runtime* floor
+# narrows what a user may install for nothing (docs/design/deprecation-policy.md § Dependency
+# floors). This is a BUILD requirement, not a runtime one: it is resolved when building from
+# sdist, never by someone installing the wheel, so it owes no announcement.
+#
+# THE CEILING'S COST, stated because it is real: setuptools ships majors every few weeks (77
+# through 84 inside a year), so `< 85` will produce a Dependabot pull request often. It is kept
+# anyway because the upper-bound rule below has no exemption for build requirements, and the
+# weekly CI canary resolves this dependency fresh on every run — a setuptools major that breaks
+# the build is caught there, which is exactly the trade the cap is buying time for.
+#
+# `wheel` is bounded rather than dropped. setuptools has declared it itself since v70, so at this
+# floor it is redundant and could go — but removing a build requirement is a packaging change with
+# its own blast radius, not a version bump, and this change is scoped to the floors.
+requires = ["setuptools >= 84, < 85", "wheel >= 0.45, < 1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -55,7 +72,7 @@ delegate = ["mcp >= 2, < 3"]
 # an API break. The canary argument that justifies a wide range for a runtime dependency does not
 # transfer here — no user resolves a dev tool, so an unannounced upgrade is pure noise. Bump these
 # deliberately; a tool release that reds the gate is fixed, not un-gated.
-dev = ["ruff >= 0.16, < 0.17", "mypy >= 2.3, < 2.4", "types-PyYAML >= 6, < 7"]
+dev = ["ruff >= 0.16.6, < 0.17", "mypy >= 2.3.1, < 2.4", "types-PyYAML >= 6, < 7"]
 
 [project.urls]
 Homepage = "https://github.com/Jason-Vaughan/TangleBrain"

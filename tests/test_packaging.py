@@ -39,16 +39,27 @@ class DependencyBoundTest(unittest.TestCase):
     def _all_requirements(self):
         """Yield ``(source, requirement)`` for every dependency the project declares.
 
-        Covers the core ``project.dependencies`` list and every
+        Covers ``build-system.requires``, the core ``project.dependencies`` list, and every
         ``project.optional-dependencies`` extra, so a dependency added to a new extra is held to
         the same rule without anyone remembering to extend this test.
+
+        ``build-system.requires`` is included because leaving it out is what let ``setuptools>=68``
+        sit unbounded — and vulnerable to two advisories — while every other requirement in the
+        file was checked. A build requirement is resolved when someone builds from sdist, so an
+        unbounded one lets a major land in that build with no announcement and no commit to blame,
+        which is the same defect the rule exists for. It is a narrower blast radius than a runtime
+        dependency, not a different kind of problem.
 
         Returns:
             A list of ``(source, requirement)`` pairs, where ``source`` names the table the
             requirement came from (for a legible failure message).
         """
         project = self.pyproject["project"]
-        pairs = [("dependencies", req) for req in project.get("dependencies", [])]
+        build_system = self.pyproject.get("build-system", {})
+        pairs = [
+            ("build-system.requires", req) for req in build_system.get("requires", [])
+        ]
+        pairs.extend(("dependencies", req) for req in project.get("dependencies", []))
         for extra, reqs in project.get("optional-dependencies", {}).items():
             pairs.extend((f"optional-dependencies.{extra}", req) for req in reqs)
         return pairs

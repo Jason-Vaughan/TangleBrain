@@ -36,7 +36,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   billing gate); those are **not** built here — they need a home for display preferences, which is
   a decision this Car deliberately does not take.
 
+### Security
+
+- **The `setuptools` build floor now clears two advisories**
+  ([#211](https://github.com/Jason-Vaughan/TangleBrain/pull/211)). `build-system.requires` asked for
+  `setuptools>=68`, which permits versions carrying a HIGH advisory (fixed in 78.1.1) and a MODERATE
+  one (fixed in 83.0.0). It now asks for `>= 84, < 85`.
+
+  **Scope, stated precisely, because a security note that overstates itself is worse than none.**
+  This is a *build* requirement. It is resolved when building from an sdist — it is never resolved
+  by someone installing the wheel, so no user's installed environment was exposed by the old floor
+  and nothing about a normal `pip install tanglebrain` changes. It also owes no announcement under
+  `docs/design/deprecation-policy.md` § Dependency floors, which governs what a *user* may install.
+
+  **`tests/test_packaging.py` could not have caught this, and now can.** Its upper-bound rule read
+  `project.dependencies` and the extras and stopped there, so `build-system.requires` was the one
+  table in the file held to no rule — which is exactly where the unbounded, vulnerable floor was
+  sitting. Requirement discovery now includes it, and `wheel` picked up a bound in the same pass.
+
 ### Internal
+
+- **Four of Dependabot's five pip bumps were declined, and the reasons are the point**
+  ([#208](https://github.com/Jason-Vaughan/TangleBrain/pull/208),
+  [#209](https://github.com/Jason-Vaughan/TangleBrain/pull/209),
+  [#210](https://github.com/Jason-Vaughan/TangleBrain/pull/210),
+  [#212](https://github.com/Jason-Vaughan/TangleBrain/pull/212)). `versioning-strategy: increase`
+  proposes a floor raise for every in-range release, so the pull request exists whether or not the
+  raise buys anything. Checked against GitHub's advisory database, **neither runtime proposal buys
+  anything**: no advisory touches httpx above 0.23.0 or PyYAML above 5.4, and our floors are already
+  0.27 and 6.0. Raising them would have narrowed what a user may install and incurred a
+  breaking-change announcement in exchange for nothing, so `httpx >= 0.27, < 1` and
+  `PyYAML >= 6.0, < 7` stand unchanged.
+
+  The dev-extra floors did move — `ruff >= 0.16.6` and `mypy >= 2.3.1` — because those bind
+  contributors rather than installs and owe nothing to anyone. Kept inside the existing minor
+  ceilings, which `pyproject.toml` explains are set at each tool's real breaking-change unit.
+
+  **The general rule this leaves behind:** a floor raise is a cost until something justifies it.
+  Read the advisory range before the diff — of these five, only the one that looked most like
+  routine dev churn was fixing a vulnerability.
 
 - **The four GitHub Actions majors, taken together**
   ([#204](https://github.com/Jason-Vaughan/TangleBrain/pull/204),
