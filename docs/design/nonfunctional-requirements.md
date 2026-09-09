@@ -128,9 +128,12 @@ Fully specified in [`security-model.md`](security-model.md). The NFR-level state
   either is a breaking change for installs even though no TangleBrain API moves — announced under
   [`deprecation-policy.md`](deprecation-policy.md), "Dependency floors". Users needing mcp 1.x
   install TangleBrain 0.20.1, the last release that allowed it.
-- **Every declared dependency carries an upper bound**, core and extras alike, asserted by
-  `tests/test_packaging.py` over `project.dependencies` and every `optional-dependencies` extra
-  rather than over one named requirement. Bounds sit at the major boundary: tighter caps create
+- **Every declared dependency carries an upper bound**, build requirements, core and extras alike,
+  asserted by `tests/test_packaging.py` over `build-system.requires`, `project.dependencies` and
+  every `optional-dependencies` extra rather than over one named requirement. The build table is in
+  scope because leaving it out is what let `setuptools` sit unbounded, and below two advisories,
+  while every other requirement in the file was checked; a separate test pins the discovered set so
+  the coverage cannot narrow again with a green suite. Bounds sit at the major boundary: tighter caps create
   resolution conflicts for anyone installing TangleBrain alongside other packages, a real cost paid
   to prevent a break semver already announces. A weekly scheduled CI run covers what a cap cannot —
   a compatible-range release that changes behavior rather than API.

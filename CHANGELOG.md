@@ -52,7 +52,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **`tests/test_packaging.py` could not have caught this, and now can.** Its upper-bound rule read
   `project.dependencies` and the extras and stopped there, so `build-system.requires` was the one
   table in the file held to no rule — which is exactly where the unbounded, vulnerable floor was
-  sitting. Requirement discovery now includes it, and `wheel` picked up a bound in the same pass.
+  sitting. Requirement discovery now includes it, and `wheel` picked up a bound in the same pass
+  (dropping `wheel` entirely is [#222](https://github.com/Jason-Vaughan/TangleBrain/issues/222) —
+  setuptools has declared it itself since v70, but removing a build requirement is a packaging
+  change, not a version bump).
+
+  **A second test pins the discovered set**, because the bound rule iterates whatever it is handed
+  and so cannot notice its own coverage narrowing: deleting the build-system lines would otherwise
+  restore the exact defect with a green suite. `deprecation-policy.md` and
+  `nonfunctional-requirements.md` both record the widened scope, and the ruling that makes it
+  coherent — **a build requirement carries the ceiling rule and is exempt from the announcement
+  rule**, because an unbounded one still lets a major land in an sdist build unannounced, while
+  raising its floor changes no user's install.
 
 ### Internal
 

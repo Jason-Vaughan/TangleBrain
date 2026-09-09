@@ -98,6 +98,22 @@ class DependencyBoundTest(unittest.TestCase):
                     "lets the next major land unannounced (see the module docstring)",
                 )
 
+    def test_requirement_discovery_reaches_the_build_system_table(self):
+        # The bound rule above is only as wide as _all_requirements, and for most of this file's
+        # life that was `project.dependencies` plus the extras — which is how `setuptools>=68` sat
+        # unbounded, and below two advisories, while every other requirement in the file was
+        # checked. `test_every_declared_dependency_carries_an_upper_bound` cannot notice that
+        # regression: it iterates whatever it is handed, so deleting the build-system lines from
+        # _all_requirements leaves it passing over a smaller set. This pins the set itself.
+        sources = {source for source, _ in self._all_requirements()}
+        self.assertIn(
+            "build-system.requires",
+            sources,
+            "_all_requirements no longer discovers build-system.requires — the upper-bound rule "
+            "would silently stop covering the build backend, which is the gap that let an "
+            "unbounded, vulnerable setuptools floor through",
+        )
+
     def test_mcp_is_pinned_to_the_2x_major(self):
         # Stronger than the general rule above, and separate from it on purpose. `mcp` needs a
         # specific major rather than merely *a* ceiling: `mcp_server.py` imports
