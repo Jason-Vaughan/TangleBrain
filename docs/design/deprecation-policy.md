@@ -120,10 +120,21 @@ the CLI, the tools and the record shape are all untouched. The user's experience
 Three rules:
 
 1. **Every dependency carries an upper bound** (`tests/test_packaging.py` asserts it over
-   `project.dependencies` and every extra). An unbounded floor is how a major lands unannounced,
-   which is the defect behind [#87](https://github.com/Jason-Vaughan/TangleBrain/issues/87) and
+   `build-system.requires`, `project.dependencies` and every extra). An unbounded floor is how a
+   major lands unannounced, which is the defect behind
+   [#87](https://github.com/Jason-Vaughan/TangleBrain/issues/87) and
    [#92](https://github.com/Jason-Vaughan/TangleBrain/issues/92). A floor bump therefore raises a
    ceiling too: `>= 2, < 3`, never `>= 2`.
+
+   **`build-system.requires` is covered by the ceiling rule and exempt from the announcement
+   rule, and the two halves are separate on purpose.** It is covered because an unbounded build
+   requirement lets a major land in an sdist build with no announcement and no commit to blame —
+   the same defect, at a narrower blast radius. It is exempt from the announcement because this
+   clause governs **what a user may install**, and a build requirement is resolved when building
+   from an sdist, never by someone installing a wheel: raising it changes no user's install and
+   strands nobody. Not a hypothetical distinction — it is why `setuptools` could be moved off a
+   floor carrying a HIGH and a MODERATE advisory as an ordinary patch-tier change, while two
+   *runtime* floor raises proposed in the same batch were declined for buying nothing.
 
 2. **Users on the older major are not stranded — they are pinned.** TangleBrain does not carry
    compatibility shims for two majors of a dependency; that doubles a tested surface permanently to

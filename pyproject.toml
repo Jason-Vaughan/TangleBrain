@@ -1,5 +1,38 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# setuptools carries a floor because `>= 68` admits two advisories this project has no reason to
+# keep accepting:
+#   * GHSA-5rjg-fvgr-3xxf / CVE-2025-47273 (HIGH) — path traversal in `PackageIndex.download`,
+#     fixed in 78.1.1.
+#   * GHSA-h35f-9h28-mq5c / CVE-2026-59890 (MODERATE) — a `MANIFEST.in` exclusion bypass when
+#     building an sdist, via a Unicode NFC/NFD normalization collision, fixed in 83.0.0. That one
+#     is a defect in the exact operation this requirement governs.
+#
+# This is a BUILD requirement, not a runtime one: it is resolved when building from an sdist, never
+# by someone installing the wheel. So it owes no announcement under
+# docs/design/deprecation-policy.md § Dependency floors, which governs what a *user* may install.
+# That asymmetry is the rule, recorded in that document: a build requirement carries the ceiling and
+# is exempt from the announcement, and it is why this floor could move while a runtime floor raise
+# has to earn its way past an announcement first.
+#
+# WHY 84 AND NOT 83, since the change that justifies this is fixed in 83.0.0: 83 is the security
+# minimum and `>= 83, < 85` would be equally safe. 84 is simply the current major, which keeps the
+# floor and the ceiling one window apart. The security argument buys 83; the extra step to 84 is a
+# convention choice and is not claimed as security.
+#
+# THE CEILING'S COST, stated because it is real: setuptools ships majors every few weeks (77
+# through 84 inside a year), so `< 85` will produce a Dependabot pull request often. It is kept
+# because the upper-bound rule has no exemption for build requirements. Note what does NOT justify
+# it — the weekly CI canary cannot help here, because with this cap in force an isolated build only
+# ever resolves 84.x, so a breaking *major* is precisely what the canary cannot see. What catches
+# that is CI on the Dependabot pull request that raises the cap, which is the model
+# docs/design/nonfunctional-requirements.md already describes.
+#
+# `wheel` is bounded rather than dropped. setuptools has declared it itself since v70, so at this
+# floor it is redundant and could go — but removing a build requirement is a packaging change with
+# its own blast radius, not a version bump, and this change is scoped to the floors. Tracked
+# separately rather than left as a comment. The floor is the current minor and the ceiling the
+# major boundary; `wheel` had no constraint at all before this.
+requires = ["setuptools >= 84, < 85", "wheel >= 0.45, < 1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -55,7 +88,7 @@ delegate = ["mcp >= 2, < 3"]
 # an API break. The canary argument that justifies a wide range for a runtime dependency does not
 # transfer here — no user resolves a dev tool, so an unannounced upgrade is pure noise. Bump these
 # deliberately; a tool release that reds the gate is fixed, not un-gated.
-dev = ["ruff >= 0.16, < 0.17", "mypy >= 2.3, < 2.4", "types-PyYAML >= 6, < 7"]
+dev = ["ruff >= 0.16.6, < 0.17", "mypy >= 2.3.1, < 2.4", "types-PyYAML >= 6, < 7"]
 
 [project.urls]
 Homepage = "https://github.com/Jason-Vaughan/TangleBrain"

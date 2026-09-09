@@ -39,16 +39,27 @@ class DependencyBoundTest(unittest.TestCase):
     def _all_requirements(self):
         """Yield ``(source, requirement)`` for every dependency the project declares.
 
-        Covers the core ``project.dependencies`` list and every
+        Covers ``build-system.requires``, the core ``project.dependencies`` list, and every
         ``project.optional-dependencies`` extra, so a dependency added to a new extra is held to
         the same rule without anyone remembering to extend this test.
+
+        ``build-system.requires`` is included because leaving it out is what let ``setuptools>=68``
+        sit unbounded — and vulnerable to two advisories — while every other requirement in the
+        file was checked. A build requirement is resolved when someone builds from sdist, so an
+        unbounded one lets a major land in that build with no announcement and no commit to blame,
+        which is the same defect the rule exists for. It is a narrower blast radius than a runtime
+        dependency, not a different kind of problem.
 
         Returns:
             A list of ``(source, requirement)`` pairs, where ``source`` names the table the
             requirement came from (for a legible failure message).
         """
         project = self.pyproject["project"]
-        pairs = [("dependencies", req) for req in project.get("dependencies", [])]
+        build_system = self.pyproject.get("build-system", {})
+        pairs = [
+            ("build-system.requires", req) for req in build_system.get("requires", [])
+        ]
+        pairs.extend(("dependencies", req) for req in project.get("dependencies", []))
         for extra, reqs in project.get("optional-dependencies", {}).items():
             pairs.extend((f"optional-dependencies.{extra}", req) for req in reqs)
         return pairs
@@ -86,6 +97,22 @@ class DependencyBoundTest(unittest.TestCase):
                     f"{source}: {requirement!r} has no upper bound — an unbounded constraint "
                     "lets the next major land unannounced (see the module docstring)",
                 )
+
+    def test_requirement_discovery_reaches_the_build_system_table(self):
+        # The bound rule above is only as wide as _all_requirements, and for most of this file's
+        # life that was `project.dependencies` plus the extras — which is how `setuptools>=68` sat
+        # unbounded, and below two advisories, while every other requirement in the file was
+        # checked. `test_every_declared_dependency_carries_an_upper_bound` cannot notice that
+        # regression: it iterates whatever it is handed, so deleting the build-system lines from
+        # _all_requirements leaves it passing over a smaller set. This pins the set itself.
+        sources = {source for source, _ in self._all_requirements()}
+        self.assertIn(
+            "build-system.requires",
+            sources,
+            "_all_requirements no longer discovers build-system.requires — the upper-bound rule "
+            "would silently stop covering the build backend, which is the gap that let an "
+            "unbounded, vulnerable setuptools floor through",
+        )
 
     def test_mcp_is_pinned_to_the_2x_major(self):
         # Stronger than the general rule above, and separate from it on purpose. `mcp` needs a
