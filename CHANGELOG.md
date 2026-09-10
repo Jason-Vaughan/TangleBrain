@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`totals.json` gains a per-model and a per-day dimension**
+  ([#186](https://github.com/Jason-Vaughan/TangleBrain/issues/186)). The store could answer *how much
+  has this router avoided* and could not answer *which backend avoided it* or *when* — `rollup()`
+  returned tier and origin **counts**, and there was no model→dollars map at any scope and no
+  temporal bucket at all. Charting either from the usage log would have meant drawing a
+  lifetime-labelled figure from a window that silently truncates, which is the defect Train 2 spent
+  eleven chunks closing. `by_model`, `by_day` and `by_day_since` are additive fields on the same
+  file, and **nothing renders them yet** — that is [#176](https://github.com/Jason-Vaughan/TangleBrain/issues/176),
+  which this had to land before.
+
+  **The parts sum to the headline.** Both maps are populated from task records only, because
+  delegate and failure rows are already held out of `spend_avoided_usd` — a breakdown that does not
+  add up to the figure it breaks down is worse than none, since a reader checks one against the
+  other and believes whichever they read second. `by_model` keys on the roster `id`, matching
+  `delegates.by_backend`; that is the only per-model identifier a record carries, the `model` field
+  holding a roster id despite its name.
+
+  **`by_day` retains 400 days and is the first deliberately window-scoped field in the lifetime
+  half** — it does not sum to `spend_avoided_usd`, and `data-model.md` now says so. The cap is what
+  makes the field admissible at all: one key per day grows without bound, the same property that
+  keeps `delegates.by_parent` out of this file. Eviction runs only where the totals become a file,
+  never on the read path, where it would shrink a figure the reader still has rows for. The number
+  is policy rather than format and can move later — but only usefully downward, because widening
+  recovers nothing once days are evicted, which is why it sits well above the 90 the first consumer
+  needs.
+
+  **`by_day_since` is the honesty caption, not the draw boundary**, and the distinction is
+  load-bearing. Stamped once and never moved, it is *older* than the oldest surviving bucket after
+  the first eviction — so a renderer drawing from it would paint the evicted span as $0, asserting
+  no activity across days that were merely dropped, on exactly the long-lived stores where it would
+  be least visible. The drawable boundary is `min(by_day)` and needs no field. What the stamp
+  answers is whether the per-day figures cover the store's whole life, which nothing else survives
+  eviction to say.
+
+  A record whose timestamp is missing or unreadable still reaches `by_model` and the headline but
+  contributes no day bucket: a day cannot be invented, and attributing old spend to today would bend
+  the chart the field exists for. No migration — the format is additive-only, so an older
+  TangleBrain folding this file carries the new maps through rather than deleting them.
+
 - **A persistent status footer in the knob panel**
   ([#188](https://github.com/Jason-Vaughan/TangleBrain/issues/188)). The placeholder-pricing caveat
   and the measurement-health findings both rendered inside the Settings stats card, which the

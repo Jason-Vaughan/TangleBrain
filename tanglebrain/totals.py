@@ -61,6 +61,24 @@ _DELEGATE_FLOAT_FIELDS = ("cloud_equiv_usd",)
 #: agree, and the drift would only surface as a per-backend figure silently going window-scoped.
 BACKEND_INT_FIELDS = ("count", "in_tokens_est", "out_tokens_est")
 
+#: Per-model and per-day aggregate fields. Both maps carry the same shape because they answer the
+#: same question sliced two ways — "of the spend this router avoided, how much is attributable to
+#: *this* backend / *this* day" — and one shape means one normalizer and one accumulator body.
+AGGREGATE_INT_FIELDS = ("count", "in_tokens_est", "out_tokens_est")
+AGGREGATE_FLOAT_FIELDS = ("cloud_equiv_usd", "spend_avoided_usd")
+
+#: How many day buckets ``by_day`` retains. **This cap is what makes the field admissible at all.**
+#: One key per day grows without bound, which is the exact property that keeps the delegates'
+#: ``by_parent`` tree out of this file (see the module docstring) — a map that grows forever cannot
+#: live in a file every rollup reads. 400 covers a 90-day chart with headroom and leaves a
+#: year-over-year view buildable later.
+#:
+#: The number is *policy*, not format: changing it breaks nothing on disk. But it is only usefully
+#: changed in one direction. Narrowing later works; **widening later recovers nothing, because the
+#: evicted days are gone** — which is why it was set wide rather than at the 90 the first consumer
+#: needs.
+BY_DAY_RETENTION = 400
+
 
 def as_int(value: object) -> int:
     """Coerce a stored numeric field to ``int``, defaulting to 0 on any bad value.
@@ -134,6 +152,24 @@ def empty_totals() -> dict:
     # compaction destroys the per-row `pricing_ref` evidence, and a lifetime figure summed across
     # two different reference prices is a figure whose caveat has to survive its rows.
     totals["pricing_refs"] = []
+    # Two bounded slices of the headline. `by_model` is bounded by the roster (one key per backend);
+    # `by_day` is bounded only because `BY_DAY_RETENTION` evicts it at fold time.
+    totals["by_model"] = {}
+    totals["by_day"] = {}
+    # The day per-day recording began — stamped once and never moved, eviction included.
+    #
+    # **This is not the boundary a renderer may draw from, and the distinction is load-bearing.**
+    # Once eviction bites, this date is OLDER than the oldest surviving bucket, so drawing from it
+    # would render the evicted span as $0 — asserting no activity over days that simply are not
+    # kept, and doing it only on the long-lived stores where it is least visible. The drawable
+    # boundary is `min(by_day)` and needs no field: before the earliest key, absence means
+    # *unknown*; between keys, absence means a genuine zero-activity day.
+    #
+    # What this answers instead is the question `by_day` cannot: **do these per-day figures cover
+    # the whole life of the store?** Compared against the lifetime `spend_avoided_usd`, it is what
+    # lets a reader be told the chart starts later than the headline does. Nothing else survives
+    # the first eviction to say so.
+    totals["by_day_since"] = ""
     delegates: dict = {field: 0 for field in _DELEGATE_INT_FIELDS}
     delegates.update({field: 0.0 for field in _DELEGATE_FLOAT_FIELDS})
     delegates["by_backend"] = {}
@@ -173,6 +209,91 @@ def _backend_map(raw: object) -> dict:
         info = info if isinstance(info, dict) else {}
         out[str(model)] = {field: as_int(info.get(field)) for field in BACKEND_INT_FIELDS}
     return out
+
+
+def _aggregate_map(raw: object) -> dict:
+    """Normalize a ``{key: {count, tokens, dollars}}`` map — the shape ``by_model`` and ``by_day`` share.
+
+    Tolerant in the same direction as every other reader here: a non-object yields ``{}``, and a
+    key whose aggregate is not an object normalizes to zeros rather than vanishing. Dropping it
+    would understate a split that the store demonstrably recorded, which is the one direction a
+    measurement figure must not fail in.
+
+    Args:
+        raw: The value stored under ``by_model`` or ``by_day``.
+
+    Returns:
+        ``{key: {count, in_tokens_est, out_tokens_est, cloud_equiv_usd, spend_avoided_usd}}``.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    for key, info in raw.items():
+        info = info if isinstance(info, dict) else {}
+        entry: dict = {field: as_int(info.get(field)) for field in AGGREGATE_INT_FIELDS}
+        entry.update({field: as_float(info.get(field)) for field in AGGREGATE_FLOAT_FIELDS})
+        out[str(key)] = entry
+    return out
+
+
+def _day_stamp(raw: object) -> str:
+    """Normalize a stored ``YYYY-MM-DD`` stamp, yielding ``""`` for anything that is not one.
+
+    Validated by shape rather than trusted, because it is the one field here that is compared
+    against day *keys*: a stamp that is not a day cannot order against them, and a reader that
+    silently accepted ``"soon"`` would caption a chart with it.
+
+    Args:
+        raw: The value stored under ``by_day_since``.
+
+    Returns:
+        The stamp when it is exactly ten characters of ``YYYY-MM-DD``; ``""`` otherwise.
+    """
+    if not isinstance(raw, str) or len(raw) != 10:
+        return ""
+    head, sep_one, rest = raw.partition("-")
+    month, sep_two, day = rest.partition("-")
+    if not (sep_one and sep_two):
+        return ""
+    if not (head.isdigit() and month.isdigit() and day.isdigit()):
+        return ""
+    return raw
+
+
+def evict_old_days(totals: dict, keep: int = BY_DAY_RETENTION) -> dict:
+    """Trim ``by_day`` to the newest ``keep`` buckets, dropping the oldest — mutates and returns.
+
+    **Called only where the totals are persisted**, never on the read path. That mirrors the
+    delegates' ``by_parent`` tree, which is likewise dropped in
+    :func:`~tanglebrain.measurement.fold_records_into_totals` rather than in the shared summation:
+    the cap exists to bound the *file*, and applying it to a rollup would shrink a figure the
+    reader can already see rows for.
+
+    Day keys sort lexicographically because they are zero-padded ``YYYY-MM-DD``, so "newest" needs
+    no date parsing and a malformed key sorts to one end rather than raising.
+
+    ``by_day_since`` is deliberately untouched. After the first eviction it is older than the
+    oldest surviving bucket, and that gap *is* the signal it exists to carry (see
+    :func:`empty_totals`).
+
+    Args:
+        totals: The totals being written. Mutated in place.
+        keep: How many day buckets to retain. ``0`` empties the map.
+
+    Returns:
+        The same dict, for use as an expression.
+
+    Raises:
+        ValueError: If ``keep`` is negative.
+    """
+    if keep < 0:
+        raise ValueError("keep must be >= 0")
+    by_day = totals.get("by_day")
+    if not isinstance(by_day, dict) or len(by_day) <= keep:
+        return totals
+    newest = sorted(by_day)[len(by_day) - keep :] if keep else []
+    totals["by_day"] = {day: by_day[day] for day in newest}
+    return totals
 
 
 def _pricing_refs(raw: object) -> list[str]:
@@ -218,6 +339,9 @@ def normalize_totals(raw: object) -> dict:
     for field in _COUNT_MAPS:
         totals[field] = _count_map(raw.get(field))
     totals["pricing_refs"] = _pricing_refs(raw.get("pricing_refs"))
+    totals["by_model"] = _aggregate_map(raw.get("by_model"))
+    totals["by_day"] = _aggregate_map(raw.get("by_day"))
+    totals["by_day_since"] = _day_stamp(raw.get("by_day_since"))
     stored_delegates = raw.get("delegates")
     stored_delegates = stored_delegates if isinstance(stored_delegates, dict) else {}
     delegates = totals["delegates"]
