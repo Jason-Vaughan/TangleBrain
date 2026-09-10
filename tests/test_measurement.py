@@ -53,6 +53,7 @@ from tanglebrain.totals import (
     TOTALS_FILENAME,
     carry_unknown_fields,
     evict_old_days,
+    is_day_key,
     default_totals_path,
     empty_totals,
     normalize_totals,
@@ -1264,6 +1265,44 @@ class PerModelAndPerDaySlicesTest(unittest.TestCase):
             json.loads(path.read_text(encoding="utf-8"))["by_day"]["2026-09-09"]["p95_latency_ms"],
             42,
         )
+
+    def test_a_lost_stamp_is_not_re_derived_from_what_survived_the_cap(self):
+        """An unreadable stamp must read as *unknown*, never as a confident wrong date.
+
+        `_day_stamp` turns a corrupt `by_day_since` into `""`, which is right. What would be wrong
+        is the next fold treating that emptiness as "recording starts now" and re-stamping from
+        `min(by_day)` — past the cap that is the **eviction boundary**, not the first recorded day.
+        One corrupt byte would then flip the field from "these figures start earlier than your
+        headline" to a confident claim of full coverage: the exact opposite of what it exists to
+        say, and unfalsifiable from the file alone.
+        """
+        rows = [
+            self._task(model="qwen", ts=f"2026-{m:02d}-{d:02d}T01:00:00+00:00", avoided=1.0)
+            for m in range(1, 15) for d in range(1, 30)
+        ][: BY_DAY_RETENTION + 10]
+        healthy = fold_records_into_totals(rows)
+        self.assertNotEqual(healthy["by_day_since"], "")
+
+        damaged = dict(healthy)
+        damaged["by_day_since"] = "corrupted"
+        recovered = fold_records_into_totals(
+            [self._task(model="qwen", ts="2027-01-05T01:00:00+00:00", avoided=1.0)], damaged
+        )
+        self.assertEqual(recovered["by_day_since"], "")
+        self.assertNotEqual(recovered["by_day_since"], min(recovered["by_day"]))
+
+    def test_a_day_key_is_ten_characters_of_year_month_day_and_nothing_else(self):
+        # One format, one validator. `"2026-9-100"` splits into three runs of digits and is not a
+        # day; a laxer check here than on the keys it is ordered against is how a caption ends up
+        # comparing unlike strings.
+        for good in ("2026-09-10", "0001-01-01", "9999-12-31"):
+            with self.subTest(good=good):
+                self.assertTrue(is_day_key(good))
+                self.assertEqual(normalize_totals({"by_day_since": good})["by_day_since"], good)
+        for bad in ("2026-9-100", "2026/09/10", "2026-09-1", "20260910AB", "soon", "", None, 7):
+            with self.subTest(bad=bad):
+                self.assertFalse(is_day_key(bad))
+                self.assertEqual(normalize_totals({"by_day_since": bad})["by_day_since"], "")
 
     def test_corrupt_slices_read_as_empty_rather_than_raising(self):
         # Observability degrades to less information, never to an error. Each of these is a shape

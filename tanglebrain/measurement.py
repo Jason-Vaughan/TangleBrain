@@ -60,6 +60,7 @@ from tanglebrain.totals import (
     AGGREGATE_INT_FIELDS,
     BACKEND_INT_FIELDS,
     evict_old_days,
+    is_day_key,
     TOTALS_FILENAME,
     as_float,
     as_int,
@@ -795,11 +796,7 @@ def _day_of(ts: object) -> str:
     if not isinstance(ts, str) or len(ts) < 10:
         return ""
     day = ts[:10]
-    if day[4] != "-" or day[7] != "-":
-        return ""
-    if not (day[:4].isdigit() and day[5:7].isdigit() and day[8:10].isdigit()):
-        return ""
-    return day
+    return day if is_day_key(day) else ""
 
 
 def _add_slice(bucket_map: dict, key: str, record: dict, in_tok: int, out_tok: int) -> None:
@@ -855,6 +852,12 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
     # well-formed dict. `normalize_totals` also builds a fresh structure, which is what keeps the
     # window's rows from accumulating into a caller's own totals dict below.
     stored = normalize_totals(totals)
+    # Whether per-day recording had already begun, captured before any row is added. It is what
+    # separates "stamp this for the first time" from "the stamp was lost" — and the two must not be
+    # treated alike: re-deriving a lost stamp from `min(by_day)` would take the *eviction boundary*
+    # for the first recorded day, turning one corrupt byte into a confident claim that the per-day
+    # figures cover the whole store.
+    stored_had_days = bool(stored["by_day"])
     # Popped rather than listed in an exclusion tuple: a hand-maintained list of "keys handled
     # separately" is a third place the field list has to agree, and adding a name to it would drop
     # a lifetime figure out of the summary in silence.
@@ -930,9 +933,13 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
         summary["cloud_equiv_usd"] += as_float(r.get("cloud_equiv_usd"))
         summary["spend_avoided_usd"] += as_float(r.get("spend_avoided_usd"))
     summary["pricing_refs"] = sorted(pricing_refs)
-    # Stamped the first time any day bucket exists and never moved afterwards — the guard is
-    # "already set", not "recompute", which is what makes eviction unable to drag it forward.
-    if summary["by_day"] and not summary["by_day_since"]:
+    # Stamped the first time any day bucket exists and never moved afterwards. Two guards, and the
+    # second is not redundant: "not already set" stops eviction dragging it forward, and "the store
+    # had no days" stops a *lost* stamp being re-derived from what survived the cap. Without the
+    # latter, a store whose stamp is unreadable silently re-stamps at its eviction boundary and
+    # starts claiming full coverage — the field asserting the opposite of what it exists to say.
+    # An unrecoverable stamp stays empty, which reads as "unknown" rather than as a false date.
+    if summary["by_day"] and not summary["by_day_since"] and not stored_had_days:
         summary["by_day_since"] = min(summary["by_day"])
     summary["delegates"] = delegates
     return summary

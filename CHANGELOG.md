@@ -53,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed. Found by running the real fold-write-read loop rather than by inspecting a returned
   value, which is the only shape the defect is visible in.
 
+  **A lost `by_day_since` reads as unknown, never as a confident wrong date.** A corrupt stamp
+  normalizes to empty — and the next fold must not treat that emptiness as "recording starts now",
+  because past the cap `min(by_day)` is the *eviction boundary*, not the first recorded day. One
+  corrupt byte would otherwise flip the field from "these figures start earlier than your headline"
+  into a claim of full coverage: the opposite of what it exists to say, and unfalsifiable from the
+  file. The stamp is written only when the store had no day buckets at all.
+
   A record whose timestamp is missing or unreadable still reaches `by_model` and the headline but
   contributes no day bucket: a day cannot be invented, and attributing old spend to today would bend
   the chart the field exists for. No migration — the format is additive-only, so an older

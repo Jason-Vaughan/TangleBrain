@@ -152,8 +152,11 @@ def empty_totals() -> dict:
     # compaction destroys the per-row `pricing_ref` evidence, and a lifetime figure summed across
     # two different reference prices is a figure whose caveat has to survive its rows.
     totals["pricing_refs"] = []
-    # Two bounded slices of the headline. `by_model` is bounded by the roster (one key per backend);
-    # `by_day` is bounded only because `BY_DAY_RETENTION` evicts it at fold time.
+    # Two slices of the headline, bounded by different things and to different degrees. `by_model`
+    # takes its key from each record, so it is bounded by the set of roster ids that have ever
+    # *served* — which grows when an id is renamed and never shrinks, making it slow-growing rather
+    # than strictly bounded. `by_day` has no such ceiling at all and is bounded only because
+    # `BY_DAY_RETENTION` evicts it at fold time.
     totals["by_model"] = {}
     totals["by_day"] = {}
     # The day per-day recording began — stamped once and never moved, eviction included.
@@ -236,28 +239,40 @@ def _aggregate_map(raw: object) -> dict:
     return out
 
 
-def _day_stamp(raw: object) -> str:
-    """Normalize a stored ``YYYY-MM-DD`` stamp, yielding ``""`` for anything that is not one.
+def is_day_key(value: object) -> bool:
+    """Report whether ``value`` is a ``YYYY-MM-DD`` day key.
 
-    Validated by shape rather than trusted, because it is the one field here that is compared
-    against day *keys*: a stamp that is not a day cannot order against them, and a reader that
-    silently accepted ``"soon"`` would caption a chart with it.
+    **The one validator for this format.** ``by_day``'s keys, ``by_day_since`` and the day derived
+    from a record's timestamp are the same shape, and they are compared and ordered against each
+    other — so a second, laxer implementation would let a string into one that the others reject,
+    and the disagreement would surface as a caption or a chart boundary rather than as an error.
+
+    Checked positionally rather than by splitting: ``"2026-9-100"`` splits into three runs of digits
+    and is not a day.
+
+    Args:
+        value: The candidate key or stamp, of whatever type it turned out to be.
+
+    Returns:
+        ``True`` only for exactly ten characters of ``YYYY-MM-DD``.
+    """
+    if not isinstance(value, str) or len(value) != 10:
+        return False
+    if value[4] != "-" or value[7] != "-":
+        return False
+    return value[:4].isdigit() and value[5:7].isdigit() and value[8:10].isdigit()
+
+
+def _day_stamp(raw: object) -> str:
+    """Normalize a stored ``by_day_since``, yielding ``""`` for anything that is not a day.
 
     Args:
         raw: The value stored under ``by_day_since``.
 
     Returns:
-        The stamp when it is exactly ten characters of ``YYYY-MM-DD``; ``""`` otherwise.
+        The stamp when :func:`is_day_key` accepts it; ``""`` otherwise.
     """
-    if not isinstance(raw, str) or len(raw) != 10:
-        return ""
-    head, sep_one, rest = raw.partition("-")
-    month, sep_two, day = rest.partition("-")
-    if not (sep_one and sep_two):
-        return ""
-    if not (head.isdigit() and month.isdigit() and day.isdigit()):
-        return ""
-    return raw
+    return raw if is_day_key(raw) else ""  # type: ignore[return-value]  # guarded by is_day_key
 
 
 def evict_old_days(totals: dict, keep: int = BY_DAY_RETENTION) -> dict:

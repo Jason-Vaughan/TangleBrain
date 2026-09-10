@@ -211,6 +211,25 @@ maintaining it:* a version that does not know a field cannot add the folded rows
 it, so the value goes stale rather than being lost. Stale and recoverable beats absent, which is
 why the round-trip preserves rather than drops.
 
+**Two exceptions, and both are the same distinction.** Carry-through preserves a key *this version
+does not know*; it must not preserve a key *this version deliberately removed*, and nothing in the
+file itself tells the two apart. `delegates.by_parent` is never stored at all. **`by_day` is stored
+but trimmed**, so at that one path an absent key means **evicted**, not unknown, and is dropped
+rather than carried. Without that, every day the cap evicted would be read straight back out of the
+file it was replacing and put back — the cap would hold in memory and never on disk, and the file
+would grow without bound.
+
+**The exception is narrower than it sounds, and the narrowness is the point:** a day present in
+*both* still merges, so a field a newer TangleBrain added inside a **retained** day survives exactly
+as any other unknown field does. Only the keys this writer removed are treated as removed.
+
+**The cost, stated because this is the one place the compatibility story bends:** an older
+TangleBrain that folds a newer one's file applies *its own* retention, so day buckets the newer
+version was keeping can be dropped by the older one. Days are lossy by construction — that is what
+the cap means — and the lifetime figures they roll into are not, so the loss is bounded to the
+per-day view. It is a real narrowing of "an older version cannot delete what a newer one wrote", and
+it applies to `by_day` alone.
+
 **Writing is atomic, and durable.** The file is staged beside itself and renamed over, so a crash
 mid-write leaves the previous totals whole and a reader never sees half an object. The staging file
 is fsynced before the rename and the containing directory after it — atomicity alone orders the two
