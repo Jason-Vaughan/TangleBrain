@@ -121,8 +121,55 @@ shrinks, which is the one thing it must never do.
 Fields, each answering a question `--stats` asks:
 
 `tasks` · `failures` · `lost_attempts` · `by_tier` · `by_origin` · `in_tokens_est` ·
-`out_tokens_est` · `cloud_equiv_usd` · `spend_avoided_usd` · `pricing_refs` ·
+`out_tokens_est` · `cloud_equiv_usd` · `spend_avoided_usd` · `pricing_refs` · `by_model` ·
+`by_day` · `by_day_since` ·
 `delegates` (`count`, `by_backend`, `in_tokens_est`, `out_tokens_est`, `cloud_equiv_usd`)
+
+#### `by_model` and `by_day` — two bounded slices of the headline
+
+Both carry `{count, in_tokens_est, out_tokens_est, cloud_equiv_usd, spend_avoided_usd}` per key, and
+both are populated from **task records only** — delegate and failure rows are already held out of
+`spend_avoided_usd`, so including them would leave a breakdown that does not add up to the figure it
+breaks down. **The parts sum to the headline**, and that is the property that makes them worth
+trusting rather than merely present.
+
+`by_model` is keyed on the **roster `id`**, matching `delegates.by_backend`. That is the only
+per-model identifier a record carries — the record's `model` field holds the roster id despite its
+name — so keying on a backend's own model string would require a new record field, not a choice
+between two things already stored. *Accepted limitation:* renaming a roster entry orphans its
+accumulated history under the old key, exactly as `by_backend` does today.
+
+`by_day` is keyed `YYYY-MM-DD` (UTC, from the record's `ts`). A record whose timestamp is missing or
+unreadable still reaches `by_model` and the headline but contributes **no** day bucket — a day cannot
+be invented, and attributing old spend to today's bucket would bend the very chart the field exists
+for.
+
+**`by_day` is the first deliberately window-scoped field in the lifetime half, and it does not sum to
+`spend_avoided_usd`.** It retains the newest **400** days and the oldest are evicted when the totals
+are written. The cap is what makes the field admissible at all: one key per day grows without bound,
+which is the same property that keeps `delegates.by_parent` out of this file entirely. Eviction runs
+only where the totals become a file, never in the shared summation — applying it on the read path
+would shrink a figure the reader still has rows on disk for.
+
+The retention number is **policy, not format**: changing it breaks nothing on disk. It is only
+usefully changed in one direction, though — narrowing works, while **widening recovers nothing**,
+because the evicted days are gone. That asymmetry is why it is set well above the 90 days the first
+consumer needs.
+
+#### `by_day_since` — and what it is *not*
+
+The day per-day recording began, stamped once and never moved, eviction included.
+
+**It is not the boundary a renderer may draw from.** Once eviction bites it is *older* than the
+oldest surviving bucket, so drawing from it would paint the evicted span as **$0** — asserting no
+activity across days that were merely dropped, and doing so only on long-lived stores where it is
+least visible. The drawable boundary is `min(by_day)`, which needs no field: before the earliest key
+absence means *unknown*; between keys, absence means a genuine zero-activity day.
+
+What it answers instead is the question `by_day` cannot: **do these per-day figures cover the whole
+life of the store?** Read against the lifetime `spend_avoided_usd`, it is what lets a reader be told
+the chart starts later than the headline does — and nothing else survives the first eviction to say
+so.
 
 `pricing_refs` is the set of reference-pricing revisions the stored figure was computed under. It is
 stored rather than derived because folding rows destroys the per-row `pricing_ref` evidence, and a
@@ -163,6 +210,25 @@ named consumer of this format ([`boundaries.md`](boundaries.md)). *Carrying a fi
 maintaining it:* a version that does not know a field cannot add the folded rows' contribution to
 it, so the value goes stale rather than being lost. Stale and recoverable beats absent, which is
 why the round-trip preserves rather than drops.
+
+**Two exceptions, and both are the same distinction.** Carry-through preserves a key *this version
+does not know*; it must not preserve a key *this version deliberately removed*, and nothing in the
+file itself tells the two apart. `delegates.by_parent` is never stored at all. **`by_day` is stored
+but trimmed**, so at that one path an absent key means **evicted**, not unknown, and is dropped
+rather than carried. Without that, every day the cap evicted would be read straight back out of the
+file it was replacing and put back — the cap would hold in memory and never on disk, and the file
+would grow without bound.
+
+**The exception is narrower than it sounds, and the narrowness is the point:** a day present in
+*both* still merges, so a field a newer TangleBrain added inside a **retained** day survives exactly
+as any other unknown field does. Only the keys this writer removed are treated as removed.
+
+**The cost, stated because this is the one place the compatibility story bends:** an older
+TangleBrain that folds a newer one's file applies *its own* retention, so day buckets the newer
+version was keeping can be dropped by the older one. Days are lossy by construction — that is what
+the cap means — and the lifetime figures they roll into are not, so the loss is bounded to the
+per-day view. It is a real narrowing of "an older version cannot delete what a newer one wrote", and
+it applies to `by_day` alone.
 
 **Writing is atomic, and durable.** The file is staged beside itself and renamed over, so a crash
 mid-write leaves the previous totals whole and a reader never sees half an object. The staging file

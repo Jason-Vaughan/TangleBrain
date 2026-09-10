@@ -56,7 +56,11 @@ import yaml
 from tanglebrain.atomic import atomic_copy, atomic_write
 from tanglebrain.router import state_root
 from tanglebrain.totals import (
+    AGGREGATE_FLOAT_FIELDS,
+    AGGREGATE_INT_FIELDS,
     BACKEND_INT_FIELDS,
+    evict_old_days,
+    is_day_key,
     TOTALS_FILENAME,
     as_float,
     as_int,
@@ -775,6 +779,52 @@ def read_records(log_path: str | os.PathLike[str] | None = None) -> list[dict]:
     return [record for _, record in _read_lines(log_path) if record is not None]
 
 
+def _day_of(ts: object) -> str:
+    """Extract the ``YYYY-MM-DD`` day from a record's ISO timestamp, or ``""`` if it has none.
+
+    Records are written with ``datetime.now(timezone.utc).isoformat()``, so the day is the first
+    ten characters and no parsing is needed — which also means a truncated or foreign timestamp
+    yields a wrong-shaped string rather than raising inside the summation that produces the
+    product's headline.
+
+    Args:
+        ts: The record's ``ts`` field, of whatever type it turned out to be.
+
+    Returns:
+        The day, or ``""`` when the value is not a timestamp this can read.
+    """
+    if not isinstance(ts, str) or len(ts) < 10:
+        return ""
+    day = ts[:10]
+    return day if is_day_key(day) else ""
+
+
+def _add_slice(bucket_map: dict, key: str, record: dict, in_tok: int, out_tok: int) -> None:
+    """Add one record's figures into ``bucket_map[key]``, creating the bucket zeroed if absent.
+
+    Shared by the per-model and per-day slices because they carry the same fields; a second body
+    would be a third place the aggregate shape has to agree, and the drift would surface only as a
+    breakdown that quietly stopped summing to its headline.
+
+    Args:
+        bucket_map: The ``by_model`` or ``by_day`` map being accumulated into. Mutated.
+        key: The bucket key — a roster id, or a ``YYYY-MM-DD`` day.
+        record: The usage record supplying the money fields.
+        in_tok: The record's input-token estimate, already coerced.
+        out_tok: The record's output-token estimate, already coerced.
+    """
+    entry = bucket_map.get(key)
+    if entry is None:
+        entry = {field: 0 for field in AGGREGATE_INT_FIELDS}
+        entry.update({field: 0.0 for field in AGGREGATE_FLOAT_FIELDS})
+        bucket_map[key] = entry
+    entry["count"] += 1
+    entry["in_tokens_est"] += in_tok
+    entry["out_tokens_est"] += out_tok
+    entry["cloud_equiv_usd"] += as_float(record.get("cloud_equiv_usd"))
+    entry["spend_avoided_usd"] += as_float(record.get("spend_avoided_usd"))
+
+
 def _accumulate(records: list[dict], totals: dict | None) -> dict:
     """Sum stored lifetime totals and a batch of records — the summation shared by both callers.
 
@@ -802,6 +852,12 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
     # well-formed dict. `normalize_totals` also builds a fresh structure, which is what keeps the
     # window's rows from accumulating into a caller's own totals dict below.
     stored = normalize_totals(totals)
+    # Whether per-day recording had already begun, captured before any row is added. It is what
+    # separates "stamp this for the first time" from "the stamp was lost" — and the two must not be
+    # treated alike: re-deriving a lost stamp from `min(by_day)` would take the *eviction boundary*
+    # for the first recorded day, turning one corrupt byte into a confident claim that the per-day
+    # figures cover the whole store.
+    stored_had_days = bool(stored["by_day"])
     # Popped rather than listed in an exclusion tuple: a hand-maintained list of "keys handled
     # separately" is a third place the field list has to agree, and adding a name to it would drop
     # a lifetime figure out of the summary in silence.
@@ -857,6 +913,17 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
             delegates["cloud_equiv_usd"] += as_float(r.get("cloud_equiv_usd"))
             continue
         summary["tasks"] += 1
+        # The two bounded slices of the headline. Populated from the *task* branch only, so they
+        # partition exactly what `spend_avoided_usd` sums: delegates and failures returned above
+        # and avoided nothing, so a per-model or per-day figure including them would not add up to
+        # the headline it is meant to break down.
+        _add_slice(summary["by_model"], str(r.get("model", "unknown")), r, in_tok, out_tok)
+        day = _day_of(r.get("ts"))
+        if day:
+            # A record whose timestamp is missing or malformed still reaches `by_model` and the
+            # headline; it is only the *day* that is unknown. Inventing one (today's, say) would
+            # attribute old spend to the current bucket and bend the chart this field exists for.
+            _add_slice(summary["by_day"], day, r, in_tok, out_tok)
         tier = str(r.get("tier", "unknown"))
         summary["by_tier"][tier] = summary["by_tier"].get(tier, 0) + 1
         origin = str(r.get("origin") or "untagged")
@@ -866,6 +933,14 @@ def _accumulate(records: list[dict], totals: dict | None) -> dict:
         summary["cloud_equiv_usd"] += as_float(r.get("cloud_equiv_usd"))
         summary["spend_avoided_usd"] += as_float(r.get("spend_avoided_usd"))
     summary["pricing_refs"] = sorted(pricing_refs)
+    # Stamped the first time any day bucket exists and never moved afterwards. Two guards, and the
+    # second is not redundant: "not already set" stops eviction dragging it forward, and "the store
+    # had no days" stops a *lost* stamp being re-derived from what survived the cap. Without the
+    # latter, a store whose stamp is unreadable silently re-stamps at its eviction boundary and
+    # starts claiming full coverage — the field asserting the opposite of what it exists to say.
+    # An unrecoverable stamp stays empty, which reads as "unknown" rather than as a false date.
+    if summary["by_day"] and not summary["by_day_since"] and not stored_had_days:
+        summary["by_day_since"] = min(summary["by_day"])
     summary["delegates"] = delegates
     return summary
 
@@ -939,6 +1014,10 @@ def fold_records_into_totals(records: list[dict], totals: dict | None = None) ->
     """
     folded = _accumulate(records, totals)
     folded["delegates"].pop("by_parent", None)
+    # `by_day` is bounded here rather than in the summation, for the same reason `by_parent` is
+    # dropped here: this is where the totals become a *file*, and the cap exists to bound the file.
+    # Applying it inside `_accumulate` would shrink a rollup the reader still has rows for.
+    evict_old_days(folded)
     return folded
 
 

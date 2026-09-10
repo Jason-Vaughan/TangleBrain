@@ -11,6 +11,7 @@ import contextlib
 import copy
 import io
 import json
+from datetime import date, timedelta
 import os
 import random
 import shutil
@@ -47,9 +48,12 @@ from tanglebrain.measurement import (
     validate_pricing,
 )
 from tanglebrain.totals import (
+    BY_DAY_RETENTION,
     NOT_PERSISTED,
     TOTALS_FILENAME,
     carry_unknown_fields,
+    evict_old_days,
+    is_day_key,
     default_totals_path,
     empty_totals,
     normalize_totals,
@@ -901,6 +905,39 @@ FULL_TOTALS = {
     "cloud_equiv_usd": 4.5,
     "spend_avoided_usd": 4.25,
     "pricing_refs": ["old-frontier", "test-frontier"],
+    "by_model": {
+        "qwen-local": {
+            "count": 7,
+            "in_tokens_est": 700,
+            "out_tokens_est": 1400,
+            "cloud_equiv_usd": 3.5,
+            "spend_avoided_usd": 3.25,
+        },
+        "gpt-oss": {
+            "count": 4,
+            "in_tokens_est": 300,
+            "out_tokens_est": 600,
+            "cloud_equiv_usd": 1.0,
+            "spend_avoided_usd": 1.0,
+        },
+    },
+    "by_day": {
+        "2026-09-08": {
+            "count": 5,
+            "in_tokens_est": 400,
+            "out_tokens_est": 800,
+            "cloud_equiv_usd": 2.0,
+            "spend_avoided_usd": 1.75,
+        },
+        "2026-09-09": {
+            "count": 6,
+            "in_tokens_est": 600,
+            "out_tokens_est": 1200,
+            "cloud_equiv_usd": 2.5,
+            "spend_avoided_usd": 2.5,
+        },
+    },
+    "by_day_since": "2026-09-08",
     "delegates": {
         "count": 5,
         "linkage_lost": 2,
@@ -1013,6 +1050,282 @@ class TotalsFormatTest(unittest.TestCase):
         )
 
 
+class PerModelAndPerDaySlicesTest(unittest.TestCase):
+    """`by_model` and `by_day`: the two bounded breakdowns of the spend-avoided headline (#186)."""
+
+    def _task(self, *, model, ts, avoided, equiv=None, in_tok=10, out_tok=20):
+        return {
+            "kind": "task", "tier": "local", "origin": "cli", "model": model, "ts": ts,
+            "in_tokens_est": in_tok, "out_tokens_est": out_tok,
+            "cloud_equiv_usd": equiv if equiv is not None else avoided,
+            "spend_avoided_usd": avoided, "pricing_ref": "test-frontier",
+        }
+
+    def test_the_parts_sum_to_the_headline_they_break_down(self):
+        # The property that makes these maps trustworthy rather than merely present: a breakdown
+        # whose parts do not add up to the figure above it is worse than no breakdown, because a
+        # reader checks one against the other and believes whichever they read second.
+        rows = [
+            self._task(model="qwen", ts="2026-09-08T01:00:00+00:00", avoided=1.5),
+            self._task(model="qwen", ts="2026-09-09T01:00:00+00:00", avoided=2.25),
+            self._task(model="gpt-oss", ts="2026-09-09T02:00:00+00:00", avoided=0.75),
+        ]
+        got = rollup(rows)
+        self.assertEqual(got["spend_avoided_usd"], 4.5)
+        self.assertEqual(sum(m["spend_avoided_usd"] for m in got["by_model"].values()), 4.5)
+        self.assertEqual(sum(d["spend_avoided_usd"] for d in got["by_day"].values()), 4.5)
+        self.assertEqual(got["by_model"]["qwen"]["count"], 2)
+        self.assertEqual(got["by_day"]["2026-09-09"]["count"], 2)
+
+    def test_delegate_and_failure_rows_reach_neither_map(self):
+        # Both are already held out of `spend_avoided_usd` (#100), so including them here would
+        # break the sum above. A failure avoided nothing; a delegate's spend is the parent's.
+        rows = [
+            self._task(model="qwen", ts="2026-09-09T01:00:00+00:00", avoided=1.0),
+            {"kind": "delegate", "model": "qwen", "ts": "2026-09-09T01:00:00+00:00",
+             "in_tokens_est": 5, "out_tokens_est": 6, "cloud_equiv_usd": 9.0},
+            {"kind": "failure", "model": "qwen", "ts": "2026-09-09T01:00:00+00:00",
+             "cloud_equiv_usd": 9.0, "spend_avoided_usd": 0.0},
+        ]
+        got = rollup(rows)
+        self.assertEqual(got["by_model"], {"qwen": {
+            "count": 1, "in_tokens_est": 10, "out_tokens_est": 20,
+            "cloud_equiv_usd": 1.0, "spend_avoided_usd": 1.0,
+        }})
+        self.assertEqual(got["by_day"]["2026-09-09"]["count"], 1)
+
+    def test_the_fold_and_the_rollup_agree(self):
+        # One body serves both, so this asserts the property that body exists to guarantee: a
+        # figure must not change merely because rows moved from the window into the store.
+        rows = [
+            self._task(model="qwen", ts="2026-09-08T01:00:00+00:00", avoided=1.5),
+            self._task(model="gpt-oss", ts="2026-09-09T01:00:00+00:00", avoided=2.0),
+        ]
+        folded = fold_records_into_totals(rows)
+        window = rollup(rows)
+        self.assertEqual(folded["by_model"], window["by_model"])
+        self.assertEqual(folded["by_day"], window["by_day"])
+        self.assertEqual(folded["by_day_since"], window["by_day_since"])
+
+    def test_a_row_with_no_usable_timestamp_still_reaches_by_model(self):
+        # The two unknowns are not the same unknown. A backend that cannot be named still has to
+        # appear or the split stops summing; a day that cannot be read cannot be invented, because
+        # attributing old spend to today's bucket is precisely the distortion the chart would show.
+        for ts in (None, "", "not-a-date", "2026-09", 20260909):
+            with self.subTest(ts=ts):
+                got = rollup([self._task(model="qwen", ts=ts, avoided=1.0)])
+                self.assertEqual(got["by_model"]["qwen"]["spend_avoided_usd"], 1.0)
+                self.assertEqual(got["by_day"], {})
+                self.assertEqual(got["by_day_since"], "")
+
+    def test_eviction_keeps_the_newest_days_and_drops_the_oldest(self):
+        # Asserted at the boundary rather than at a comfortable 3-of-400: an off-by-one here keeps
+        # 401 buckets forever, which is the unbounded growth the cap exists to prevent.
+        rows = [
+            self._task(model="qwen", ts=f"2026-{m:02d}-{d:02d}T01:00:00+00:00", avoided=1.0)
+            for m in range(1, 15) for d in range(1, 30)
+        ][: BY_DAY_RETENTION + 1]
+        folded = fold_records_into_totals(rows)
+        self.assertEqual(len(folded["by_day"]), BY_DAY_RETENTION)
+        days = sorted(d["ts"][:10] for d in rows)
+        self.assertNotIn(days[0], folded["by_day"])
+        self.assertIn(days[-1], folded["by_day"])
+
+    def test_eviction_runs_only_where_the_totals_become_a_file(self):
+        # The cap bounds the *file*. Applying it in the shared summation would shrink a rollup the
+        # reader still has rows on disk for — a figure that shrank because it was read.
+        rows = [
+            self._task(model="qwen", ts=f"2026-{m:02d}-{d:02d}T01:00:00+00:00", avoided=1.0)
+            for m in range(1, 15) for d in range(1, 30)
+        ][: BY_DAY_RETENTION + 5]
+        self.assertEqual(len(rollup(rows)["by_day"]), BY_DAY_RETENTION + 5)
+        self.assertEqual(len(fold_records_into_totals(rows)["by_day"]), BY_DAY_RETENTION)
+
+    def test_by_day_since_is_stamped_once_and_never_moves(self):
+        first = fold_records_into_totals(
+            [self._task(model="qwen", ts="2026-09-08T01:00:00+00:00", avoided=1.0)]
+        )
+        self.assertEqual(first["by_day_since"], "2026-09-08")
+        later = fold_records_into_totals(
+            [self._task(model="qwen", ts="2026-11-20T01:00:00+00:00", avoided=1.0)], first
+        )
+        self.assertEqual(later["by_day_since"], "2026-09-08")
+
+    def test_eviction_does_not_drag_by_day_since_forward(self):
+        """The stamp and the oldest surviving bucket must be able to disagree.
+
+        That disagreement is the whole reason the field is stored. Once the cap bites, the stamp
+        is older than any retained day — and a renderer that used it as the draw boundary would
+        paint the evicted span as $0, asserting no activity across days that were merely dropped.
+        The drawable boundary is `min(by_day)`; this field answers the different question of
+        whether the per-day figures cover the store's whole life.
+        """
+        rows = [
+            self._task(model="qwen", ts=f"2026-{m:02d}-{d:02d}T01:00:00+00:00", avoided=1.0)
+            for m in range(1, 15) for d in range(1, 30)
+        ][: BY_DAY_RETENTION + 10]
+        folded = fold_records_into_totals(rows)
+        earliest_recorded = sorted(r["ts"][:10] for r in rows)[0]
+        self.assertEqual(folded["by_day_since"], earliest_recorded)
+        self.assertGreater(min(folded["by_day"]), folded["by_day_since"])
+
+    def test_a_fold_after_eviction_still_does_not_move_the_stamp(self):
+        """The multi-hop case, and the only one where a recomputing stamp is detectable.
+
+        Eviction runs *after* the summation, so within any single fold the earliest bucket is still
+        present and `min(by_day)` returns the original date whether the stamp is guarded or
+        recomputed. The two implementations only diverge on the **next** fold, once the old buckets
+        are gone: a recomputing stamp jumps forward to the eviction boundary and the store silently
+        starts claiming its per-day figures cover its whole life. That is the state a long-lived
+        install lives in permanently, so it is the state worth pinning.
+        """
+        first_batch = [
+            self._task(model="qwen", ts=f"2026-{m:02d}-{d:02d}T01:00:00+00:00", avoided=1.0)
+            for m in range(1, 15) for d in range(1, 30)
+        ][: BY_DAY_RETENTION + 10]
+        earliest = sorted(r["ts"][:10] for r in first_batch)[0]
+        after_first = fold_records_into_totals(first_batch)
+        self.assertEqual(after_first["by_day_since"], earliest)
+        self.assertNotIn(earliest, after_first["by_day"])  # the premise: it really was evicted
+
+        after_second = fold_records_into_totals(
+            [self._task(model="qwen", ts="2027-06-01T01:00:00+00:00", avoided=1.0)], after_first
+        )
+        self.assertEqual(after_second["by_day_since"], earliest)
+        self.assertGreater(min(after_second["by_day"]), after_second["by_day_since"])
+
+    def test_the_new_maps_survive_a_round_trip_through_a_reader(self):
+        # `carry_unknown_fields` is what stops an older TangleBrain deleting these on its next
+        # fold, and `normalize_totals` is what stops a corrupt one raising. Both directions.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = Path(tmp) / TOTALS_FILENAME
+        folded = fold_records_into_totals(
+            [self._task(model="qwen", ts="2026-09-09T01:00:00+00:00", avoided=1.25)]
+        )
+        write_totals(folded, path)
+        read_back = read_totals(path)
+        self.assertEqual(read_back["by_model"], folded["by_model"])
+        self.assertEqual(read_back["by_day"], folded["by_day"])
+        self.assertEqual(read_back["by_day_since"], "2026-09-09")
+
+    def test_the_cap_holds_on_disk_across_repeated_folds(self):
+        """The cap has to hold in the *file*, and nothing that checks a returned dict proves it.
+
+        `write_totals` merges the computed totals over the file it replaces so a field from a newer
+        TangleBrain survives a round-trip. That merge cannot tell "a key from the future" from "a
+        key this writer deliberately removed" — so before `TRIMMED_MAPS`, every evicted day was read
+        straight back out of the file and put back. The cap held in memory, never on disk, and every
+        test that asserted on the fold's return value still passed while the store grew forever.
+
+        So this drives the real loop: fold, write, read, repeat — which is exactly what a
+        long-lived install does, and the only shape in which the defect is visible.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = Path(tmp) / TOTALS_FILENAME
+        day, totals = date(2024, 1, 1), None
+        for _ in range(20):
+            batch = [
+                self._task(
+                    model="qwen",
+                    ts=(day + timedelta(days=i)).isoformat() + "T01:00:00+00:00",
+                    avoided=0.01,
+                )
+                for i in range(30)
+            ]
+            day += timedelta(days=30)
+            totals = fold_records_into_totals(batch, totals)
+            write_totals(totals, path)
+            totals = read_totals(path)
+
+        self.assertEqual(len(totals["by_day"]), BY_DAY_RETENTION)
+        # Nothing was lost to the trim: every folded task is still in the lifetime figure, which is
+        # the whole reason `by_day` is allowed to be lossy in the first place.
+        self.assertEqual(totals["tasks"], 600)
+        self.assertAlmostEqual(totals["spend_avoided_usd"], 6.0, places=6)
+        self.assertEqual(totals["by_model"]["qwen"]["count"], 600)
+
+    def test_a_field_inside_a_retained_day_still_survives_a_round_trip(self):
+        # The trim is narrower than "stop merging this map": a key present in BOTH still merges, so
+        # a newer TangleBrain's field inside a day we kept is preserved. Only removed keys are
+        # treated as removed.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = Path(tmp) / TOTALS_FILENAME
+        stored = empty_totals()
+        stored["by_day"] = {"2026-09-09": {"count": 1, "p95_latency_ms": 42}}
+        write_totals(stored, path)
+        again = fold_records_into_totals(
+            [self._task(model="qwen", ts="2026-09-09T02:00:00+00:00", avoided=1.0)],
+            read_totals(path),
+        )
+        write_totals(again, path)
+        self.assertEqual(
+            json.loads(path.read_text(encoding="utf-8"))["by_day"]["2026-09-09"]["p95_latency_ms"],
+            42,
+        )
+
+    def test_a_lost_stamp_is_not_re_derived_from_what_survived_the_cap(self):
+        """An unreadable stamp must read as *unknown*, never as a confident wrong date.
+
+        `_day_stamp` turns a corrupt `by_day_since` into `""`, which is right. What would be wrong
+        is the next fold treating that emptiness as "recording starts now" and re-stamping from
+        `min(by_day)` — past the cap that is the **eviction boundary**, not the first recorded day.
+        One corrupt byte would then flip the field from "these figures start earlier than your
+        headline" to a confident claim of full coverage: the exact opposite of what it exists to
+        say, and unfalsifiable from the file alone.
+        """
+        rows = [
+            self._task(model="qwen", ts=f"2026-{m:02d}-{d:02d}T01:00:00+00:00", avoided=1.0)
+            for m in range(1, 15) for d in range(1, 30)
+        ][: BY_DAY_RETENTION + 10]
+        healthy = fold_records_into_totals(rows)
+        self.assertNotEqual(healthy["by_day_since"], "")
+
+        damaged = dict(healthy)
+        damaged["by_day_since"] = "corrupted"
+        recovered = fold_records_into_totals(
+            [self._task(model="qwen", ts="2027-01-05T01:00:00+00:00", avoided=1.0)], damaged
+        )
+        self.assertEqual(recovered["by_day_since"], "")
+        self.assertNotEqual(recovered["by_day_since"], min(recovered["by_day"]))
+
+    def test_a_day_key_is_ten_characters_of_year_month_day_and_nothing_else(self):
+        # One format, one validator. `"2026-9-100"` splits into three runs of digits and is not a
+        # day; a laxer check here than on the keys it is ordered against is how a caption ends up
+        # comparing unlike strings.
+        for good in ("2026-09-10", "0001-01-01", "9999-12-31"):
+            with self.subTest(good=good):
+                self.assertTrue(is_day_key(good))
+                self.assertEqual(normalize_totals({"by_day_since": good})["by_day_since"], good)
+        for bad in ("2026-9-100", "2026/09/10", "2026-09-1", "20260910AB", "soon", "", None, 7):
+            with self.subTest(bad=bad):
+                self.assertFalse(is_day_key(bad))
+                self.assertEqual(normalize_totals({"by_day_since": bad})["by_day_since"], "")
+
+    def test_corrupt_slices_read_as_empty_rather_than_raising(self):
+        # Observability degrades to less information, never to an error. Each of these is a shape
+        # another version — or a truncated write — could plausibly leave on disk.
+        for bad in ("nope", 7, [], {"qwen": "not-an-object"}, {"qwen": None}):
+            with self.subTest(bad=bad):
+                got = normalize_totals({"by_model": bad, "by_day": bad, "by_day_since": bad})
+                self.assertIsInstance(got["by_model"], dict)
+                self.assertIsInstance(got["by_day"], dict)
+                self.assertEqual(got["by_day_since"], "")
+
+    def test_a_model_whose_aggregate_is_garbage_normalizes_to_zeros(self):
+        # Dropping it would understate a split the store demonstrably recorded — the one direction
+        # a measurement figure must not fail in.
+        got = normalize_totals({"by_model": {"qwen": {"count": "x", "spend_avoided_usd": None}}})
+        self.assertEqual(got["by_model"]["qwen"]["count"], 0)
+        self.assertEqual(got["by_model"]["qwen"]["spend_avoided_usd"], 0.0)
+
+    def test_evict_old_days_rejects_a_negative_keep(self):
+        with self.assertRaises(ValueError):
+            evict_old_days({"by_day": {"2026-09-09": {}}}, keep=-1)
+
+
 class RollupReadsTotalsPlusRowsTest(unittest.TestCase):
     """The read half: the headline is stored totals plus the rows still on disk."""
 
@@ -1040,6 +1353,22 @@ class RollupReadsTotalsPlusRowsTest(unittest.TestCase):
             "cloud_equiv_usd": 0.5,
             "spend_avoided_usd": 0.5,
             "pricing_refs": ["test-frontier"],
+            # The task row carries neither `model` nor `ts`, and the two absences resolve
+            # differently on purpose: an unidentified backend still has to appear in the split or
+            # the parts would not sum to the headline, so it lands under "unknown"; an unknown
+            # *day* cannot be invented, so the row contributes no bucket and leaves the stamp
+            # unset. The delegate row reaches neither map — it avoided nothing.
+            "by_model": {
+                "unknown": {
+                    "count": 1,
+                    "in_tokens_est": 10,
+                    "out_tokens_est": 20,
+                    "cloud_equiv_usd": 0.5,
+                    "spend_avoided_usd": 0.5,
+                }
+            },
+            "by_day": {},
+            "by_day_since": "",
             "delegates": {
                 "count": 1,
                 "linkage_lost": 0,

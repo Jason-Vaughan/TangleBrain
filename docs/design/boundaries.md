@@ -81,7 +81,12 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
   additive-only is the whole compatibility story and nothing else can arbitrate a conflict.
   Because of that, the **write** side is non-destructive: a field this version does not recognise
   is carried through from the file being replaced, at any depth, so an older TangleBrain's
-  compaction cannot delete what a newer one wrote. It cannot *maintain* such a field either — the
+  compaction cannot delete what a newer one wrote — **except inside `by_day`**, which is trimmed to
+  a retention cap, so there an absent key means *evicted* rather than *unknown* and is dropped. A
+  day present in both still merges, so a newer version's field inside a retained day survives; what
+  an older version can drop is whole day buckets, by applying its own cap. Bounded to the per-day
+  view, which is lossy by construction, and never to the lifetime figures those days roll into.
+  It cannot *maintain* such a field either — the
   value goes stale rather than being lost, and that is the contract's stated limit, not an
   oversight. Every write is atomic *and* durable — staged beside the target, fsynced, then
   renamed, with the directory synced after (POSIX only). Atomicity alone would order the
