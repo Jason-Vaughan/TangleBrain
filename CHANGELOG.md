@@ -43,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answers is whether the per-day figures cover the store's whole life, which nothing else survives
   eviction to say.
 
+  **The cap holds on disk, which took a second mechanism.** `write_totals` merges the computed
+  totals over the file it replaces so a field written by a newer TangleBrain survives a round-trip —
+  and that merge cannot tell *a key from the future* from *a key this writer deliberately removed*,
+  so it read every evicted day straight back out of the file and put it back. The cap held in
+  memory, never on disk. `TRIMMED_MAPS` names the maps whose key set the writer owns, and it is
+  deliberately narrower than suppressing the merge: a key present in both still merges, so a field a
+  newer version added *inside a retained day* is preserved, and only removed keys are treated as
+  removed. Found by running the real fold-write-read loop rather than by inspecting a returned
+  value, which is the only shape the defect is visible in.
+
   A record whose timestamp is missing or unreadable still reaches `by_model` and the headline but
   contributes no day bucket: a day cannot be invented, and attributing old spend to today would bend
   the chart the field exists for. No migration — the format is additive-only, so an older

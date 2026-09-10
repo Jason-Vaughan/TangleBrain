@@ -11,6 +11,7 @@ import contextlib
 import copy
 import io
 import json
+from datetime import date, timedelta
 import os
 import random
 import shutil
@@ -1206,6 +1207,63 @@ class PerModelAndPerDaySlicesTest(unittest.TestCase):
         self.assertEqual(read_back["by_model"], folded["by_model"])
         self.assertEqual(read_back["by_day"], folded["by_day"])
         self.assertEqual(read_back["by_day_since"], "2026-09-09")
+
+    def test_the_cap_holds_on_disk_across_repeated_folds(self):
+        """The cap has to hold in the *file*, and nothing that checks a returned dict proves it.
+
+        `write_totals` merges the computed totals over the file it replaces so a field from a newer
+        TangleBrain survives a round-trip. That merge cannot tell "a key from the future" from "a
+        key this writer deliberately removed" — so before `TRIMMED_MAPS`, every evicted day was read
+        straight back out of the file and put back. The cap held in memory, never on disk, and every
+        test that asserted on the fold's return value still passed while the store grew forever.
+
+        So this drives the real loop: fold, write, read, repeat — which is exactly what a
+        long-lived install does, and the only shape in which the defect is visible.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = Path(tmp) / TOTALS_FILENAME
+        day, totals = date(2024, 1, 1), None
+        for _ in range(20):
+            batch = [
+                self._task(
+                    model="qwen",
+                    ts=(day + timedelta(days=i)).isoformat() + "T01:00:00+00:00",
+                    avoided=0.01,
+                )
+                for i in range(30)
+            ]
+            day += timedelta(days=30)
+            totals = fold_records_into_totals(batch, totals)
+            write_totals(totals, path)
+            totals = read_totals(path)
+
+        self.assertEqual(len(totals["by_day"]), BY_DAY_RETENTION)
+        # Nothing was lost to the trim: every folded task is still in the lifetime figure, which is
+        # the whole reason `by_day` is allowed to be lossy in the first place.
+        self.assertEqual(totals["tasks"], 600)
+        self.assertAlmostEqual(totals["spend_avoided_usd"], 6.0, places=6)
+        self.assertEqual(totals["by_model"]["qwen"]["count"], 600)
+
+    def test_a_field_inside_a_retained_day_still_survives_a_round_trip(self):
+        # The trim is narrower than "stop merging this map": a key present in BOTH still merges, so
+        # a newer TangleBrain's field inside a day we kept is preserved. Only removed keys are
+        # treated as removed.
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = Path(tmp) / TOTALS_FILENAME
+        stored = empty_totals()
+        stored["by_day"] = {"2026-09-09": {"count": 1, "p95_latency_ms": 42}}
+        write_totals(stored, path)
+        again = fold_records_into_totals(
+            [self._task(model="qwen", ts="2026-09-09T02:00:00+00:00", avoided=1.0)],
+            read_totals(path),
+        )
+        write_totals(again, path)
+        self.assertEqual(
+            json.loads(path.read_text(encoding="utf-8"))["by_day"]["2026-09-09"]["p95_latency_ms"],
+            42,
+        )
 
     def test_corrupt_slices_read_as_empty_rather_than_raising(self):
         # Observability degrades to less information, never to an error. Each of these is a shape

@@ -410,6 +410,20 @@ NOT_PERSISTED: dict[tuple[str, ...], frozenset[str]] = {
 }
 
 
+#: Maps whose key set the *writer* owns, by the path of the map itself. Carry-through preserves a
+#: stored key this version did not compute — which is right for a field from the future and wrong
+#: for a key this version deliberately removed. ``by_day`` is trimmed to
+#: :data:`BY_DAY_RETENTION` before it is written, so without this entry the merge below would read
+#: every evicted day back out of the file it is replacing and put it straight back: the cap would
+#: hold in memory, never on disk, and the file would grow without bound while every test that
+#: checked the *returned* totals still passed.
+#:
+#: Narrower than dropping the merge entirely: a key present in **both** still merges recursively, so
+#: a field a newer TangleBrain added *inside a retained day* survives. Only keys the writer removed
+#: are treated as removed.
+TRIMMED_MAPS: frozenset[tuple[str, ...]] = frozenset({("by_day",)})
+
+
 def carry_unknown_fields(raw: object, totals: dict, _path: tuple[str, ...] = ()) -> dict:
     """Overlay ``totals`` onto ``raw``, keeping any field this version does not define.
 
@@ -419,8 +433,12 @@ def carry_unknown_fields(raw: object, totals: dict, _path: tuple[str, ...] = ())
     maps are merged the same way, so a field invented inside ``delegates`` — or inside one backend's
     entry — is preserved as readily as a top-level one.
 
-    "Foreign" is not the same question as "absent from what this run computed", and conflating them
-    would make :data:`NOT_PERSISTED` unenforceable — a key deliberately left out would read as one
+    Two exceptions, both because "foreign" is not the same question as "absent from what this run
+    computed": :data:`NOT_PERSISTED` names keys this version knows and declines to store, and
+    :data:`TRIMMED_MAPS` names maps whose key set the writer owns, where an absent key means
+    *evicted* rather than *unknown*.
+
+    Conflating them would make :data:`NOT_PERSISTED` unenforceable — a key deliberately left out would read as one
     from the future and be carried forward anyway. So a key named there is dropped rather than
     preserved, whatever the stored file holds.
 
@@ -446,6 +464,8 @@ def carry_unknown_fields(raw: object, totals: dict, _path: tuple[str, ...] = ())
         if key in omitted:  # known and deliberately unstored — dropping it is the point
             continue
         if key not in merged:
+            if _path in TRIMMED_MAPS:
+                continue  # the writer owns this key set; absent means evicted, not unknown
             merged[key] = value
         elif isinstance(value, dict) and isinstance(merged[key], dict):
             merged[key] = carry_unknown_fields(value, merged[key], (*_path, key))
