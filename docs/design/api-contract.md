@@ -159,6 +159,27 @@ timestamp, and comment-preserving.
 
 **Secrets are never resolved or sent to the browser** — a `key_ref` renders as its reference string.
 
+**`/api/stats` returns a named projection, not the measurement rollup.** The endpoint declares the
+fields it sends; a field added to `rollup()` for the CLI's benefit does not reach the browser until
+someone puts it there. This surface is the one place in TangleBrain where a *narrowing* change is
+admissible — it is localhost-only, and the panel that consumes it ships in the same package — so
+the projection is free to reshape as well as to select:
+
+- `by_model` — a list of `{id, count, spend_avoided_usd}`, ranked by spend. The store holds a map;
+  the ranking is the table, and a JSON object's key order is not a contract.
+- `by_day` — a list of `{day, spend_avoided_usd}`, ascending, capped at the **90 days** the panel's
+  widest window draws, with idle days inside the covered range materialized as `0.0` and days
+  before the earliest surviving bucket simply absent. In the store's map those two cases are
+  indistinguishable without knowing the rule; as a series the distinction is structural.
+- `by_day_since` — when per-day recording began. The caption's *wording*, never the chart's left
+  edge: after the first eviction it is older than anything left, so drawing from it would paint the
+  evicted span as $0.
+- `spend_avoided_outside_days_usd` — lifetime spend minus every retained day bucket. The panel
+  cannot compute it, and without it "this window is narrower" and "the per-day data starts later"
+  are indistinguishable from the browser.
+- `delegates.linked_parents` replaces the `by_parent` tree — one key per parent task id is
+  unbounded, and the panel renders one number from it.
+
 ## API design review
 
 Assessed against the OWASP API risk categories, because these surfaces carry credentials and spend

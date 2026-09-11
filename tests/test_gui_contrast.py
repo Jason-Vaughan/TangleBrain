@@ -148,6 +148,20 @@ PAIRS = [
     # sidebar, so both rows are read against that.
     ("caveat in the status footer", "amber", "card-bg", NORMAL_TEXT),
     ("status footer's \"could not ask\" line (muted)", "text-muted", "card-bg", NORMAL_TEXT),
+    # --- the two spend breakdowns. No new tokens; existing colours on surfaces that did not exist
+    # before, which this module's docstring requires a row for. The chart and the table both sit
+    # directly on --card-bg, not on an elevated tile.
+    ("chart window button at rest (muted)", "text-muted", "card-bg", NORMAL_TEXT),
+    ("chart window button, selected", "primary", "elevated-bg", NORMAL_TEXT),
+    ("chart window button outline, selected", "primary-dark", "elevated-bg", UI_COMPONENT),
+    # The sparkline is a graphical object a reader has to make out to read the chart, so it takes
+    # 1.4.11's 3:1 rather than the decorative exemption --border carries.
+    ("sparkline stroke on the card", "primary", "card-bg", UI_COMPONENT),
+    ("newest-day marker on the card", "primary-bright", "card-bg", UI_COMPONENT),
+    # The per-model bar restates the dollar figure in the cell beside it, so it is decoration by
+    # 1.4.11's own test — asserted anyway, because a bar nobody can see is worth deleting, not
+    # exempting.
+    ("per-model bar on the card", "primary-dark", "card-bg", UI_COMPONENT),
     ("error text in a card", "danger", "card-bg", NORMAL_TEXT),
     ("error text in the output pane", "danger", "elevated-bg", NORMAL_TEXT),
     ("enabled button outline", "primary-dark", "card-bg", UI_COMPONENT),

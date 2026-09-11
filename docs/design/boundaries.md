@@ -116,6 +116,13 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 - **Contract:** JSON shapes, **HTTP status as the success signal**, and the **fixed allow-list of
   editable roster fields** (`enabled`, `can_orchestrate`, `budget_usd_month`, `good_at`) which is
   the mass-assignment control. Widening the allow-list is a security change.
+- **`/api/stats` names its own fields, and that is what makes it a contract.** It used to return
+  the measurement rollup verbatim, so its payload was whatever the rollup happened to hold: three
+  lifetime fields added for the CLI shipped to the browser on every load, one of them able to reach
+  ~52 KB, with nobody deciding it. The projection in `gui/views.py` is where that decision now
+  lives. Crossing it means adding a field to the rollup and expecting the panel to see it — it will
+  not — or changing a projected shape, which moves in lockstep with the renderer in the same repo.
+  The full field list is in [`api-contract.md`](api-contract.md) § Surface 4.
 - **Status is part of the contract, and it did not used to be.** The panel's shared `getJSON`
   requires 2xx: a non-2xx body is an error, never data. Before that, `{"error": …}` at HTTP 500
   parsed and every consumer read it as an empty payload — zeroed figures, an empty roster table,
