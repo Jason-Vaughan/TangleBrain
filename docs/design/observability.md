@@ -71,7 +71,11 @@ to" tree across a process boundary.
 per parent task id, so it cannot be folded into `totals.json` the way every other aggregate is, and
 both `--stats` and the GUI panel label it as covering the current row window. An unlabelled window
 count sitting beneath a lifetime headline reads as a lifetime count, which is the specific way a
-two-part store goes wrong.
+two-part store goes wrong. The panel is handed the tree's *count* rather than the tree — one key
+per parent id is the largest unbounded structure its endpoint could carry — and it labels that
+count, which is the figure a reader sees. The rule generalizes rather than being special to this
+field: the panel's charted day series is window-scoped in the same way, by a retention cap and by
+the width of the chart, and carries its own caption saying so.
 
 `origin` (`cli` / `gui` / `serve`) tags which surface a record came from. On the serve endpoint, the
 optional `X-TangleBrain-Parent-Task` header is sanitized into `parent_task_id` — metadata only,

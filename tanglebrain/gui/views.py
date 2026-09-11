@@ -157,8 +157,9 @@ def _day_series(days: dict[date, dict], window: int = STATS_DAY_WINDOW) -> list[
     evicted past retention). Drawing the second as $0 asserts there was no activity when the truth
     is that none was kept — the exact failure the ``by_day_since`` stamp was added to prevent, one
     surface out. As a list the distinction stops being a rule the renderer has to know: the series
-    *starts* at the first day actually covered, and every absent day after that is a real zero,
-    materialized. Taking the last N entries is then correct for any window the panel offers.
+    never begins before the first day actually covered, and every absent day after that point is a
+    real zero, materialized. Taking the last N entries is then correct for any window the panel
+    offers.
 
     The span is data-defined — it ends at the newest bucket, not at today — so this stays pure and
     its tests stay deterministic. The caption states the range it actually drew, which is why an
@@ -172,7 +173,7 @@ def _day_series(days: dict[date, dict], window: int = STATS_DAY_WINDOW) -> list[
         ``[{"day": "YYYY-MM-DD", "spend_avoided_usd": float}, ...]``, ascending, at most ``window``
         long. Empty when nothing is bucketed.
     """
-    if not days or window < 1:
+    if not days:
         return []
     newest = max(days)
     # Counted back from the newest bucket rather than filled from the oldest: one stray far-past key

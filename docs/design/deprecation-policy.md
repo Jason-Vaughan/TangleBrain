@@ -81,6 +81,21 @@ The old one keeps its original meaning forever.
 Their consumers are the operator's own browser and local tooling. Response shapes follow the same
 additive rule as the usage log; routes are stable within a minor.
 
+**One bounded exception, and it is deliberately narrow: `tanglebrain-gui`'s `/api/stats` may drop a
+field its own panel does not render.** The rule exists because a reader that predates a field must
+stay correct and a reader that outlives one must not silently read a different number — neither
+risk exists here. This endpoint has exactly one consumer, the packaged `index.html`, which ships in
+the same wheel as the code answering it, so the two cannot be at different versions on any install;
+the payload is not history, it is recomputed from the store on every request; and nothing persists
+it. What the exception buys is the thing the additive rule cannot: an endpoint that returns an
+open-ended passthrough grows a *de facto* contract out of fields nobody chose to publish, and the
+only way to give it one is to be able to say what it does **not** send.
+
+**It does not extend to `tanglebrain-serve`**, whose consumers are arbitrary OpenAI clients this
+project has never seen, nor to any other surface, nor to the record shape above. Widening it is a
+ruling, not a precedent to follow — the carve-out rests on single-consumer, same-package,
+not-persisted, and a surface losing any one of those loses the exception with it.
+
 ## How a break is announced
 
 1. **`CHANGELOG.md` under `[Unreleased]`**, in the subsection matching user-visible impact. A

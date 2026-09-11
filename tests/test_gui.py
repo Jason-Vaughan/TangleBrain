@@ -361,6 +361,15 @@ class StatsProjectionTest(unittest.TestCase):
         )
         self.assertEqual(payload["spend_avoided_outside_days_usd"], 0.0)
 
+    def test_the_window_is_a_parameter_and_it_bounds_the_series(self):
+        # `_day_series` takes the cap as an argument so the rule is one value rather than a literal
+        # buried in a loop. Exercised at a width the default would hide: with 10 days recorded, a
+        # 3-day window must yield the newest 3 and nothing older.
+        days = {f"2026-09-{d:02d}": 1.0 for d in range(1, 11)}
+        parsed = views._parse_day_buckets(_rollup_with_days(days)["by_day"])
+        series = views._day_series(parsed, window=3)
+        self.assertEqual([e["day"] for e in series], ["2026-09-08", "2026-09-09", "2026-09-10"])
+
     def test_by_model_is_ranked_biggest_saver_first_with_stable_ties(self):
         payload = views.project_stats_summary(
             _rollup_with_days({}, by_model={"zeta": 1.0, "alpha": 1.0, "big": 7.0})
@@ -1129,7 +1138,14 @@ class SpendChartsTest(unittest.TestCase):
 
     def setUp(self):
         self.panel = PANEL.read_text(encoding="utf-8")
-        self.chart = self.panel[self.panel.index("function chartPlot()"):self.panel.index("function modelTable(")]
+        self.chart = self.panel[self.panel.index("function chartPlot("):self.panel.index("function modelTable(")]
+        # Everything that turns the series into a drawing: the point arithmetic as well as the
+        # function that assembles the SVG. Slicing only the assembler would leave the assertion
+        # about the drawable boundary pointing at code that does no geometry.
+        self.drawing = (
+            self.panel[self.panel.index("function sparkPoints("):self.panel.index("function dayTwin(")]
+            + self.chart
+        )
 
     def test_the_panel_reads_every_field_the_projection_adds(self):
         # The wire between the two ends. `view_stats` emitting a field and the panel rendering one
@@ -1137,7 +1153,13 @@ class SpendChartsTest(unittest.TestCase):
         stats_fn = self.panel[self.panel.index("async function loadStats()"):]
         stats_fn = stats_fn[: stats_fn.index("async function loadRoster()")]
         for key in ("s.by_model", "s.by_day", "s.by_day_since", "s.spend_avoided_outside_days_usd"):
-            self.assertIn(key, stats_fn, f"the panel must read the payload key view_stats writes: {key}")
+            # Word-bounded: `s.by_day` is a strict prefix of `s.by_day_since`, so a plain substring
+            # check for the series key passes on the stamp alone — the one rename it exists to
+            # catch would sail through it.
+            self.assertRegex(
+                stats_fn, rf"{re.escape(key)}\b(?!_)",
+                f"the panel must read the payload key view_stats writes: {key}",
+            )
         self.assertIn("dg.linked_parents", stats_fn)
         self.assertIn("dg.by_backend", stats_fn)
 
@@ -1146,8 +1168,8 @@ class SpendChartsTest(unittest.TestCase):
         # than the oldest surviving bucket once eviction starts, so a chart that began there would
         # paint the evicted span as $0 — asserting quiet days over days that were merely not kept.
         # The stamp belongs to the caption's wording alone.
-        self.assertNotIn("by_day_since", self.chart)
-        self.assertNotIn("chartData.since", self.chart)
+        self.assertNotIn("by_day_since", self.drawing)
+        self.assertNotIn("chartData.since", self.drawing)
         caption = self.panel[self.panel.index("function chartCaption("):self.panel.index("function chartMarkup()")]
         self.assertIn("chartData.since", caption, "the caption is where the stamp belongs")
 
@@ -1158,15 +1180,42 @@ class SpendChartsTest(unittest.TestCase):
         self.assertIn('aria-pressed="${n === chartWindow}"', self.panel)
         self.assertIn('role="group" aria-label="Chart window"', self.panel)
 
+    def test_the_server_ships_every_day_the_widest_window_draws(self):
+        # One rule in two languages: the endpoint sends the widest window the panel offers. Both
+        # sites say so in a comment and neither could enforce it — a fourth button at 180 days
+        # would have drawn 90 days of chart under a "180d" label, with every test green.
+        windows = re.search(r"const CHART_WINDOWS = \[([^\]]+)\];", self.panel)
+        self.assertIsNotNone(windows)
+        widest = max(int(n) for n in windows.group(1).split(","))
+        self.assertLessEqual(
+            widest, views.STATS_DAY_WINDOW,
+            "the panel offers a window wider than /api/stats sends; widen STATS_DAY_WINDOW or "
+            "narrow CHART_WINDOWS — the label would otherwise promise days the payload lacks",
+        )
+
     def test_changing_the_window_re_renders_without_refetching(self):
         # A window change is a view choice over data already in hand. Refetching would re-probe
         # the store and re-announce the status bar's live region for nothing.
         handler = self.panel[self.panel.index('$("statsCard").addEventListener'):]
         handler = handler[: handler.index("showView(")]
-        self.assertRegex(handler, r"(?m)^\s*if \(plot\) plot\.innerHTML = chartPlot\(\);")
         self.assertNotIn("loadStats()", handler)
         # The buttons live outside the replaced region, so the reader's focus survives the press.
-        self.assertIn('aria-pressed', handler)
+        self.assertIn("aria-pressed", handler)
+        # Order is the behaviour here, so the ordered sequence is what is asserted — a positional
+        # "X appears before Y" passes with the two swapped as long as both are present. The chart
+        # is rendered from the chosen window BEFORE the state or the buttons move, so a throw
+        # leaves all three agreeing on the old window rather than two of them claiming the new one.
+        steps = re.findall(
+            r"(chartPlot\(chosen\)|chartWindow = chosen|plot\.innerHTML = html|aria-pressed|console\.error)",
+            handler,
+        )
+        self.assertEqual(
+            steps,
+            ["chartPlot(chosen)", "chartWindow = chosen", "plot.innerHTML = html", "aria-pressed",
+             "console.error"],
+            "render, then commit the state, then paint it — and report a failure on the panel's "
+            "one debugging channel",
+        )
 
     def test_every_drawn_value_is_also_readable_as_text(self):
         # The chart ships no tooltip, so without the twin a figure would be reachable only as a
@@ -1184,6 +1233,17 @@ class SpendChartsTest(unittest.TestCase):
         returns = re.findall(r"(?m)^\s*return (.+?);\s*$", self.chart)
         self.assertEqual(len(returns), 2, f"chartPlot should have exactly two exits, found {returns}")
         self.assertTrue(all("caption" in r.lower() for r in returns), returns)
+
+    def test_a_store_with_no_series_offers_no_window_controls(self):
+        # Three buttons that visibly do nothing are worse than none: on a fresh install the chart
+        # has nothing to draw, and a window control there invites a click it answers with the same
+        # sentence. The check is in chartMarkup, which owns the head; chartPlot owns the message.
+        markup = self.panel[self.panel.index("function chartMarkup()"):self.panel.index("function chartPlot(")]
+        self.assertRegex(
+            markup,
+            r"(?m)^\s*if \(!\(chartData\.series \|\| \[\]\)\.length\) return ",
+            "the empty case must return before the buttons are built",
+        )
 
     def test_the_model_table_never_encodes_a_value_in_the_bar_alone(self):
         table_fn = self.panel[self.panel.index("function modelTable("):self.panel.index("async function loadStats()")]

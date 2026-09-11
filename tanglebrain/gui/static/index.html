@@ -135,9 +135,11 @@
     /* One override, and both columns follow it. */
     :root { --content-inset: 16px; }
     .wrap { padding: 20px var(--content-inset) 48px; }
-    /* The per-model bar is the first thing to go when the column runs out of room: it restates
-       the dollar figure in the cell beside it, so dropping it costs nothing, while keeping it
-       pushed the table past the viewport and made the whole page scroll sideways. */
+    /* Four columns is one too many at this width, and the bar is the one that restates a figure
+       the row already prints — so it is what goes. It is not what makes the page scroll sideways
+       here: measured at 756px, this table is 482px while the roster table is 640px and overflows
+       on its own (#131 covers the panel's reflow). This keeps a decorative column from adding to
+       that, and nothing more. */
     .barcell { display: none; }
   }
 
@@ -466,6 +468,9 @@ function chartMarkup() {
   // Head and plot are separate so a window change can replace the plot alone: re-rendering the
   // buttons would destroy the one the reader just pressed, and a keyboard user would lose focus
   // to the top of the document on every press.
+  // No series, no controls. Three buttons that visibly do nothing are worse than none — they
+  // invite a click and answer it with the same sentence.
+  if (!(chartData.series || []).length) return `<div id="chartPlot">${chartPlot()}</div>`;
   const buttons = CHART_WINDOWS.map((n) =>
     `<button class="winbtn" data-window="${n}" aria-pressed="${n === chartWindow}">${n}d</button>`).join("");
   // Real buttons in a labelled group, not a custom widget: aria-pressed is the state, and the
@@ -475,14 +480,14 @@ function chartMarkup() {
     <div id="chartPlot">${chartPlot()}</div>`;
 }
 
-function chartPlot() {
+function chartPlot(win = chartWindow) {
   const series = chartData.series || [];
   if (!series.length) {
     // Degrade to less information, never to an error — and never to a flat line at $0, which
     // would assert a quiet month over a store that simply has no per-day history yet.
     return `<div class="chart-caption">No per-day figures recorded yet. They begin with the next task this install records.</div>`;
   }
-  const shown = series.slice(-chartWindow);
+  const shown = series.slice(-win);
   const values = shown.map((e) => Number(e.spend_avoided_usd) || 0);
   const W = 300, H = 60, PAD = 3;
   const points = sparkPoints(values, W, H, PAD);
@@ -752,12 +757,24 @@ $("run").addEventListener("click", run);
 $("statsCard").addEventListener("click", (ev) => {
   const btn = ev.target.closest(".winbtn");
   if (!btn) return;
-  chartWindow = Number(btn.getAttribute("data-window")) || chartWindow;
-  for (const b of document.querySelectorAll(".winbtn")) {
-    b.setAttribute("aria-pressed", String(Number(b.getAttribute("data-window")) === chartWindow));
-  }
+  const chosen = Number(btn.getAttribute("data-window")) || chartWindow;
   const plot = $("chartPlot");
-  if (plot) plot.innerHTML = chartPlot();
+  try {
+    // Rendered BEFORE anything moves, and from the chosen window rather than from the state: a
+    // throw then leaves the chart, the state and the buttons all still agreeing on the old window
+    // instead of two of the three claiming the new one. The console is the panel's only debugging
+    // channel — the same one `loadStats` uses — so a failure says so rather than looking like a
+    // dead button.
+    const html = chartPlot(chosen);
+    chartWindow = chosen;
+    if (plot) plot.innerHTML = html;
+    for (const b of document.querySelectorAll(".winbtn")) {
+      b.setAttribute("aria-pressed", String(Number(b.getAttribute("data-window")) === chartWindow));
+    }
+  } catch (e) {
+    console.error("chart window:", e);
+    if (plot) plot.innerHTML = `<span class="err">failed to draw the chart</span>`;
+  }
 });
 // Delegated: the roster card is re-rendered on each refresh, so listen on the stable parent.
 $("rosterCard").addEventListener("click", (ev) => {
