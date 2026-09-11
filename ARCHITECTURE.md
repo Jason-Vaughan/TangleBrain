@@ -219,7 +219,9 @@ The signal degrades safely and never raises.
 vanilla HTML/CSS/JS page, zero extra runtime dependencies). It has two views, switched from a
 sidebar: **Chat** (`#/chat`, the default) lets you **run a prompt** through the router, and
 **Settings** (`#/settings`) **views** the roster, the pricing reference, and the cost-avoided
-rollup. Beneath both sits a **persistent status footer** carrying the two signals that qualify
+rollup — the last both as totals and as two breakdowns of them: a ranked per-model table and a
+per-day sparkline over a 7 / 30 / 90 day window, drawn from a named `/api/stats` projection and
+captioned with the span they cover. Beneath both sits a **persistent status footer** carrying the two signals that qualify
 every figure the panel shows — the placeholder-pricing caveat and the measurement-health findings
 — so neither depends on which view you happen to be on. It is absent when there is nothing to
 report, and says so explicitly when `/api/stats` cannot be read — including when it answers with
