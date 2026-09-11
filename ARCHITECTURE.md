@@ -205,8 +205,9 @@ fans out across threads) are serialized by a process-level lock. Each delegation
 *specific* parent task across processes (a true tree): the CLI mints a `task_id` per routed task and
 injects it as `TANGLEBRAIN_TASK_ID` into the orchestrator's environment, the orchestrator forwards it
 to the MCP delegate child, and `run_delegate` reads it back to stamp each delegate record's
-`parent_task_id`. The rollup groups linked delegates `by_parent` (a "Linked to" tree in `--stats`
-and the GUI). The orchestrator-forwards-env hop is verified live (claude), not hermetically; when a
+`parent_task_id`. The rollup groups linked delegates `by_parent` — a "Linked to" tree in `--stats`,
+and in the GUI the *count* of parents it links to, because one key per parent task id is unbounded
+and `/api/stats` sends only what the panel renders. The orchestrator-forwards-env hop is verified live (claude), not hermetically; when a
 delegate reaches the measurement seam without that id, its record gains `linkage_lost: true` and
 both renderers show the lifetime lost-linkage count separately. A top-level task with no parent is
 an ordinary root, while legacy parentless delegate rows are inferred as lost linkage during rollup.
@@ -218,7 +219,9 @@ The signal degrades safely and never raises.
 vanilla HTML/CSS/JS page, zero extra runtime dependencies). It has two views, switched from a
 sidebar: **Chat** (`#/chat`, the default) lets you **run a prompt** through the router, and
 **Settings** (`#/settings`) **views** the roster, the pricing reference, and the cost-avoided
-rollup. Beneath both sits a **persistent status footer** carrying the two signals that qualify
+rollup — the last both as totals and as two breakdowns of them: a ranked per-model table and a
+per-day sparkline over a 7 / 30 / 90 day window, drawn from a named `/api/stats` projection and
+captioned with the span they cover. Beneath both sits a **persistent status footer** carrying the two signals that qualify
 every figure the panel shows — the placeholder-pricing caveat and the measurement-health findings
 — so neither depends on which view you happen to be on. It is absent when there is nothing to
 report, and says so explicitly when `/api/stats` cannot be read — including when it answers with

@@ -16,13 +16,15 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from datetime import date, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
 from tanglebrain.gui import server, views
+from tanglebrain.measurement import rollup
 from tanglebrain.roster import Invoke, Roster, RosterEntry, packaged_roster_path
-from tanglebrain.totals import default_totals_path
+from tanglebrain.totals import default_totals_path, empty_totals
 from tanglebrain.router import RouterError
 
 
@@ -179,10 +181,13 @@ class ViewStatsTest(unittest.TestCase):
         delegates = out["summary"]["delegates"]
         self.assertEqual(delegates["count"], 1)
         self.assertEqual(delegates["linkage_lost"], 1)
-        self.assertEqual(delegates["by_backend"]["local-x"]["count"], 1)
+        self.assertEqual(delegates["by_backend"], [{"id": "local-x", "count": 1}])
 
-    def test_includes_parent_task_tree(self):
-        # The panel's delegate card renders the by_parent tree, so view_stats must carry it through.
+    def test_reports_how_many_parents_the_sub_calls_link_to(self):
+        # The panel renders one number from the parent tree — how many top-level tasks the
+        # sub-calls link back to — so the projection sends that number and not the tree. The tree
+        # holds one key per parent task id, which makes it the largest unbounded structure the old
+        # passthrough could put on the wire.
         recs = [
             {"kind": "delegate", "model": "local-x", "parent_task_id": "p1"},
             {"kind": "delegate", "model": "local-x", "parent_task_id": "p2"},
@@ -190,14 +195,15 @@ class ViewStatsTest(unittest.TestCase):
         ]
         with patch("tanglebrain.gui.views.read_records", return_value=recs):
             out = views.view_stats()
-        by_parent = out["summary"]["delegates"]["by_parent"]
-        self.assertEqual({k for k in by_parent if k != "unlinked"}, {"p1", "p2"})
-        self.assertEqual(by_parent["unlinked"]["count"], 1)
+        delegates = out["summary"]["delegates"]
+        self.assertEqual(delegates["linked_parents"], 2)          # p1 and p2; "unlinked" is not one
+        self.assertEqual(delegates["linkage_lost"], 1)
+        self.assertNotIn("by_parent", delegates)
 
     def test_stats_view_reads_stored_lifetime_totals_not_just_rows(self):
-        # The panel's half of the same pin. `/api/stats` returns `rollup`'s dict verbatim, so the
-        # panel is a second renderer of the figure; with only rows read it would silently show a
-        # shrinking headline the moment rows are folded away.
+        # The panel's half of the same pin. The panel is a second renderer of the headline figure;
+        # with only rows read it would silently show a shrinking total the moment rows are folded
+        # away.
         (Path(self.state) / "totals.json").write_text(
             json.dumps({"tasks": 11, "spend_avoided_usd": 4.25}), encoding="utf-8"
         )
@@ -207,6 +213,239 @@ class ViewStatsTest(unittest.TestCase):
             out = views.view_stats()
         self.assertEqual(out["summary"]["tasks"], 12)             # 11 stored + 1 row
         self.assertEqual(out["summary"]["spend_avoided_usd"], 5.25)
+
+
+def _rollup_with_days(days, *, lifetime_spend=None, by_model=None, since=""):
+    """Build a real rollup over stored totals carrying ``{day: spend}`` — no records, no files.
+
+    Goes through `rollup` rather than hand-writing a summary dict so the projection is tested
+    against the shape the product actually produces; a literal would drift the moment the rollup
+    gains a field.
+    """
+    totals = empty_totals()
+    for day, spend in days.items():
+        totals["by_day"][day] = {
+            "count": 1, "in_tokens_est": 0, "out_tokens_est": 0,
+            "cloud_equiv_usd": spend, "spend_avoided_usd": spend,
+        }
+    for model, spend in (by_model or {}).items():
+        totals["by_model"][model] = {
+            "count": 1, "in_tokens_est": 0, "out_tokens_est": 0,
+            "cloud_equiv_usd": spend, "spend_avoided_usd": spend,
+        }
+    totals["by_day_since"] = since
+    totals["spend_avoided_usd"] = (
+        sum(days.values()) if lifetime_spend is None else lifetime_spend
+    )
+    return rollup([], totals)
+
+
+class StatsProjectionTest(unittest.TestCase):
+    """The `/api/stats` payload contract — what the endpoint promises, not what the rollup holds."""
+
+    def test_a_new_rollup_field_does_not_reach_the_panel(self):
+        # The defect this projection exists to close (#223): the endpoint used to return the
+        # rollup verbatim, so a field added for the CLI's benefit shipped to the browser with
+        # nobody deciding it. Asserted on a field that does not exist rather than on the current
+        # field list, because the failure mode is *addition*, and a list asserted against itself
+        # would pass for every future leak.
+        summary = _rollup_with_days({})
+        summary["a_field_added_for_some_other_consumer"] = {"big": "x" * 1000}
+        payload = views.project_stats_summary(summary)
+        self.assertNotIn("a_field_added_for_some_other_consumer", payload)
+
+    def test_the_contract_doc_lists_exactly_what_the_endpoint_sends(self):
+        # The doc claims a *complete* field set and names what was removed, which is the shape
+        # that decays within a merge unless something recomputes it: the other two tests here
+        # guard additions to the ROLLUP and the presence of the rendered fields, and neither
+        # notices a field added to the projection — the one edit that falsifies the sentence. It
+        # matters more on this surface than on any other in the repo, because a ruled exception
+        # lets this endpoint *remove* fields, so this list is the only statement a reader has of
+        # what it does not send.
+        doc = (Path(__file__).resolve().parents[1] / "docs" / "design" / "api-contract.md").read_text(
+            encoding="utf-8"
+        )
+        section = doc[doc.index("The declared set, in full."):doc.index("What the reshaped")]
+        declared_prose, removed_prose = section.split("Nothing else in")
+        payload = views.project_stats_summary(_rollup_with_days({"2026-09-10": 1.0}))
+        sent = set(payload) | set(payload["delegates"]) | {
+            "summary", "pricing_ref", "is_placeholder", "health",
+        }
+        self.assertEqual(
+            set(re.findall(r"`([a-z_]+)`", declared_prose)), sent,
+            "docs/design/api-contract.md § Surface 4 names a field set that is no longer what "
+            "project_stats_summary returns — update that section in the same commit",
+        )
+        # The removals are the other half of the claim, and they decay the same way: a field named
+        # as dropped that the rollup no longer produces makes the sentence a historical note
+        # dressed as a contract.
+        rollup_keys = set(rollup([], empty_totals())) | set(rollup([], empty_totals())["delegates"])
+        for name in re.findall(r"`([a-z_]+)`", removed_prose):
+            with self.subTest(removed=name):
+                self.assertIn(name, rollup_keys, "named as removed but the rollup does not hold it")
+                self.assertNotIn(name, payload, "named as removed but still sent at the top level")
+        self.assertNotIn("by_parent", payload["delegates"])
+
+    def test_the_fields_the_panel_renders_all_survive(self):
+        # The other direction: a projection that drops something the panel draws is a blank card.
+        payload = views.project_stats_summary(
+            _rollup_with_days({"2026-09-01": 1.0}, by_model={"local-a": 1.0})
+        )
+        for field in ("tasks", "spend_avoided_usd", "by_tier", "by_origin", "in_tokens_est",
+                      "out_tokens_est", "by_model", "by_day", "by_day_since",
+                      "spend_avoided_outside_days_usd", "delegates"):
+            self.assertIn(field, payload)
+
+    def test_the_day_series_is_capped_at_the_widest_window_the_panel_draws(self):
+        days = {(date(2026, 1, 1) + timedelta(days=i)).isoformat(): 1.0 for i in range(120)}
+        series = views.project_stats_summary(_rollup_with_days(days))["by_day"]
+        self.assertEqual(len(series), views.STATS_DAY_WINDOW)
+        # Newest-last, and it is the *newest* 90 that survive — a cap that kept the oldest would
+        # draw a chart that never moves.
+        self.assertEqual(series[-1]["day"], (date(2026, 1, 1) + timedelta(days=119)).isoformat())
+        self.assertEqual(series[0]["day"], (date(2026, 1, 1) + timedelta(days=30)).isoformat())
+        self.assertEqual([e["day"] for e in series], sorted(e["day"] for e in series))
+
+    def test_an_idle_day_inside_the_covered_range_is_a_real_zero(self):
+        series = views.project_stats_summary(
+            _rollup_with_days({"2026-09-01": 2.0, "2026-09-04": 3.0})
+        )["by_day"]
+        self.assertEqual(
+            [(e["day"], e["spend_avoided_usd"]) for e in series],
+            [("2026-09-01", 2.0), ("2026-09-02", 0.0), ("2026-09-03", 0.0), ("2026-09-04", 3.0)],
+        )
+
+    def test_days_before_the_first_bucket_are_absent_not_zero(self):
+        # The single most consequential rule here. Before the earliest surviving bucket, absence
+        # means *unknown* — those days were either never recorded or evicted past retention — and
+        # painting them as $0 asserts there was no activity on days whose activity was simply not
+        # kept. The series must therefore START at the first covered day even when the window is
+        # wider, and `by_day_since` (older than the first bucket once eviction bites) must not be
+        # allowed to extend it.
+        payload = views.project_stats_summary(
+            _rollup_with_days({"2026-09-09": 1.0, "2026-09-10": 1.0}, since="2026-01-01")
+        )
+        self.assertEqual([e["day"] for e in payload["by_day"]], ["2026-09-09", "2026-09-10"])
+        # The stamp still ships — the caption's wording needs it — it just is not the boundary.
+        self.assertEqual(payload["by_day_since"], "2026-01-01")
+
+    def test_no_buckets_yields_an_empty_series_rather_than_a_flat_line(self):
+        payload = views.project_stats_summary(_rollup_with_days({}))
+        self.assertEqual(payload["by_day"], [])
+        self.assertEqual(payload["by_day_since"], "")
+
+    def test_a_stray_far_past_key_cannot_inflate_the_payload(self):
+        # A damaged or hand-edited store can hold a day key from any era. Filling forward from the
+        # oldest key would materialize every day between — half a century of zeroes on a payload
+        # meant to stay small. The window is counted back from the NEWEST bucket, which bounds the
+        # work whatever the spread.
+        days = {"1970-01-01": 5.0, "2026-09-10": 1.0}
+        payload = views.project_stats_summary(_rollup_with_days(days))
+        series = payload["by_day"]
+        self.assertEqual(len(series), views.STATS_DAY_WINDOW)
+        self.assertEqual(series[0]["day"], (date(2026, 9, 10) - timedelta(days=89)).isoformat())
+        self.assertEqual(series[-1], {"day": "2026-09-10", "spend_avoided_usd": 1.0})
+        # The 1970 dollars are bucketed, so they are not "uncharted" in this field's sense — they
+        # are simply outside the window, which is the panel's own lifetime-vs-window comparison.
+        self.assertEqual(payload["spend_avoided_outside_days_usd"], 0.0)
+        self.assertLess(sum(e["spend_avoided_usd"] for e in series), payload["spend_avoided_usd"])
+
+    def test_a_key_that_is_not_a_day_is_dropped_not_raised_on(self):
+        # `normalize_totals` validates a bucket's *aggregate*, never its key, so a corrupt file
+        # reaches here with whatever string it holds. "2026-13-45" is the interesting one: it
+        # passes `is_day_key` (ten digits in the right places) and is not a date.
+        #
+        # "20260910" is the case that makes the format check load-bearing rather than belt and
+        # braces: `date.fromisoformat` accepts several ISO spellings, so a key written in another
+        # one parses to a date a real day key ALSO parses to — and the second one to be read would
+        # silently replace the first. Only one spelling is this store's format.
+        # Asserted in BOTH key orders, because which key a file happens to list first is arbitrary
+        # — and that arbitrariness is the whole reason the format check has to be there. Read in
+        # one order the impostor is overwritten and the defect hides; read in the other it wins and
+        # the chart draws a figure the store never recorded.
+        for keys in (
+            {"banana": 1.0, "2026-13-45": 2.0, "20260910": 8.0, "2026-09-10": 4.0},
+            {"banana": 1.0, "2026-13-45": 2.0, "2026-09-10": 4.0, "20260910": 8.0},
+        ):
+            with self.subTest(first=list(keys)[2]):
+                payload = views.project_stats_summary(_rollup_with_days(keys))
+                self.assertEqual([e["day"] for e in payload["by_day"]], ["2026-09-10"])
+                self.assertEqual(payload["by_day"][0]["spend_avoided_usd"], 4.0)
+                self.assertEqual(payload["spend_avoided_outside_days_usd"], 11.0)
+
+    def test_spend_outside_the_day_buckets_is_zero_when_every_dollar_is_bucketed(self):
+        # Exercised in both states deliberately: a caption that only ever runs against a store
+        # with a gap would pass for an implementation that always claims one.
+        payload = views.project_stats_summary(_rollup_with_days({"2026-09-10": 4.0}))
+        self.assertEqual(payload["spend_avoided_outside_days_usd"], 0.0)
+
+    def test_spend_recorded_before_per_day_tracking_shows_as_uncharted(self):
+        # The install that upgraded yesterday: a lifetime figure built over months, one day of
+        # per-day history. The chart cannot show the rest, and the caption says so from this field.
+        payload = views.project_stats_summary(
+            _rollup_with_days({"2026-09-10": 1.0}, lifetime_spend=9.5, since="2026-09-10")
+        )
+        self.assertEqual(payload["spend_avoided_outside_days_usd"], 8.5)
+
+    def test_uncharted_spend_never_renders_as_a_negative(self):
+        payload = views.project_stats_summary(
+            _rollup_with_days({"2026-09-10": 4.0}, lifetime_spend=1.0)
+        )
+        self.assertEqual(payload["spend_avoided_outside_days_usd"], 0.0)
+
+    def test_the_window_is_a_parameter_and_it_bounds_the_series(self):
+        # `_day_series` takes the cap as an argument so the rule is one value rather than a literal
+        # buried in a loop. Exercised at a width the default would hide: with 10 days recorded, a
+        # 3-day window must yield the newest 3 and nothing older.
+        days = {f"2026-09-{d:02d}": 1.0 for d in range(1, 11)}
+        parsed = views._parse_day_buckets(_rollup_with_days(days)["by_day"])
+        series = views._day_series(parsed, window=3)
+        self.assertEqual([e["day"] for e in series], ["2026-09-08", "2026-09-09", "2026-09-10"])
+
+    def test_by_model_is_ranked_biggest_saver_first_with_stable_ties(self):
+        payload = views.project_stats_summary(
+            _rollup_with_days({}, by_model={"zeta": 1.0, "alpha": 1.0, "big": 7.0})
+        )
+        self.assertEqual(
+            payload["by_model"],
+            [
+                {"id": "big", "count": 1, "spend_avoided_usd": 7.0},
+                {"id": "alpha", "count": 1, "spend_avoided_usd": 1.0},
+                {"id": "zeta", "count": 1, "spend_avoided_usd": 1.0},
+            ],
+        )
+
+    def test_the_model_breakdown_sums_to_the_headline_it_breaks_down(self):
+        # A breakdown that does not add up to the figure above it is worse than none: a reader
+        # checks one against the other and believes whichever they read second.
+        payload = views.project_stats_summary(
+            _rollup_with_days({}, by_model={"a": 1.25, "b": 2.5}, lifetime_spend=3.75)
+        )
+        self.assertAlmostEqual(
+            sum(row["spend_avoided_usd"] for row in payload["by_model"]),
+            payload["spend_avoided_usd"],
+        )
+
+    def test_the_delegate_backend_split_is_ranked_by_calls(self):
+        recs = [
+            {"kind": "delegate", "model": "busy"},
+            {"kind": "delegate", "model": "busy"},
+            {"kind": "delegate", "model": "quiet"},
+        ]
+        payload = views.project_stats_summary(rollup(recs, empty_totals()))
+        self.assertEqual(
+            payload["delegates"]["by_backend"],
+            [{"id": "busy", "count": 2}, {"id": "quiet", "count": 1}],
+        )
+
+    def test_the_projection_survives_a_summary_missing_everything(self):
+        # Degrade, don't fail: the panel's card is the last place a half-written store should
+        # surface as a 500. Every field still answers with its zero value.
+        payload = views.project_stats_summary({})
+        self.assertEqual(payload["tasks"], 0)
+        self.assertEqual(payload["by_model"], [])
+        self.assertEqual(payload["by_day"], [])
+        self.assertEqual(payload["delegates"]["linked_parents"], 0)
 
 
 class RunPromptTest(unittest.TestCase):
@@ -911,6 +1150,148 @@ class StatusFooterTest(unittest.TestCase):
         self.assertIsNotNone(bar)
         self.assertIn("position: sticky", bar.group(1))
         self.assertNotIn("position: fixed", bar.group(1))
+
+
+class SpendChartsTest(unittest.TestCase):
+    """The per-model table and the per-day sparkline, asserted against the shipped source.
+
+    Same technique and same reason as `PanelLayoutTest`: no JS engine runs here, and the
+    alternative to reading the file is asserting nothing about the surface an operator looks at.
+    So these are deliberately narrow — they pin the *contract* between the payload and the
+    renderer, and the two rules that would be silently wrong rather than visibly broken: that the
+    chart draws from the series and not from the coverage stamp, and that every value it draws is
+    also readable as text.
+
+    What they cannot cover is geometry and interaction. The point arithmetic was verified by
+    running these functions against a live `/api/stats` payload, and the rendered result by
+    screenshot; the window buttons are a keyboard-and-mouse path that only a person can sign off,
+    which is what the operator-verification entry exists for.
+    """
+
+    def setUp(self):
+        self.panel = PANEL.read_text(encoding="utf-8")
+        self.chart = self.panel[self.panel.index("function chartPlot("):self.panel.index("function modelTable(")]
+        # Everything that turns the series into a drawing: the point arithmetic as well as the
+        # function that assembles the SVG. Slicing only the assembler would leave the assertion
+        # about the drawable boundary pointing at code that does no geometry.
+        self.drawing = (
+            self.panel[self.panel.index("function sparkPoints("):self.panel.index("function dayTwin(")]
+            + self.chart
+        )
+
+    def test_the_panel_reads_every_field_the_projection_adds(self):
+        # The wire between the two ends. `view_stats` emitting a field and the panel rendering one
+        # are each covered; renaming either side is what nothing would catch.
+        stats_fn = self.panel[self.panel.index("async function loadStats()"):]
+        stats_fn = stats_fn[: stats_fn.index("async function loadRoster()")]
+        for key in ("s.by_model", "s.by_day", "s.by_day_since", "s.spend_avoided_outside_days_usd"):
+            # Word-bounded: `s.by_day` is a strict prefix of `s.by_day_since`, so a plain substring
+            # check for the series key passes on the stamp alone — the one rename it exists to
+            # catch would sail through it.
+            self.assertRegex(
+                stats_fn, rf"{re.escape(key)}\b(?!_)",
+                f"the panel must read the payload key view_stats writes: {key}",
+            )
+        self.assertIn("dg.linked_parents", stats_fn)
+        self.assertIn("dg.by_backend", stats_fn)
+
+    def test_the_chart_draws_from_the_series_not_from_the_coverage_stamp(self):
+        # The one rule most likely to be got wrong, and it fails silently: `by_day_since` is older
+        # than the oldest surviving bucket once eviction starts, so a chart that began there would
+        # paint the evicted span as $0 — asserting quiet days over days that were merely not kept.
+        # The stamp belongs to the caption's wording alone.
+        self.assertNotIn("by_day_since", self.drawing)
+        self.assertNotIn("chartData.since", self.drawing)
+        caption = self.panel[self.panel.index("function chartCaption("):self.panel.index("function chartMarkup()")]
+        self.assertIn("chartData.since", caption, "the caption is where the stamp belongs")
+
+    def test_the_window_control_offers_the_three_windows_and_starts_at_thirty(self):
+        self.assertIn("const CHART_WINDOWS = [7, 30, 90];", self.panel)
+        self.assertRegex(self.panel, r"(?m)^let chartWindow = 30;")
+        # aria-pressed, not a class: the selected window must be announced, not only painted.
+        self.assertIn('aria-pressed="${n === chartWindow}"', self.panel)
+        self.assertIn('role="group" aria-label="Chart window"', self.panel)
+
+    def test_the_server_ships_every_day_the_widest_window_draws(self):
+        # One rule in two languages: the endpoint sends the widest window the panel offers. Both
+        # sites say so in a comment and neither could enforce it — a fourth button at 180 days
+        # would have drawn 90 days of chart under a "180d" label, with every test green.
+        windows = re.search(r"const CHART_WINDOWS = \[([^\]]+)\];", self.panel)
+        self.assertIsNotNone(windows)
+        widest = max(int(n) for n in windows.group(1).split(","))
+        self.assertLessEqual(
+            widest, views.STATS_DAY_WINDOW,
+            "the panel offers a window wider than /api/stats sends; widen STATS_DAY_WINDOW or "
+            "narrow CHART_WINDOWS — the label would otherwise promise days the payload lacks",
+        )
+
+    def test_changing_the_window_re_renders_without_refetching(self):
+        # A window change is a view choice over data already in hand. Refetching would re-probe
+        # the store and re-announce the status bar's live region for nothing.
+        handler = self.panel[self.panel.index('$("statsCard").addEventListener'):]
+        handler = handler[: handler.index("showView(")]
+        self.assertNotIn("loadStats()", handler)
+        # The buttons live outside the replaced region, so the reader's focus survives the press.
+        self.assertIn("aria-pressed", handler)
+        # Order is the behaviour here, so the ordered sequence is what is asserted — a positional
+        # "X appears before Y" passes with the two swapped as long as both are present. The chart
+        # is rendered from the chosen window BEFORE the state or the buttons move, so a throw
+        # leaves all three agreeing on the old window rather than two of them claiming the new one.
+        steps = re.findall(
+            r"(chartPlot\(chosen\)|chartWindow = chosen|plot\.innerHTML = html|aria-pressed|console\.error)",
+            handler,
+        )
+        self.assertEqual(
+            steps,
+            ["chartPlot(chosen)", "chartWindow = chosen", "plot.innerHTML = html", "aria-pressed",
+             "console.error"],
+            "render, then commit the state, then paint it — and report a failure on the panel's "
+            "one debugging channel",
+        )
+
+    def test_every_drawn_value_is_also_readable_as_text(self):
+        # The chart ships no tooltip, so without the twin a figure would be reachable only as a
+        # shape. Both the SVG's label and the table are structural, not decoration.
+        self.assertIn('role="img"', self.chart)
+        self.assertIn('aria-label="${esc(label)}"', self.chart)
+        self.assertIn('<details class="twin">', self.panel)
+        self.assertIn("dayTwin(shown)", self.chart)
+
+    def test_an_empty_store_says_so_rather_than_drawing_a_flat_line(self):
+        # A store with no per-day history is the common case on a fresh upgrade. Drawing it as a
+        # month of $0 would assert no activity over a period that simply was not bucketed.
+        self.assertIn("No per-day figures recorded yet", self.chart)
+        # Both branches of chartPlot return a caption or a statement — never an empty chart frame.
+        returns = re.findall(r"(?m)^\s*return (.+?);\s*$", self.chart)
+        self.assertEqual(len(returns), 2, f"chartPlot should have exactly two exits, found {returns}")
+        self.assertTrue(all("caption" in r.lower() for r in returns), returns)
+
+    def test_a_store_with_no_series_offers_no_window_controls(self):
+        # Three buttons that visibly do nothing are worse than none: on a fresh install the chart
+        # has nothing to draw, and a window control there invites a click it answers with the same
+        # sentence. The check is in chartMarkup, which owns the head; chartPlot owns the message.
+        markup = self.panel[self.panel.index("function chartMarkup()"):self.panel.index("function chartPlot(")]
+        self.assertRegex(
+            markup,
+            r"(?m)^\s*if \(!\(chartData\.series \|\| \[\]\)\.length\) return ",
+            "the empty case must return before the buttons are built",
+        )
+
+    def test_the_model_table_never_encodes_a_value_in_the_bar_alone(self):
+        table_fn = self.panel[self.panel.index("function modelTable("):self.panel.index("async function loadStats()")]
+        # The dollar figure is a cell of its own; the bar restates it and is hidden from assistive
+        # tech so it is not announced twice.
+        self.assertIn("money(spend)", table_fn)
+        self.assertIn('aria-hidden="true"', table_fn)
+        self.assertIn("tabular-nums", self.panel, "columns of figures must align")
+
+    def test_the_chart_ships_no_library_and_no_off_machine_reference(self):
+        # The offline guarantee, at the one place a chart would normally break it. The panel-wide
+        # guard in PanelLayoutTest covers the file; this says the intent out loud at the surface
+        # that would have wanted a CDN.
+        for banned in ("chart.js", "cdn.", "unpkg", "jsdelivr", "d3."):
+            self.assertNotIn(banned, self.panel.lower())
+        self.assertIn("<svg", self.chart, "the chart is hand-built inline SVG")
 
 
 if __name__ == "__main__":

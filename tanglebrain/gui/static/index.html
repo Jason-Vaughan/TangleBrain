@@ -135,6 +135,12 @@
     /* One override, and both columns follow it. */
     :root { --content-inset: 16px; }
     .wrap { padding: 20px var(--content-inset) 48px; }
+    /* Four columns is one too many at this width, and the bar is the one that restates a figure
+       the row already prints — so it is what goes. It is not what makes the page scroll sideways
+       here: measured at 756px, this table is 482px while the roster table is 640px and overflows
+       on its own (#131 covers the panel's reflow). This keeps a decorative column from adding to
+       that, and nothing more. */
+    .barcell { display: none; }
   }
 
   /* ---- content -------------------------------------------------------------------------- */
@@ -155,6 +161,43 @@
   .stat .value { font-size: 1.3rem; margin-top: 4px; }
   .stat .value.big { color: var(--primary); }
   .caveat { color: var(--amber); font-size: .78rem; margin-top: 10px; }
+  .sub-head { font-size: .85rem; margin: 1.1rem 0 .4rem; }
+
+  /* ---- the two spend breakdowns ------------------------------------------------------------
+     Both are hand-built. The panel is one packaged file that must render with the machine
+     offline, so a charting library is not available to it: a CDN script would reach off-machine,
+     and a vendored minified copy cannot be reviewed in a diff. What that costs is zoom and
+     tooltips; what it buys is a chart that works on an air-gapped laptop.
+
+     The per-model split is a TABLE rather than a chart on purpose — a handful of categorical rows
+     where the exact dollars are the point, and a table is natively readable by a screen reader.
+     The bars beside the numbers are decoration on a value the row already states. */
+  .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .win { display: flex; gap: 6px; }
+  /* Rest state is muted, selected is the accent — the same language the sidebar's nav uses, and
+     chosen over accent-vs-brighter-accent because those two greens differ by too little to read as
+     a state at this size. aria-pressed is what actually announces it; this paints what that says. */
+  .win button { padding: 4px 10px; font-size: .75rem; color: var(--text-muted); border-color: var(--border); }
+  .win button[aria-pressed="true"] { color: var(--primary); border-color: var(--primary-dark); background: var(--elevated-bg); }
+  /* `preserveAspectRatio: none` stretches the plot to the card's width — far more horizontally
+     than vertically — so anything sized in user units comes out distorted. `vector-effect` exempts
+     the STROKE from that transform, which is why both marks here are strokes: the line keeps its
+     2px, and the newest day is a zero-length round-capped line, which renders as a true circle
+     where a `<circle>` would render as a sliver. `overflow: visible` lets that cap sit on the edge
+     of the plot instead of being sheared in half by it. */
+  .spark { display: block; width: 100%; height: 72px; margin: 10px 0 4px; overflow: visible; }
+  .spark polyline, .spark line { vector-effect: non-scaling-stroke; }
+  .spark polyline { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .spark line { stroke: var(--primary-bright); stroke-width: 6; stroke-linecap: round; }
+  .chart-caption { color: var(--text-muted); font-size: .75rem; }
+  /* The chart's table twin. A shape is not a value: every figure the sparkline draws is also
+     readable as text here, which is what makes the chart's absence of tooltips survivable. */
+  .twin { margin-top: 10px; }
+  .twin summary { color: var(--text-muted); font-size: .75rem; cursor: pointer; }
+  .twin table { margin-top: 6px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .barcell { width: 32%; }
+  .bar { display: block; height: 8px; border-radius: 4px; background: var(--primary-dark); min-width: 2px; }
   textarea, input[type=text] {
     width: 100%; background: var(--elevated-bg); border: 1px solid var(--field-border); color: var(--text);
     border-radius: 8px; padding: 10px; font-family: inherit; font-size: .9rem; resize: vertical;
@@ -357,6 +400,128 @@ function renderStatusBar(items) {
   slot.innerHTML = items.map((text) => statusItem(text)).join("");
 }
 
+// ---- spend breakdowns -------------------------------------------------------------------------
+// The windows the chart offers. The store retains far more (400 days) and `/api/stats` sends the
+// widest of these; 7/30/90 is what the panel draws.
+const CHART_WINDOWS = [7, 30, 90];
+// View state, not operator state: the chosen window is not persisted anywhere, so a reload starts
+// at 30 — the shortest window that shows a weekly rhythm rather than a single spike.
+let chartWindow = 30;
+// The last answer from /api/stats, kept so a window button re-renders without refetching. The
+// series is ascending, oldest first, and zero-filled inside the range it covers — see the note on
+// `chartCaption` for why its FIRST entry, not `since`, is the left edge.
+let chartData = { series: [], lifetime: 0, outside: 0, since: "" };
+
+function sparkPoints(values, width, height, pad) {
+  // Values map to a polyline. The y-scale runs 0 → max rather than min → max: this is money
+  // avoided, where zero is a real quantity, and a chart whose baseline floats turns a flat month
+  // into a dramatic one.
+  const max = Math.max(...values, 0);
+  const span = height - pad * 2;
+  const step = values.length > 1 ? width / (values.length - 1) : 0;
+  return values.map((v, i) => {
+    const x = values.length > 1 ? i * step : width / 2;
+    const y = max > 0 ? pad + span - (v / max) * span : pad + span;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+}
+
+function dayTwin(shown) {
+  // Every drawn value as text, collapsed by default. Not an accessibility afterthought: this
+  // chart ships no tooltip, so without it a number would be readable only as a shape.
+  const rows = shown.map((e) => `<tr><td class="mono">${esc(e.day)}</td><td class="num">${money(e.spend_avoided_usd)}</td></tr>`).join("");
+  return `<details class="twin"><summary>Show the numbers</summary>
+    <table><thead><tr><th>day</th><th class="num">spend avoided</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+}
+
+function chartCaption(shown) {
+  // Always rendered, and it states the range actually drawn. Three facts, in the order a reader
+  // needs them:
+  //
+  // 1. What is on screen. The series ends at the newest recorded day, not at today, so an idle
+  //    install shows a chart that stops when the activity did — and says so rather than implying
+  //    the last week was zero.
+  // 2. How much of the lifetime total this window leaves out. Plain arithmetic here.
+  // 3. Whether any of the lifetime total can never be charted at all. The panel cannot work this
+  //    out: `spend_avoided_outside_days_usd` is the server's answer, summed over every retained
+  //    day bucket rather than the charted ones.
+  //
+  // `since` names when per-day recording began and is deliberately NOT the chart's left edge:
+  // once the store starts evicting its oldest days, that date is older than anything left, and
+  // drawing from it would paint the evicted span as $0 — asserting quiet days that were merely
+  // not kept.
+  const drawn = shown.reduce((sum, e) => sum + (Number(e.spend_avoided_usd) || 0), 0);
+  const outsideWindow = Math.max(chartData.lifetime - drawn, 0);
+  const parts = [`Last ${shown.length} day${shown.length === 1 ? "" : "s"} · ${esc(shown[0].day)} → ${esc(shown[shown.length - 1].day)} · ${money(drawn)} avoided`];
+  if (outsideWindow >= 0.005) {
+    let more = `${money(outsideWindow)} of the ${money(chartData.lifetime)} lifetime total falls outside this window`;
+    if (chartData.outside >= 0.005) {
+      more += `, including ${money(chartData.outside)} that no per-day bucket holds`;
+      more += chartData.since ? ` — per-day recording began ${esc(chartData.since)}` : "";
+    }
+    parts.push(more + ".");
+  }
+  return `<div class="chart-caption">${parts.join(" · ")}</div>`;
+}
+
+function chartMarkup() {
+  // Head and plot are separate so a window change can replace the plot alone: re-rendering the
+  // buttons would destroy the one the reader just pressed, and a keyboard user would lose focus
+  // to the top of the document on every press.
+  // No series, no controls. Three buttons that visibly do nothing are worse than none — they
+  // invite a click and answer it with the same sentence.
+  if (!(chartData.series || []).length) return `<div id="chartPlot">${chartPlot()}</div>`;
+  const buttons = CHART_WINDOWS.map((n) =>
+    `<button class="winbtn" data-window="${n}" aria-pressed="${n === chartWindow}">${n}d</button>`).join("");
+  // Real buttons in a labelled group, not a custom widget: aria-pressed is the state, and the
+  // keyboard behaviour is the browser's rather than ours to reimplement.
+  return `<div class="chart-head"><span class="muted" style="font-size:.75rem">daily, newest on the right</span>
+    <span class="win" role="group" aria-label="Chart window">${buttons}</span></div>
+    <div id="chartPlot">${chartPlot()}</div>`;
+}
+
+function chartPlot(win = chartWindow) {
+  const series = chartData.series || [];
+  if (!series.length) {
+    // Degrade to less information, never to an error — and never to a flat line at $0, which
+    // would assert a quiet month over a store that simply has no per-day history yet.
+    return `<div class="chart-caption">No per-day figures recorded yet. They begin with the next task this install records.</div>`;
+  }
+  const shown = series.slice(-win);
+  const values = shown.map((e) => Number(e.spend_avoided_usd) || 0);
+  const W = 300, H = 60, PAD = 3;
+  const points = sparkPoints(values, W, H, PAD);
+  const peak = Math.max(...values);
+  const peakDay = shown[values.indexOf(peak)].day;
+  const total = values.reduce((a, b) => a + b, 0);
+  // The chart is one graphic, so it carries one label rather than a node per point. It names what
+  // a sighted reader takes from the shape — span, total, where the peak is — and the twin below
+  // carries every individual value.
+  const label = `Spend avoided per day, last ${shown.length} days to ${shown[shown.length - 1].day}. Total ${money(total)}, peak ${money(peak)} on ${peakDay}.`;
+  const last = points[points.length - 1].split(",");
+  // The newest day, marked. A zero-length round-capped line rather than a circle — see the
+  // stylesheet: under a non-uniform stretch a circle is an ellipse, a round cap is still round.
+  const dot = `<line x1="${last[0]}" y1="${last[1]}" x2="${last[0]}" y2="${last[1]}"></line>`;
+  const line = points.length > 1 ? `<polyline points="${points.join(" ")}"></polyline>` : "";
+  const svg = `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(label)}" focusable="false">${line}${dot}</svg>`;
+  return svg + chartCaption(shown) + dayTwin(shown);
+}
+
+function modelTable(rows) {
+  if (!rows.length) return `<div class="muted" style="font-size:.8rem">No per-model figures recorded yet.</div>`;
+  const max = Math.max(...rows.map((r) => Number(r.spend_avoided_usd) || 0), 0);
+  const body = rows.map((r) => {
+    const spend = Number(r.spend_avoided_usd) || 0;
+    const pct = max > 0 ? Math.max(Math.round((spend / max) * 100), 1) : 0;
+    // The bar is hidden from assistive tech because it encodes the number in the cell beside it —
+    // announcing it again would be noise, and it is never the only carrier of the value.
+    return `<tr><td class="mono">${esc(r.id)}</td><td class="num">${(Number(r.count) || 0).toLocaleString()}</td>
+      <td class="num">${money(spend)}</td>
+      <td class="barcell" aria-hidden="true">${pct ? `<span class="bar" style="width:${pct}%"></span>` : ""}</td></tr>`;
+  }).join("");
+  return `<table><thead><tr><th>model</th><th class="num">requests</th><th class="num">spend avoided</th><th class="barcell" aria-hidden="true"></th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
 async function loadStats() {
   try {
     const d = await getJSON("/api/stats");
@@ -394,16 +559,26 @@ async function loadStats() {
     if (d.is_placeholder) status.push(`⚠ pricing: PLACEHOLDER — figures illustrative until the anchor is ratified.`);
     for (const finding of d.health || []) status.push(`⚠ measurement: ${finding}.`);
     renderStatusBar(status);
+    // The two breakdowns of the headline above. Both are populated from task records only, so
+    // they sum to the figure they break down: a delegate's saving is credited to its parent task
+    // and a failed task avoided nothing.
+    chartData = {
+      series: Array.isArray(s.by_day) ? s.by_day : [],
+      lifetime: Number(s.spend_avoided_usd) || 0,
+      outside: Number(s.spend_avoided_outside_days_usd) || 0,
+      since: s.by_day_since || "",
+    };
+    html += `<h3 class="sub-head">By model <span class="muted">(lifetime)</span></h3>${modelTable(s.by_model || [])}`;
+    html += `<h3 class="sub-head">Spend avoided over time</h3>${chartMarkup()}`;
     const dg = s.delegates || {};
     if (dg.count) {
-      const backends = Object.entries(dg.by_backend || {}).map(([k, v]) => `${esc(k)} ${v.count || 0}`).join(", ") || "—";
-      // Parent-task tree: how many top-level tasks the sub-calls link back to. Mirrors the CLI's
-      // "Linked to" line. Labelled as window-scoped because it is the one figure here that is:
-      // one key per parent task id is
-      // unbounded, so it is never folded into the permanent totals every other figure includes.
-      const byParent = dg.by_parent || {};
-      const linked = Object.keys(byParent).filter((k) => k !== "unlinked").length;
-      html += `<h3 style="margin:1rem 0 .4rem">Delegated sub-tasks <span class="muted">(offloaded by orchestrators)</span></h3>
+      const backends = (dg.by_backend || []).map((b) => `${esc(b.id)} ${b.count || 0}`).join(", ") || "—";
+      // How many top-level tasks the sub-calls link back to. Mirrors the CLI's "Linked to" line.
+      // Labelled as window-scoped because it is the one figure here that is: it is derived from a
+      // tree holding one key per parent task id, which is unbounded and so is never folded into
+      // the permanent totals every other figure includes.
+      const linked = dg.linked_parents || 0;
+      html += `<h3 class="sub-head">Delegated sub-tasks <span class="muted">(offloaded by orchestrators)</span></h3>
       <div class="stat-grid">
         <div class="stat"><div class="label">Sub-tasks</div><div class="value">${dg.count}</div></div>
         <div class="stat"><div class="label">By backend</div><div class="value mono" style="font-size:.95rem">${backends}</div></div>
@@ -575,6 +750,32 @@ async function run() {
 }
 
 $("run").addEventListener("click", run);
+// Delegated for the same reason the roster card is: the stats card is re-rendered wholesale on
+// every refresh, so a listener bound to a button inside it would not survive one. Re-renders the
+// chart region alone — the window is a view choice, not new data, and refetching to change it
+// would re-probe the store and re-announce the status bar for nothing.
+$("statsCard").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".winbtn");
+  if (!btn) return;
+  const chosen = Number(btn.getAttribute("data-window")) || chartWindow;
+  const plot = $("chartPlot");
+  try {
+    // Rendered BEFORE anything moves, and from the chosen window rather than from the state: a
+    // throw then leaves the chart, the state and the buttons all still agreeing on the old window
+    // instead of two of the three claiming the new one. The console is the panel's only debugging
+    // channel — the same one `loadStats` uses — so a failure says so rather than looking like a
+    // dead button.
+    const html = chartPlot(chosen);
+    chartWindow = chosen;
+    if (plot) plot.innerHTML = html;
+    for (const b of document.querySelectorAll(".winbtn")) {
+      b.setAttribute("aria-pressed", String(Number(b.getAttribute("data-window")) === chartWindow));
+    }
+  } catch (e) {
+    console.error("chart window:", e);
+    if (plot) plot.innerHTML = `<span class="err">failed to draw the chart</span>`;
+  }
+});
 // Delegated: the roster card is re-rendered on each refresh, so listen on the stable parent.
 $("rosterCard").addEventListener("click", (ev) => {
   const btn = ev.target.closest(".rsave");

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The panel charts the spend-avoided figures it has been storing**
+  ([#176](https://github.com/Jason-Vaughan/TangleBrain/issues/176)). `totals.json` has carried a
+  per-model and a per-day dimension since 0.24.0 and nothing rendered them: the panel showed one
+  lifetime dollar figure and a tier count, so it could not answer *which backend avoided it* or *is
+  this trending*. The Settings view now shows a **per-model table** (model · requests · spend
+  avoided, ranked, with a bar restating each figure) and a **per-day sparkline** over a 7 / 30 / 90
+  day window.
+
+  **Hand-built inline SVG, no charting library.** A CDN script would break the guarantee that a
+  default install reaches nothing off-machine, and a vendored minified copy cannot be reviewed in a
+  diff, which is the only review this project performs. What that costs is zoom and tooltips; every
+  value the chart draws is also readable as text, in a table beside it and in the SVG's own label.
+
+  **The caption states what the chart cannot show.** Per-day recording began when 0.24.0 landed on
+  a given install, and the store evicts its oldest day past a retention cap — so a lifetime figure
+  legitimately covers more than any chart of it. The caption names the drawn range, how much of the
+  lifetime total falls outside the window, and how much is in no day bucket at all.
+
+### Changed
+
+- **`/api/stats` returns a named projection instead of the measurement rollup verbatim**
+  ([#223](https://github.com/Jason-Vaughan/TangleBrain/issues/223)). The GUI endpoint had no
+  contract of its own: whatever `rollup()` happened to hold shipped to the browser, which is how
+  three lifetime fields added for the CLI — one able to reach ~52 KB — arrived on the panel with
+  nobody deciding it. The endpoint now declares its fields, and the two breakdowns reshape into
+  ordered lists so the ranking and the per-day gap-filling are decided (and tested) server-side
+  rather than left as rules the browser has to know.
+
+  **This narrows the payload**: `cloud_equiv_usd`, `pricing_refs`, `failures`, `lost_attempts`, the
+  per-entry token counts of both breakdowns, and the delegates' unbounded `by_parent` tree no
+  longer ship — the last replaced by the `linked_parents` count the panel actually rendered.
+  Admissible here and nowhere else in this repo: the surface is localhost-only and internal, and
+  its one consumer ships in the same package.
+
 ## [0.24.0] - 2026-09-10
 
 ### Added

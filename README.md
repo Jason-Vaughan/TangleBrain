@@ -261,7 +261,12 @@ A thin **localhost-only** web panel over the config — zero extra dependencies 
 The panel has two views, switched from the sidebar and addressable by fragment. **Chat**
 (`#/chat`, where it opens) lets you **run a prompt** through the router, showing which tier/model
 served it. **Settings** (`#/settings`) holds the knobs: the cost-avoided rollup, the roster, and the
-pricing reference. A **status footer** sits beneath both, carrying the signals that qualify every
+pricing reference. The rollup is charted as well as totalled — a per-model table (requests and
+dollars, ranked) and a per-day sparkline over a 7 / 30 / 90 day window, both hand-built so the
+panel keeps reaching nothing off-machine. Under the chart, a caption naming the range it drew and
+how much of the lifetime figure sits outside it: per-day recording began in 0.24.0, one release
+before the chart, so on any install older than that a lifetime total legitimately covers more than
+any chart of it. A **status footer** sits beneath both, carrying the signals that qualify every
 figure on the page — the placeholder-pricing caveat and any measurement-health finding — so they
 do not depend on which view you are on. It is absent when there is nothing to report, and says so
 plainly when the figures could not be read at all. The **pricing card is
@@ -374,7 +379,8 @@ Make a backend a delegate target by flagging its roster entry `can_delegate: tru
 `can_orchestrate`). The shipped example flags the local tier, so the menu is non-empty out of the
 box. **Delegated sub-calls are now metered**: each is logged as a `kind: delegate` usage record, and
 `tanglebrain --stats` (and the knob panel) show a "Delegated sub-tasks" breakdown by backend (count,
-est tokens, informational cloud-equiv). These are kept **out of** the "spend avoided" headline so a
+est tokens, informational cloud-equiv). `--stats` prints the full linked-to tree; the panel shows
+how many parent tasks it links to, since that tree carries one key per task id. These are kept **out of** the "spend avoided" headline so a
 sub-call's saving is never double-counted against its parent task. Any non-local target is opt-in and
 your responsibility under that provider's terms — see [DISCLAIMER.md](https://github.com/Jason-Vaughan/TangleBrain/blob/main/DISCLAIMER.md).
 

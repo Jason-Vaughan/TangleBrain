@@ -36,7 +36,11 @@ These bind. Departing from one is a decision to record and justify.
   labels is the easiest way to ship a breaking change without noticing you did.
 
 - **New fields are additive and optional across every surface.** Canonical statement and rationale
-  live in [`data-model.md`](data-model.md).
+  live in [`data-model.md`](data-model.md). **One bounded exception**, ruled 2026-09-10: the
+  localhost-only GUI endpoint may also *drop* a field its own panel does not render, because its
+  one consumer ships in the same wheel and nothing persists the payload. The conditions, and why
+  they do not generalize, are in
+  [`deprecation-policy.md`](deprecation-policy.md) § HTTP surfaces.
 
 ## Surface 1 — HTTP, OpenAI-compatible (`tanglebrain-serve`)
 
@@ -138,9 +142,9 @@ a model reading a stale menu will confidently route to a target that no longer e
 | `--stats` | Print the spend-avoided rollup and exit. |
 | `--route` | **Deprecated no-op**, kept for back-compat. |
 
-**`--route` is the project's de facto deprecation policy, demonstrated:** a superseded flag is kept
-as an accepted no-op rather than removed, so an existing script keeps working. Worth promoting from
-precedent to stated policy — it is currently a pattern one flag deep.
+**`--route` is the deprecation policy's worked example:** a superseded flag is kept as an accepted
+no-op rather than removed, so an existing script keeps working. It was a precedent one flag deep
+until [`deprecation-policy.md`](deprecation-policy.md) wrote the rule down and cited it by name.
 
 `--model` pins **which** backend serves a request; it does not decide **whether** that backend may
 delegate. An orchestrator-capable entry keeps its delegate tool on the pinned path exactly as it has
@@ -158,6 +162,37 @@ talked into writing `invoke`, `key_ref`, or `tier`. Writes are validated, atomic
 timestamp, and comment-preserving.
 
 **Secrets are never resolved or sent to the browser** — a `key_ref` renders as its reference string.
+
+**`/api/stats` returns a named projection, not the measurement rollup.** The endpoint declares the
+fields it sends; a field added to `rollup()` for the CLI's benefit does not reach the browser until
+someone puts it there. This surface is the one place in TangleBrain where a *narrowing* change is
+admissible — it is localhost-only, and the panel that consumes it ships in the same package — so
+the projection is free to reshape as well as to select.
+
+The declared set, in full. Top level: `summary`, `pricing_ref`, `is_placeholder`, `health`. Inside
+`summary`: `tasks`, `spend_avoided_usd`, `by_tier`, `by_origin`, `in_tokens_est`, `out_tokens_est`,
+`by_model`, `by_day`, `by_day_since`, `spend_avoided_outside_days_usd`, and `delegates`
+(`count`, `linkage_lost`, `in_tokens_est`, `out_tokens_est`, `cloud_equiv_usd`, `by_backend`,
+`linked_parents`). Nothing else in `rollup()`'s dict is sent — **`cloud_equiv_usd` at top level,
+`pricing_refs`, `failures`, `lost_attempts`, the per-entry token counts inside both breakdowns, and
+the delegates' `by_parent` tree were all removed here**, none of them rendered by the panel.
+
+What the reshaped and added members mean:
+
+- `by_model` — a list of `{id, count, spend_avoided_usd}`, ranked by spend. The store holds a map;
+  the ranking is the table, and a JSON object's key order is not a contract.
+- `by_day` — a list of `{day, spend_avoided_usd}`, ascending, capped at the **90 days** the panel's
+  widest window draws, with idle days inside the covered range materialized as `0.0` and days
+  before the earliest surviving bucket simply absent. In the store's map those two cases are
+  indistinguishable without knowing the rule; as a series the distinction is structural.
+- `by_day_since` — when per-day recording began. The caption's *wording*, never the chart's left
+  edge: after the first eviction it is older than anything left, so drawing from it would paint the
+  evicted span as $0.
+- `spend_avoided_outside_days_usd` — lifetime spend minus every retained day bucket. The panel
+  cannot compute it, and without it "this window is narrower" and "the per-day data starts later"
+  are indistinguishable from the browser.
+- `delegates.linked_parents` replaces the `by_parent` tree — one key per parent task id is
+  unbounded, and the panel renders one number from it.
 
 ## API design review
 
