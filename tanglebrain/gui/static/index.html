@@ -569,7 +569,7 @@ async function loadStats() {
       since: s.by_day_since || "",
     };
     html += `<h3 class="sub-head">By model <span class="muted">(lifetime)</span></h3>${modelTable(s.by_model || [])}`;
-    html += `<h3 class="sub-head">Spend avoided over time</h3><div id="chartRegion">${chartMarkup()}</div>`;
+    html += `<h3 class="sub-head">Spend avoided over time</h3>${chartMarkup()}`;
     const dg = s.delegates || {};
     if (dg.count) {
       const backends = (dg.by_backend || []).map((b) => `${esc(b.id)} ${b.count || 0}`).join(", ") || "—";

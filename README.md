@@ -264,8 +264,9 @@ served it. **Settings** (`#/settings`) holds the knobs: the cost-avoided rollup,
 pricing reference. The rollup is charted as well as totalled — a per-model table (requests and
 dollars, ranked) and a per-day sparkline over a 7 / 30 / 90 day window, both hand-built so the
 panel keeps reaching nothing off-machine. Under the chart, a caption naming the range it drew and
-how much of the lifetime figure sits outside it: per-day recording begins when this feature lands
-on your install, so a lifetime total legitimately covers more than any chart of it. A **status footer** sits beneath both, carrying the signals that qualify every
+how much of the lifetime figure sits outside it: per-day recording began in 0.24.0, one release
+before the chart, so on any install older than that a lifetime total legitimately covers more than
+any chart of it. A **status footer** sits beneath both, carrying the signals that qualify every
 figure on the page — the placeholder-pricing caveat and any measurement-health finding — so they
 do not depend on which view you are on. It is absent when there is nothing to report, and says so
 plainly when the figures could not be read at all. The **pricing card is

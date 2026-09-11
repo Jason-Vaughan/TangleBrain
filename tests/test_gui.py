@@ -254,6 +254,38 @@ class StatsProjectionTest(unittest.TestCase):
         payload = views.project_stats_summary(summary)
         self.assertNotIn("a_field_added_for_some_other_consumer", payload)
 
+    def test_the_contract_doc_lists_exactly_what_the_endpoint_sends(self):
+        # The doc claims a *complete* field set and names what was removed, which is the shape
+        # that decays within a merge unless something recomputes it: the other two tests here
+        # guard additions to the ROLLUP and the presence of the rendered fields, and neither
+        # notices a field added to the projection — the one edit that falsifies the sentence. It
+        # matters more on this surface than on any other in the repo, because a ruled exception
+        # lets this endpoint *remove* fields, so this list is the only statement a reader has of
+        # what it does not send.
+        doc = (Path(__file__).resolve().parents[1] / "docs" / "design" / "api-contract.md").read_text(
+            encoding="utf-8"
+        )
+        section = doc[doc.index("The declared set, in full."):doc.index("What the reshaped")]
+        declared_prose, removed_prose = section.split("Nothing else in")
+        payload = views.project_stats_summary(_rollup_with_days({"2026-09-10": 1.0}))
+        sent = set(payload) | set(payload["delegates"]) | {
+            "summary", "pricing_ref", "is_placeholder", "health",
+        }
+        self.assertEqual(
+            set(re.findall(r"`([a-z_]+)`", declared_prose)), sent,
+            "docs/design/api-contract.md § Surface 4 names a field set that is no longer what "
+            "project_stats_summary returns — update that section in the same commit",
+        )
+        # The removals are the other half of the claim, and they decay the same way: a field named
+        # as dropped that the rollup no longer produces makes the sentence a historical note
+        # dressed as a contract.
+        rollup_keys = set(rollup([], empty_totals())) | set(rollup([], empty_totals())["delegates"])
+        for name in re.findall(r"`([a-z_]+)`", removed_prose):
+            with self.subTest(removed=name):
+                self.assertIn(name, rollup_keys, "named as removed but the rollup does not hold it")
+                self.assertNotIn(name, payload, "named as removed but still sent at the top level")
+        self.assertNotIn("by_parent", payload["delegates"])
+
     def test_the_fields_the_panel_renders_all_survive(self):
         # The other direction: a projection that drops something the panel draws is a blank card.
         payload = views.project_stats_summary(
