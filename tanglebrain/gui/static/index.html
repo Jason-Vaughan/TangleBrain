@@ -135,6 +135,10 @@
     /* One override, and both columns follow it. */
     :root { --content-inset: 16px; }
     .wrap { padding: 20px var(--content-inset) 48px; }
+    /* The per-model bar is the first thing to go when the column runs out of room: it restates
+       the dollar figure in the cell beside it, so dropping it costs nothing, while keeping it
+       pushed the table past the viewport and made the whole page scroll sideways. */
+    .barcell { display: none; }
   }
 
   /* ---- content -------------------------------------------------------------------------- */
@@ -510,7 +514,7 @@ function modelTable(rows) {
       <td class="num">${money(spend)}</td>
       <td class="barcell" aria-hidden="true">${pct ? `<span class="bar" style="width:${pct}%"></span>` : ""}</td></tr>`;
   }).join("");
-  return `<table><thead><tr><th>model</th><th class="num">requests</th><th class="num">spend avoided</th><th aria-hidden="true"></th></tr></thead><tbody>${body}</tbody></table>`;
+  return `<table><thead><tr><th>model</th><th class="num">requests</th><th class="num">spend avoided</th><th class="barcell" aria-hidden="true"></th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 async function loadStats() {
