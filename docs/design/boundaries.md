@@ -150,8 +150,7 @@ marked **external** below. Full contracts live in [`api-contract.md`](api-contra
 - **Crossing it means:** the v0.20.1 failure class. Guarded by `tests/test_packaging.py`, which
   asserts the constraints this file declares over every requirement table — **update those
   assertions deliberately when a bound moves; never delete one to green a build.** The tests are
-  their own inventory and are described here by rule rather than listed, because every assertion
-  added to that file used to strand an enumeration somewhere. Verify from a clean venv against real
+  their own inventory. Verify from a clean venv against real
   PyPI, since a source checkout has the dependency already importable and cannot see the break.
 
 ## Test levels

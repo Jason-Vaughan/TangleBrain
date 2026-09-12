@@ -194,37 +194,54 @@ class DesignDocCitationTest(unittest.TestCase):
     the whole matrix rather than the subset the dependency tests above reach.
     """
 
-    #: Docs cited by their repo-root name rather than from ``docs/design/``.
-    ROOT_DOCS = frozenset({"README.md", "CHANGELOG.md", "CONTRIBUTING.md"})
+    #: A Markdown filename, with or without surrounding backticks. Both spellings occur in this
+    #: package, so matching only the backticked form would leave the bare ones unchecked.
+    CITATION = re.compile(r"[A-Za-z0-9_./-]+\.md")
 
-    #: A Markdown filename inside backticks — how every such citation in this package is written.
-    CITATION = re.compile(r"`([A-Za-z0-9_./-]+\.md)`")
+    @staticmethod
+    def _readable_doc_names():
+        """Return the exact-case name of every Markdown doc readable in the public tree.
 
-    def test_every_design_doc_cited_from_the_package_resolves(self):
+        Built from directory listings rather than :meth:`pathlib.Path.is_file`, because macOS is
+        case-insensitive and Linux CI is not — ``is_file()`` answers True on a developer's laptop
+        for a name that differs only in case, silently resolving a citation against a *different*
+        document, and answers False on every CI leg. A listing gives both the same verdict.
+
+        The two locations are enumerated here and nowhere else: resolving against "wherever the
+        tracked docs actually are" is what lets a doc be added, renamed or moved between them
+        without an allow-list needing to be remembered.
+
+        Returns:
+            The set of Markdown filenames, by exact case, from the repository root and
+            ``docs/design/``.
+        """
+        roots = (REPO_ROOT, REPO_ROOT / "docs" / "design")
+        return {p.name for root in roots for p in root.iterdir() if p.suffix == ".md"}
+
+    def test_every_doc_cited_from_the_package_resolves(self):
         # A citation naming a file the reader cannot open is worse than no citation: it implies a
         # source was consulted and can be consulted again. The failure is invisible in review
         # because the name looks right — `observability-strategy.md` reads exactly like a doc this
         # repo has, and it is one, under `.prawduct/`, which is gitignored. So a reader of the
-        # public tree found nothing and could not tell whether it had been deleted, renamed, or
-        # never published.
+        # public tree found nothing, and could not tell a deleted doc from a renamed one from a
+        # doc that was never published.
         #
-        # Resolving the names rather than grepping for known-bad ones is what makes this a
-        # construction instead of a sweep somebody has to remember to re-run: the next citation
-        # added to a gitignored doc fails here, whatever it is called.
+        # Resolving every cited name, rather than grepping for the one known-bad one, is what makes
+        # this a construction instead of a sweep somebody has to remember to re-run: the next
+        # citation into a gitignored doc fails here whatever it is called.
+        readable = self._readable_doc_names()
         unresolved = []
         for module in sorted((REPO_ROOT / "tanglebrain").rglob("*.py")):
             text = module.read_text(encoding="utf-8")
             for cited in self.CITATION.findall(text):
-                name = Path(cited).name
-                if name in self.ROOT_DOCS and (REPO_ROOT / name).is_file():
-                    continue
-                if not (REPO_ROOT / "docs" / "design" / name).is_file():
-                    unresolved.append(f"{module.relative_to(REPO_ROOT)} cites `{cited}`")
+                if Path(cited).name not in readable:
+                    unresolved.append(f"{module.relative_to(REPO_ROOT)} cites {cited!r}")
         self.assertEqual(
             unresolved,
             [],
-            "these citations name a file that is not in the public tree — a reader cannot follow "
-            f"them, and cannot tell a deleted doc from a gitignored one: {unresolved}",
+            "these citations name a file that is not readable in the public tree — a reader cannot "
+            "follow them, and cannot tell a deleted doc from a gitignored one. A case-only "
+            f"mismatch counts: it resolves on macOS and fails on CI. {unresolved}",
         )
 
 
