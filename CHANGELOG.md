@@ -43,6 +43,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Admissible here and nowhere else in this repo: the surface is localhost-only and internal, and
   its one consumer ships in the same package.
 
+### Internal
+
+- **`wheel` is no longer a build requirement**
+  ([#222](https://github.com/Jason-Vaughan/TangleBrain/issues/222)). `build-system.requires` listed
+  `wheel >= 0.45, < 1` alongside setuptools. At this floor that resolves a distribution the build
+  never uses: setuptools builds wheels with its own `setuptools.command.bdist_wheel`, and
+  `build_meta.get_requires_for_build_wheel()` accordingly asks the frontend for nothing beyond
+  setuptools itself. The line cost a requirement to resolve and a second bound to maintain — and,
+  since it carried a ceiling, a recurring Dependabot pull request — while changing nothing about
+  what the isolated build environment contains.
+
+  **The artifacts are unchanged, which is the claim worth checking rather than asserting.** Built
+  before and after, the wheel is equivalent down to its `RECORD` — same file list, same per-file
+  hashes, same sizes — and the sdist differs in exactly one file, `pyproject.toml` itself. Both
+  builds report `Generator: setuptools (84.0.0)`, which is the direct evidence that setuptools,
+  not the `wheel` package, was producing the wheel all along.
+
+  **A test now holds the line out.** The removal is pinned in `tests/test_packaging.py` because of
+  the shape the question returns in: not as "should this requirement exist at all", but as a
+  routine `wheel x.y -> x.z` bump indistinguishable from every other dependency pull request.
+  Re-adding it now takes a deliberate edit to a failing test.
+
 ## [0.24.0] - 2026-09-10
 
 ### Added
