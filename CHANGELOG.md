@@ -67,6 +67,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routine `wheel x.y -> x.z` bump indistinguishable from every other dependency pull request.
   Re-adding it now takes a deliberate edit to a failing test.
 
+- **GitHub Actions are pinned to commit SHAs, so upstream cannot move what runs here**
+  ([#219](https://github.com/Jason-Vaughan/TangleBrain/issues/219)). Every action was pinned by
+  *mutable major tag* — `@v7`, `@v8` — so what executed was whatever that tag pointed at on the day,
+  and a coerced or compromised tag push upstream would have run in this repo's workflows with no
+  diff to review. `CONTRIBUTING.md` already treats `.github/workflows/` as a forbidden file for
+  outside contributors precisely because those files "execute without anyone choosing to run them";
+  a mutable tag reintroduced that hazard from upstream instead of from a pull request. The four
+  `actions/*` entries across both workflows now carry full 40-character SHAs with the version in a
+  trailing comment, which is the form Dependabot understands and maintains.
+
+  **`pypa/gh-action-pypi-publish@release/v1` is deliberately left unpinned**, and the workflow says
+  so at the line. It tracks a *branch*, so there is no version to pin to: freezing a commit from it
+  would stop the security fixes a publishing action most needs, and whether to track a branch there
+  at all is a larger decision than this pass. It is also the one action that uploads to PyPI, which
+  is not something to change unverified — `publish.yml` runs only on a real release
+  ([#226](https://github.com/Jason-Vaughan/TangleBrain/issues/226)). That decision now has a tracked
+  home of its own ([#232](https://github.com/Jason-Vaughan/TangleBrain/issues/232)), rather than
+  living as a comment saying it is tracked somewhere.
+
+  **A cost moved, and it is not the one #219 priced.** That issue argued the trade as review
+  legibility — SHAs are unreadable at a glance. The larger change is to the *failure* mode: under a
+  mutable tag, an update mechanism that silently stopped running still let upstream security
+  releases reach these workflows. Under a SHA pin it delivers nothing, forever, with no signal. That
+  is why the trailing `# vX.Y.Z` comment is load-bearing rather than decoration — Dependabot reads
+  it to know which version a pin is being bumped *from* — and why `tests/test_packaging.py` now
+  fails the build on a pin missing either half, or on any action becoming unpinned that was not
+  decided to be.
+
 - **Two stale doc pointers fixed: an unreachable citation, and a list that decayed**
   ([#170](https://github.com/Jason-Vaughan/TangleBrain/issues/170),
   [#228](https://github.com/Jason-Vaughan/TangleBrain/issues/228)). `totals.py` grounded its

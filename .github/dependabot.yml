@@ -62,10 +62,22 @@ updates:
     # sight, which is the one update this config exists to surface.
     open-pull-requests-limit: 5
 
-  # Workflow actions are pinned by tag and nothing watches them. `publish.yml` holds
-  # `id-token: write` for PyPI trusted publishing, so its actions are the highest-privilege
-  # dependency in the repo. No `versioning-strategy` here: a tag pin has no range to widen or
-  # increase, so the option would be inert.
+  # Workflow actions are pinned to commit SHAs, each carrying its version in a trailing comment.
+  # `publish.yml` holds `id-token: write` for PyPI trusted publishing, so its actions are the
+  # highest-privilege dependency in the repo. No `versioning-strategy` here: a SHA pin has no
+  # range to widen or increase, so the option would be inert.
+  #
+  # THE TRAILING `# vX.Y.Z` COMMENT IS LOAD-BEARING, not decoration: it is what the updater reads
+  # to know which version a pin is being bumped FROM. A SHA-pinned action whose comment is removed
+  # stops receiving updates entirely — and unlike a tag pin, it cannot pick them up from upstream
+  # any other way. `tests/test_packaging.py` fails the build on a pin missing either half.
+  #
+  # THAT IS ALSO WHERE THE COST MOVED, and it is worth naming because the pinning change was
+  # argued on review legibility. Under a mutable tag, an updater that silently stopped running
+  # still let upstream security releases reach these workflows. Under a SHA pin it delivers
+  # nothing, forever, with no signal — and the LIMIT paragraph below, which says this updater's
+  # silence is indistinguishable from having nothing to do, now governs the repo's
+  # `id-token: write` surface.
   #
   # Coverage is four of five, and the gap is the privileged one: `pypa/gh-action-pypi-publish` is
   # pinned at `@release/v1`, a BRANCH ref, and the updater versions tags rather than branches. That

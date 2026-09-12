@@ -29,6 +29,7 @@ else:  # pragma: no cover - exercised on 3.10 only, where the check skips
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 DEPENDABOT_PATH = REPO_ROOT / ".github" / "dependabot.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
 
 @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+; covered by the 3.11/3.12 CI jobs")
@@ -328,6 +329,90 @@ class DependabotConfigTest(unittest.TestCase):
                 with self.subTest(ecosystem=entry["package-ecosystem"], group=name):
                     self.assertNotIn("major", group.get("update-types", []))
         self.assertTrue(seen, "no group was examined — this test would pass over anything")
+
+
+class WorkflowActionPinTest(unittest.TestCase):
+    """Every workflow action is pinned to a commit SHA and carries its version in a comment.
+
+    ``.github/workflows/`` is a forbidden file for outside contributors because those files execute
+    without anyone choosing to run them, and `publish.yml` holds ``id-token: write`` for PyPI
+    trusted publishing. A mutable major tag reintroduces that hazard from upstream rather than from
+    a reviewable pull request, which is what the SHA pins removed.
+    """
+
+    #: Tracks a branch rather than a tag, so there is no version to pin to. Whether to keep
+    #: tracking it is a live decision, not an oversight — the reasoning is at the line in
+    #: publish.yml, and pinning it is deliberately NOT what makes this test pass.
+    UNPINNED_BY_DECISION = frozenset({"pypa/gh-action-pypi-publish"})
+
+    #: ``uses: owner/repo@ref`` with any trailing comment, which is where the version lives.
+    #: The pre-comment whitespace is ``[^\S\n]*`` rather than ``\s*`` on purpose: ``\s`` crosses
+    #: newlines, so a step whose version comment was deleted would capture the next standalone
+    #: ``#`` line as its version and pass — a false negative in the one check this guard exists
+    #: for.
+    USES = re.compile(r"uses:[^\S\n]*([^@\s]+)@(\S+)[^\S\n]*(?:#[^\S\n]*(\S+))?")
+
+    def _uses_steps(self):
+        """Yield ``(workflow, action, ref, comment)`` for every ``uses:`` step in the workflows.
+
+        Read as text rather than parsed as YAML on purpose: the version lives in a trailing
+        ``#`` comment, which a YAML loader discards — and that comment is the half of the pin
+        this test most needs to see.
+
+        Both ``.yml`` and ``.yaml`` are collected because GitHub accepts either, and a rule is only
+        as wide as the set it discovers: a workflow written with the other spelling would otherwise
+        be invisible to every assertion here, the exemption guard included.
+
+        Returns:
+            A list of ``(workflow filename, action, ref, trailing comment or None)`` tuples.
+        """
+        found = []
+        workflows = sorted(
+            path
+            for pattern in ("*.yml", "*.yaml")
+            for path in WORKFLOWS_DIR.glob(pattern)
+        )
+        for workflow in workflows:
+            for action, ref, comment in self.USES.findall(workflow.read_text(encoding="utf-8")):
+                found.append((workflow.name, action, ref, comment or None))
+        return found
+
+    def test_every_action_is_pinned_to_a_sha_and_names_its_version(self):
+        # Two failures in one assertion because they are one pin. The SHA is what stops upstream
+        # moving a tag under us. The trailing `# vX.Y.Z` comment is what Dependabot reads to know
+        # which version it is bumping FROM — drop it and updates stop arriving on exactly the
+        # actions that can no longer receive them any other way, silently and forever. A pin
+        # without its comment is worse than a tag: frozen, and unwatched.
+        steps = self._uses_steps()
+        self.assertTrue(steps, "no `uses:` step found — this test would pass over anything")
+        problems = []
+        for workflow, action, ref, comment in steps:
+            if action in self.UNPINNED_BY_DECISION:
+                continue
+            if not re.fullmatch(r"[0-9a-f]{40}", ref):
+                problems.append(f"{workflow}: {action}@{ref} is not a 40-character commit SHA")
+            elif comment is None:
+                problems.append(
+                    f"{workflow}: {action} is SHA-pinned with no version comment — Dependabot "
+                    "reads that comment to know what it is bumping from, so this pin is frozen"
+                )
+        self.assertEqual(problems, [], f"workflow action pins are not intact: {problems}")
+
+    def test_the_unpinned_action_is_still_the_one_we_decided_to_leave(self):
+        # The exemption above is a decision about one specific action, not a general licence. If a
+        # second action ever appears unpinned, this fails rather than letting the first one's
+        # rationale silently cover it.
+        unpinned = {
+            action
+            for _, action, ref, _ in self._uses_steps()
+            if not re.fullmatch(r"[0-9a-f]{40}", ref)
+        }
+        self.assertEqual(
+            unpinned,
+            set(self.UNPINNED_BY_DECISION),
+            "the set of unpinned actions changed — each one is a deliberate decision with its "
+            f"reasoning at the line in its workflow, so review it rather than widening the set: {unpinned}",
+        )
 
 
 if __name__ == "__main__":
