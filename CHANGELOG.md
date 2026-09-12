@@ -43,6 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Admissible here and nowhere else in this repo: the surface is localhost-only and internal, and
   its one consumer ships in the same package.
 
+### Internal
+
+- **The data model's concurrency inventory names the first-run state migration**
+  ([#196](https://github.com/Jason-Vaughan/TangleBrain/issues/196)). `docs/design/data-model.md`
+  § Concurrency listed the cross-process races over persisted state — the `usage.jsonl` appends and
+  the compaction gap — but omitted `migrate_state_root`, which is the one such write *every* console
+  script performs at startup, and the one whose fixed staging name could silently truncate the usage
+  log before [#139](https://github.com/Jason-Vaughan/TangleBrain/issues/139) gave each process
+  a unique staging path. The inventory now carries it alongside the other two, with its failure mode
+  and the guarantee that holds today. Description only — no behaviour changed.
+
 ## [0.24.0] - 2026-09-10
 
 ### Added

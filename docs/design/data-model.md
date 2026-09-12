@@ -355,6 +355,16 @@ delegates' per-parent tree is never folded into it.
   row appended by another TangleBrain during a compaction goes to the file being replaced and is
   lost. Accepted for a single-operator tool — see "Compaction" above for why an advisory lock was
   not the answer.
+- The **first-run state migration** (`router.migrate_state_root`) is the cross-process write every
+  console script performs, so two TangleBrain processes can be inside it at once on a machine that
+  still has a legacy `~/.cache` root. Each entry is staged in the destination directory and moved
+  into place with `os.replace`, and the staging name is unique per process
+  (`atomic.staging_path`), so a process that loses the race can only ever discard its own work.
+  A shared staging name is what made this dangerous: one process could unlink another's copy while
+  it was still being written and then rename its own partial copy into place, leaving a truncated
+  `usage.jsonl` — and because the re-run guard is "does the destination exist", no later run would
+  retry it. What remains is a residue rather than a race: `SIGKILL` or power loss can orphan a
+  staging entry, left deliberately visible because it is the operator's to delete.
 
 ## Validation
 
