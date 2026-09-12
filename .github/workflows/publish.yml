@@ -72,6 +72,7 @@ jobs:
       # security fixes a publishing action most needs. Whether to track a branch here at all is
       # its own decision, larger than the pinning pass that pinned the rest, and it is the one
       # action that actually uploads to PyPI — so it was left alone rather than changed under a
-      # release. Tracked separately; do not "finish the job" by pinning this line without making
-      # that decision first.
+      # release. The decision is tracked at
+      # https://github.com/Jason-Vaughan/TangleBrain/issues/232 — do not "finish the job" by
+      # pinning this line without making it there first.
       - uses: pypa/gh-action-pypi-publish@release/v1

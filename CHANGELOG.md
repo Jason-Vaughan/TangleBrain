@@ -82,7 +82,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would stop the security fixes a publishing action most needs, and whether to track a branch there
   at all is a larger decision than this pass. It is also the one action that uploads to PyPI, which
   is not something to change unverified — `publish.yml` runs only on a real release
-  ([#226](https://github.com/Jason-Vaughan/TangleBrain/issues/226)).
+  ([#226](https://github.com/Jason-Vaughan/TangleBrain/issues/226)). That decision now has a tracked
+  home of its own ([#232](https://github.com/Jason-Vaughan/TangleBrain/issues/232)), rather than
+  living as a comment saying it is tracked somewhere.
+
+  **A cost moved, and it is not the one #219 priced.** That issue argued the trade as review
+  legibility — SHAs are unreadable at a glance. The larger change is to the *failure* mode: under a
+  mutable tag, an update mechanism that silently stopped running still let upstream security
+  releases reach these workflows. Under a SHA pin it delivers nothing, forever, with no signal. That
+  is why the trailing `# vX.Y.Z` comment is load-bearing rather than decoration — Dependabot reads
+  it to know which version a pin is being bumped *from* — and why `tests/test_packaging.py` now
+  fails the build on a pin missing either half, or on any action becoming unpinned that was not
+  decided to be.
 
 - **Two stale doc pointers fixed: an unreachable citation, and a list that decayed**
   ([#170](https://github.com/Jason-Vaughan/TangleBrain/issues/170),
