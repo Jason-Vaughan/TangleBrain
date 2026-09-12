@@ -82,7 +82,7 @@ dependencies = [
 # even though no TangleBrain API moved (see docs/design/deprecation-policy.md). The ceiling is
 # `< 3` for the same reason every other dependency has one: an unbounded floor is how a major
 # lands unannounced. Users who need mcp 1.x install TangleBrain 0.20.1, the last release for it.
-delegate = ["mcp >= 2, < 3"]
+delegate = ["mcp >= 2.2.0, < 3"]
 
 # The lint and type-check toolchain (#113). Dev-only: nothing here is imported at runtime, so the
 # minimal-dependency stance — which is about what a *user* installs — is untouched. Bounded at the
