@@ -2,9 +2,10 @@
 
 Dependency constraints are not exercised by any runtime code path, so nothing catches a bad one
 until an install resolves differently — which can be months after the constraint was written, in
-someone else's environment. These tests pin the invariants that have already bitten.
+someone else's environment. Pinning them here moves that discovery to commit time. Some were
+written after an incident and some ahead of one.
 
-The history behind them: the ``delegate`` extra shipped as ``mcp >= 1.0``. When the SDK released
+The founding case: the ``delegate`` extra shipped as ``mcp >= 1.0``. When the SDK released
 2.0.0 it renamed ``FastMCP`` to ``MCPServer`` and dropped the ``mcp.server.fastmcp`` import path
 ``tanglebrain/mcp_server.py`` uses, so every fresh resolve installed an SDK the code could not
 import. Nothing in the repo had changed. The defect was never the SDK's release — it was the
@@ -13,6 +14,7 @@ open-ended constraint that let a major land unannounced.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -185,6 +187,81 @@ class DependencyBoundTest(unittest.TestCase):
             spec,
             f"the mcp requirement must stay below the next major; got {requirement!r}",
         )
+
+class DesignDocCitationTest(unittest.TestCase):
+    """Every design doc a shipped module cites must be readable in the public tree.
+
+    Deliberately not skipped on 3.10: this reads text files and needs no ``tomllib``, so it covers
+    the whole matrix rather than the subset the dependency tests above reach.
+    """
+
+    #: A Markdown filename, with or without surrounding backticks. Both spellings occur in this
+    #: package, so matching only the backticked form would leave the bare ones unchecked.
+    CITATION = re.compile(r"[A-Za-z0-9_./-]+\.md")
+
+    @staticmethod
+    def _readable_doc_names():
+        """Return the exact-case name of every Markdown doc readable in the *public* tree.
+
+        Sourced from ``git ls-files`` rather than from a directory listing, because what this test
+        is about is whether a reader who clones the repository can open the file. A listing of the
+        working tree answers a different question: this repo keeps several gitignored Markdown docs
+        at its root, so a citation to one of them would resolve on a maintainer's laptop and fail
+        on CI — which is the same defect the test exists to catch, relocated one directory. Tracked
+        is the property; present is not.
+
+        Set membership is also case-sensitive whatever the filesystem is. That matters because
+        :meth:`pathlib.Path.is_file` is not: on macOS it answers True for a name differing only in
+        case, silently resolving a citation against a *different* document, and False on every
+        Linux CI leg.
+
+        The two locations are named here and nowhere else, so a doc can be added, renamed, or moved
+        between them without an allow-list to remember.
+
+        Returns:
+            The set of tracked Markdown filenames, by exact case, from the repository root and
+            ``docs/design/``.
+        """
+        listed = subprocess.run(
+            ["git", "ls-files", "--", "*.md"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        allowed_parents = {Path("."), Path("docs/design")}
+        return {
+            path.name
+            for path in map(Path, listed.stdout.splitlines())
+            if path.parent in allowed_parents
+        }
+
+    def test_every_doc_cited_from_the_package_resolves(self):
+        # A citation naming a file the reader cannot open is worse than no citation: it implies a
+        # source was consulted and can be consulted again. The failure is invisible in review
+        # because the name looks right — `observability-strategy.md` reads exactly like a doc this
+        # repo has, and it is one, under `.prawduct/`, which is gitignored. So a reader of the
+        # public tree found nothing, and could not tell a deleted doc from a renamed one from a
+        # doc that was never published.
+        #
+        # Resolving every cited name, rather than grepping for the one known-bad one, is what makes
+        # this a construction instead of a sweep somebody has to remember to re-run: the next
+        # citation into a gitignored doc fails here whatever it is called.
+        readable = self._readable_doc_names()
+        unresolved = []
+        for module in sorted((REPO_ROOT / "tanglebrain").rglob("*.py")):
+            text = module.read_text(encoding="utf-8")
+            for cited in self.CITATION.findall(text):
+                if Path(cited).name not in readable:
+                    unresolved.append(f"{module.relative_to(REPO_ROOT)} cites {cited!r}")
+        self.assertEqual(
+            unresolved,
+            [],
+            "these citations name a file that is not readable in the public tree — a reader cannot "
+            "follow them, and cannot tell a deleted doc from a gitignored one. A case-only "
+            f"mismatch counts: it resolves on macOS and fails on CI. {unresolved}",
+        )
+
 
 class DependabotConfigTest(unittest.TestCase):
     """The Dependabot config makes a claim about a provider, so pin the half that is ours.
