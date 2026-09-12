@@ -67,6 +67,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routine `wheel x.y -> x.z` bump indistinguishable from every other dependency pull request.
   Re-adding it now takes a deliberate edit to a failing test.
 
+- **Two stale doc pointers fixed: an unreachable citation, and a list that decayed**
+  ([#170](https://github.com/Jason-Vaughan/TangleBrain/issues/170),
+  [#228](https://github.com/Jason-Vaughan/TangleBrain/issues/228)). `totals.py` grounded its
+  degradation rule in `observability-strategy.md`, which lives under `.prawduct/` and is gitignored
+  — so for anyone reading the public tree the citation named a file that does not exist, which is
+  worse than no citation because it implies a source that can be consulted. It now cites
+  `docs/design/observability.md` § Invariants, which carries the identical rule and is tracked. A
+  tree-wide re-sweep confirms it was the only unreachable one: the three other doc names cited from
+  `tanglebrain/` all resolve under `docs/design/`.
+
+  **The second half is the same defect one level up.** `docs/design/boundaries.md` § Packaging and
+  `tests/test_packaging.py`'s module docstring described that test file by listing what it asserts,
+  so both went stale every time an assertion was added — the docstring claimed the module pins
+  "invariants that have already bitten", which stopped being true of two of them. Both now describe
+  the file by rule, and say why: the tests are their own inventory, and a longer list only relocates
+  the staleness.
+
 - **The data model's concurrency inventory names the first-run state migration**
   ([#196](https://github.com/Jason-Vaughan/TangleBrain/issues/196)). `docs/design/data-model.md`
   § Concurrency listed the cross-process races over persisted state — the `usage.jsonl` appends and

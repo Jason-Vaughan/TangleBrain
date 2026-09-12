@@ -2,9 +2,12 @@
 
 Dependency constraints are not exercised by any runtime code path, so nothing catches a bad one
 until an install resolves differently — which can be months after the constraint was written, in
-someone else's environment. These tests pin the invariants that have already bitten.
+someone else's environment. So the invariants are pinned here instead, where a bad constraint fails
+at commit time rather than in a stranger's resolve months later. Some of them were written after an
+incident and some ahead of one — the tests below are their own inventory, and listing them here
+would only strand the list the next time one is added.
 
-The history behind them: the ``delegate`` extra shipped as ``mcp >= 1.0``. When the SDK released
+The founding case: the ``delegate`` extra shipped as ``mcp >= 1.0``. When the SDK released
 2.0.0 it renamed ``FastMCP`` to ``MCPServer`` and dropped the ``mcp.server.fastmcp`` import path
 ``tanglebrain/mcp_server.py`` uses, so every fresh resolve installed an SDK the code could not
 import. Nothing in the repo had changed. The defect was never the SDK's release — it was the

@@ -12,8 +12,8 @@ window, never diffused across both.
 
 Reading is deliberately total. An absent, unreadable, or corrupt file reads as all-zeros, so a log
 that has never been compacted rolls up exactly as it did before this file existed, and a damaged
-one degrades to a smaller number rather than to an error (`observability-strategy.md` § Direction:
-observability degrades to less information, never to an error).
+one degrades to a smaller number rather than to an error (`docs/design/observability.md`
+§ Invariants: observability degrades to less information, never to an error).
 
 **Forward compatibility is a property of the format, not an event.** An unknown key is ignored and
 a missing key reads as zero — the same contract the usage record honours (`data-model.md` §
