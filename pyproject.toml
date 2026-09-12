@@ -27,12 +27,15 @@
 # that is CI on the Dependabot pull request that raises the cap, which is the model
 # docs/design/nonfunctional-requirements.md already describes.
 #
-# `wheel` is bounded rather than dropped. setuptools has declared it itself since v70, so at this
-# floor it is redundant and could go — but removing a build requirement is a packaging change with
-# its own blast radius, not a version bump, and this change is scoped to the floors. Tracked
-# separately rather than left as a comment. The floor is the current minor and the ceiling the
-# major boundary; `wheel` had no constraint at all before this.
-requires = ["setuptools >= 84, < 85", "wheel >= 0.45, < 1"]
+# `wheel` IS NOT LISTED, deliberately — do not add it back. At this floor setuptools builds wheels
+# with its own `setuptools.command.bdist_wheel`, so the external `wheel` distribution is not part of
+# building this project at all. Two checks say so rather than one: `build_meta`'s
+# `get_requires_for_build_wheel()` returns an empty list, so the backend asks the frontend for
+# nothing beyond setuptools itself; and `wheel` appears in setuptools' own metadata only under its
+# `core` and `test` extras, neither of which an isolated build installs. Naming it here bought a
+# requirement to resolve and a second bound to maintain, and changed nothing about what the build
+# environment contains.
+requires = ["setuptools >= 84, < 85"]
 build-backend = "setuptools.build_meta"
 
 [project]

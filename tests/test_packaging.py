@@ -12,6 +12,7 @@ open-ended constraint that let a major land unannounced.
 """
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -30,7 +31,12 @@ DEPENDABOT_PATH = REPO_ROOT / ".github" / "dependabot.yml"
 
 @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+; covered by the 3.11/3.12 CI jobs")
 class DependencyBoundTest(unittest.TestCase):
-    """Every declared dependency must carry an upper bound, and ``mcp`` must stay within 2.x."""
+    """The dependency invariants asserted over ``pyproject.toml``'s requirement tables.
+
+    Deliberately described by subject rather than by listing the assertions: each one added here
+    used to strand a prose enumeration somewhere, and a longer list only relocates the staleness.
+    The tests below are the enumeration.
+    """
 
     def setUp(self):
         """Parse pyproject.toml once per test."""
@@ -112,6 +118,45 @@ class DependencyBoundTest(unittest.TestCase):
             "_all_requirements no longer discovers build-system.requires — the upper-bound rule "
             "would silently stop covering the build backend, which is the gap that let an "
             "unbounded, vulnerable setuptools floor through",
+        )
+
+    @staticmethod
+    def _requirement_name(requirement):
+        """Return the PEP 503-normalized distribution name from a PEP 508 requirement string.
+
+        Truncated at the first character that cannot appear in a name, so ``wheel >= 0.45, < 1``
+        yields ``wheel`` while a different distribution that merely starts with those letters
+        yields its own full name and does not collide. Normalized so ``Wheel`` and ``whe_el``
+        compare equal to ``wheel``.
+
+        Args:
+            requirement: A PEP 508 requirement string as declared in pyproject.toml.
+
+        Returns:
+            The lowercased, PEP 503-normalized distribution name.
+        """
+        name = re.match(r"[A-Za-z0-9._-]*", requirement.strip()).group(0)
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+    def test_wheel_is_not_a_build_requirement(self):
+        # Why the requirement is unnecessary is stated once, on the `[build-system]` table in
+        # pyproject.toml, where someone re-adding the line is already looking; the assertion
+        # message below points there rather than restating it, so a future setuptools fact has
+        # only one place to be corrected.
+        #
+        # Pinned here rather than left to that comment, because of the shape the
+        # question comes back in. Restored, the line does not return as "should this exist at all"
+        # — it returns as a routine `wheel x.y -> x.z` bump that reads like every other dependency
+        # pull request and merges without anyone reaching the decision. Failing this test is what
+        # turns that back into a deliberate edit.
+        requires = self.pyproject["build-system"]["requires"]
+        offenders = [req for req in requires if self._requirement_name(req) == "wheel"]
+        self.assertEqual(
+            offenders,
+            [],
+            f"`wheel` is back in build-system.requires as {offenders!r} — setuptools ships its "
+            "own bdist_wheel, so the build never resolves it; see the comment on that table in "
+            "pyproject.toml",
         )
 
     def test_mcp_is_pinned_to_the_2x_major(self):
