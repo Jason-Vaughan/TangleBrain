@@ -346,7 +346,11 @@ class WorkflowActionPinTest(unittest.TestCase):
     UNPINNED_BY_DECISION = frozenset({"pypa/gh-action-pypi-publish"})
 
     #: ``uses: owner/repo@ref`` with any trailing comment, which is where the version lives.
-    USES = re.compile(r"uses:\s*([^@\s]+)@(\S+)\s*(?:#\s*(\S+))?")
+    #: The pre-comment whitespace is ``[^\S\n]*`` rather than ``\s*`` on purpose: ``\s`` crosses
+    #: newlines, so a step whose version comment was deleted would capture the next standalone
+    #: ``#`` line as its version and pass — a false negative in the one check this guard exists
+    #: for.
+    USES = re.compile(r"uses:[^\S\n]*([^@\s]+)@(\S+)[^\S\n]*(?:#[^\S\n]*(\S+))?")
 
     def _uses_steps(self):
         """Yield ``(workflow, action, ref, comment)`` for every ``uses:`` step in the workflows.
@@ -355,11 +359,20 @@ class WorkflowActionPinTest(unittest.TestCase):
         ``#`` comment, which a YAML loader discards — and that comment is the half of the pin
         this test most needs to see.
 
+        Both ``.yml`` and ``.yaml`` are collected because GitHub accepts either, and a rule is only
+        as wide as the set it discovers: a workflow written with the other spelling would otherwise
+        be invisible to every assertion here, the exemption guard included.
+
         Returns:
             A list of ``(workflow filename, action, ref, trailing comment or None)`` tuples.
         """
         found = []
-        for workflow in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        workflows = sorted(
+            path
+            for pattern in ("*.yml", "*.yaml")
+            for path in WORKFLOWS_DIR.glob(pattern)
+        )
+        for workflow in workflows:
             for action, ref, comment in self.USES.findall(workflow.read_text(encoding="utf-8")):
                 found.append((workflow.name, action, ref, comment or None))
         return found
