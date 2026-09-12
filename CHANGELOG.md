@@ -74,9 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — so for anyone reading the public tree the citation named a file that does not exist, which is
   worse than no citation because it implies a source that can be consulted. It now cites
   `docs/design/observability.md` § Invariants, which carries the identical rule and is tracked. A
-  test now resolves every `.md` name cited from `tanglebrain/` against `docs/design/`, so the class
-  closes by construction rather than by a sweep someone has to remember to re-run — which is what
-  #170 asked for when it said the sweep was worth re-running rather than trusting.
+  test now resolves every Markdown name cited from `tanglebrain/` — backticked or bare — against the
+  docs `git` actually tracks at the repository root and under `docs/design/`, so the class closes by
+  construction rather than by a sweep someone has to remember to re-run, which is what #170 asked
+  for when it said the sweep was worth re-running rather than trusting. *Tracked*, not merely
+  present: a citation to a gitignored doc is the defect being fixed, and this repo keeps several
+  such docs at its root.
 
   **The second half is the same defect one level up.** `docs/design/boundaries.md` § Packaging and
   `tests/test_packaging.py`'s module docstring described that test file by listing what it asserts,

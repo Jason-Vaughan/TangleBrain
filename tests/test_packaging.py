@@ -14,6 +14,7 @@ open-ended constraint that let a major land unannounced.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -200,23 +201,40 @@ class DesignDocCitationTest(unittest.TestCase):
 
     @staticmethod
     def _readable_doc_names():
-        """Return the exact-case name of every Markdown doc readable in the public tree.
+        """Return the exact-case name of every Markdown doc readable in the *public* tree.
 
-        Built from directory listings rather than :meth:`pathlib.Path.is_file`, because macOS is
-        case-insensitive and Linux CI is not — ``is_file()`` answers True on a developer's laptop
-        for a name that differs only in case, silently resolving a citation against a *different*
-        document, and answers False on every CI leg. A listing gives both the same verdict.
+        Sourced from ``git ls-files`` rather than from a directory listing, because what this test
+        is about is whether a reader who clones the repository can open the file. A listing of the
+        working tree answers a different question: this repo keeps several gitignored Markdown docs
+        at its root, so a citation to one of them would resolve on a maintainer's laptop and fail
+        on CI — which is the same defect the test exists to catch, relocated one directory. Tracked
+        is the property; present is not.
 
-        The two locations are enumerated here and nowhere else: resolving against "wherever the
-        tracked docs actually are" is what lets a doc be added, renamed or moved between them
-        without an allow-list needing to be remembered.
+        Set membership is also case-sensitive whatever the filesystem is. That matters because
+        :meth:`pathlib.Path.is_file` is not: on macOS it answers True for a name differing only in
+        case, silently resolving a citation against a *different* document, and False on every
+        Linux CI leg.
+
+        The two locations are named here and nowhere else, so a doc can be added, renamed, or moved
+        between them without an allow-list to remember.
 
         Returns:
-            The set of Markdown filenames, by exact case, from the repository root and
+            The set of tracked Markdown filenames, by exact case, from the repository root and
             ``docs/design/``.
         """
-        roots = (REPO_ROOT, REPO_ROOT / "docs" / "design")
-        return {p.name for root in roots for p in root.iterdir() if p.suffix == ".md"}
+        listed = subprocess.run(
+            ["git", "ls-files", "--", "*.md"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        allowed_parents = {Path("."), Path("docs/design")}
+        return {
+            path.name
+            for path in map(Path, listed.stdout.splitlines())
+            if path.parent in allowed_parents
+        }
 
     def test_every_doc_cited_from_the_package_resolves(self):
         # A citation naming a file the reader cannot open is worse than no citation: it implies a
