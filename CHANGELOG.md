@@ -58,7 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before and after, the wheel is equivalent down to its `RECORD` — same file list, same per-file
   hashes, same sizes — and the sdist differs in exactly one file, `pyproject.toml` itself. Both
   builds report `Generator: setuptools (84.0.0)`, which is the direct evidence that setuptools,
-  not the `wheel` package, was producing the wheel all along.
+  not the `wheel` package, was producing the wheel all along. And installing the built sdist into a
+  fresh environment with `--no-binary` — a real source build rather than a comparison of two
+  outputs — succeeds with no `wheel` distribution present anywhere in it.
 
   **A test now holds the line out.** The removal is pinned in `tests/test_packaging.py` because of
   the shape the question returns in: not as "should this requirement exist at all", but as a

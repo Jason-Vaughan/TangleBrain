@@ -31,7 +31,12 @@ DEPENDABOT_PATH = REPO_ROOT / ".github" / "dependabot.yml"
 
 @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+; covered by the 3.11/3.12 CI jobs")
 class DependencyBoundTest(unittest.TestCase):
-    """Every declared dependency must carry an upper bound, and ``mcp`` must stay within 2.x."""
+    """The dependency invariants asserted over ``pyproject.toml``'s requirement tables.
+
+    Deliberately described by subject rather than by listing the assertions: each one added here
+    used to strand a prose enumeration somewhere, and a longer list only relocates the staleness.
+    The tests below are the enumeration.
+    """
 
     def setUp(self):
         """Parse pyproject.toml once per test."""
@@ -134,12 +139,12 @@ class DependencyBoundTest(unittest.TestCase):
         return re.sub(r"[-_.]+", "-", name).lower()
 
     def test_wheel_is_not_a_build_requirement(self):
-        # setuptools builds wheels with its own `setuptools.command.bdist_wheel`, so the external
-        # `wheel` distribution is not used when building this project. The backend says so
-        # directly: `build_meta.get_requires_for_build_wheel()` returns an empty list, and `wheel`
-        # appears in setuptools' metadata only under extras an isolated build does not install.
+        # Why the requirement is unnecessary is stated once, on the `[build-system]` table in
+        # pyproject.toml, where someone re-adding the line is already looking; the assertion
+        # message below points there rather than restating it, so a future setuptools fact has
+        # only one place to be corrected.
         #
-        # Pinned here rather than left to the comment on that table, because of the shape the
+        # Pinned here rather than left to that comment, because of the shape the
         # question comes back in. Restored, the line does not return as "should this exist at all"
         # — it returns as a routine `wheel x.y -> x.z` bump that reads like every other dependency
         # pull request and merges without anyone reaching the decision. Failing this test is what
