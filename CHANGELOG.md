@@ -67,6 +67,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routine `wheel x.y -> x.z` bump indistinguishable from every other dependency pull request.
   Re-adding it now takes a deliberate edit to a failing test.
 
+- **The data model's concurrency inventory names the first-run state migration**
+  ([#196](https://github.com/Jason-Vaughan/TangleBrain/issues/196)). `docs/design/data-model.md`
+  § Concurrency listed the cross-process races over persisted state — the `usage.jsonl` appends and
+  the compaction gap — but omitted `migrate_state_root`, which is the one such write *every* console
+  script performs at startup, and the one whose fixed staging name could silently truncate the usage
+  log before [#139](https://github.com/Jason-Vaughan/TangleBrain/issues/139) gave each process
+  a unique staging path. The inventory now carries it alongside the other two, with its failure mode
+  and the guarantee that holds today. Description only — no behaviour changed.
+
 ## [0.24.0] - 2026-09-10
 
 ### Added
