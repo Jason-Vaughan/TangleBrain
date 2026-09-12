@@ -67,6 +67,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routine `wheel x.y -> x.z` bump indistinguishable from every other dependency pull request.
   Re-adding it now takes a deliberate edit to a failing test.
 
+- **GitHub Actions are pinned to commit SHAs, so upstream cannot move what runs here**
+  ([#219](https://github.com/Jason-Vaughan/TangleBrain/issues/219)). Every action was pinned by
+  *mutable major tag* — `@v7`, `@v8` — so what executed was whatever that tag pointed at on the day,
+  and a coerced or compromised tag push upstream would have run in this repo's workflows with no
+  diff to review. `CONTRIBUTING.md` already treats `.github/workflows/` as a forbidden file for
+  outside contributors precisely because those files "execute without anyone choosing to run them";
+  a mutable tag reintroduced that hazard from upstream instead of from a pull request. The four
+  `actions/*` entries across both workflows now carry full 40-character SHAs with the version in a
+  trailing comment, which is the form Dependabot understands and maintains.
+
+  **`pypa/gh-action-pypi-publish@release/v1` is deliberately left unpinned**, and the workflow says
+  so at the line. It tracks a *branch*, so there is no version to pin to: freezing a commit from it
+  would stop the security fixes a publishing action most needs, and whether to track a branch there
+  at all is a larger decision than this pass. It is also the one action that uploads to PyPI, which
+  is not something to change unverified — `publish.yml` runs only on a real release
+  ([#226](https://github.com/Jason-Vaughan/TangleBrain/issues/226)).
+
 - **Two stale doc pointers fixed: an unreachable citation, and a list that decayed**
   ([#170](https://github.com/Jason-Vaughan/TangleBrain/issues/170),
   [#228](https://github.com/Jason-Vaughan/TangleBrain/issues/228)). `totals.py` grounded its
