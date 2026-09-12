@@ -2,10 +2,8 @@
 
 Dependency constraints are not exercised by any runtime code path, so nothing catches a bad one
 until an install resolves differently — which can be months after the constraint was written, in
-someone else's environment. So the invariants are pinned here instead, where a bad constraint fails
-at commit time rather than in a stranger's resolve months later. Some of them were written after an
-incident and some ahead of one — the tests below are their own inventory, and listing them here
-would only strand the list the next time one is added.
+someone else's environment. Pinning them here moves that discovery to commit time. Some were
+written after an incident and some ahead of one.
 
 The founding case: the ``delegate`` extra shipped as ``mcp >= 1.0``. When the SDK released
 2.0.0 it renamed ``FastMCP`` to ``MCPServer`` and dropped the ``mcp.server.fastmcp`` import path
@@ -188,6 +186,47 @@ class DependencyBoundTest(unittest.TestCase):
             spec,
             f"the mcp requirement must stay below the next major; got {requirement!r}",
         )
+
+class DesignDocCitationTest(unittest.TestCase):
+    """Every design doc a shipped module cites must be readable in the public tree.
+
+    Deliberately not skipped on 3.10: this reads text files and needs no ``tomllib``, so it covers
+    the whole matrix rather than the subset the dependency tests above reach.
+    """
+
+    #: Docs cited by their repo-root name rather than from ``docs/design/``.
+    ROOT_DOCS = frozenset({"README.md", "CHANGELOG.md", "CONTRIBUTING.md"})
+
+    #: A Markdown filename inside backticks — how every such citation in this package is written.
+    CITATION = re.compile(r"`([A-Za-z0-9_./-]+\.md)`")
+
+    def test_every_design_doc_cited_from_the_package_resolves(self):
+        # A citation naming a file the reader cannot open is worse than no citation: it implies a
+        # source was consulted and can be consulted again. The failure is invisible in review
+        # because the name looks right — `observability-strategy.md` reads exactly like a doc this
+        # repo has, and it is one, under `.prawduct/`, which is gitignored. So a reader of the
+        # public tree found nothing and could not tell whether it had been deleted, renamed, or
+        # never published.
+        #
+        # Resolving the names rather than grepping for known-bad ones is what makes this a
+        # construction instead of a sweep somebody has to remember to re-run: the next citation
+        # added to a gitignored doc fails here, whatever it is called.
+        unresolved = []
+        for module in sorted((REPO_ROOT / "tanglebrain").rglob("*.py")):
+            text = module.read_text(encoding="utf-8")
+            for cited in self.CITATION.findall(text):
+                name = Path(cited).name
+                if name in self.ROOT_DOCS and (REPO_ROOT / name).is_file():
+                    continue
+                if not (REPO_ROOT / "docs" / "design" / name).is_file():
+                    unresolved.append(f"{module.relative_to(REPO_ROOT)} cites `{cited}`")
+        self.assertEqual(
+            unresolved,
+            [],
+            "these citations name a file that is not in the public tree — a reader cannot follow "
+            f"them, and cannot tell a deleted doc from a gitignored one: {unresolved}",
+        )
+
 
 class DependabotConfigTest(unittest.TestCase):
     """The Dependabot config makes a claim about a provider, so pin the half that is ours.
