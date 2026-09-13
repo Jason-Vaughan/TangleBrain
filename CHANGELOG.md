@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **`types-PyYAML` floor raised to the current stub release**
+  ([#235](https://github.com/Jason-Vaughan/TangleBrain/pull/235)). A type-stub bump in the `dev`
+  extra, so nothing a user installs changed and no announcement is owed under
+  `docs/design/deprecation-policy.md` § Dependency floors — that rule governs what a *user* may
+  install, and `dev` is not that. Logged rather than skipped because `### Internal` exists for dev
+  tooling precisely so the history stays auditable.
+
+  **Its sibling was declined, and the reason is the more useful half.**
+  [#234](https://github.com/Jason-Vaughan/TangleBrain/pull/234) proposed raising the `mcp` floor
+  from `>= 2` to `>= 2.2.0` and was closed: no advisory touches the 2.0–2.2 range and
+  `tanglebrain/mcp_server.py` uses only base 2.x API, so it would have narrowed what a user may
+  install in exchange for nothing. **Dependabot labelled it `build(deps-dev)` and it is not dev** —
+  `delegate` is a runtime optional extra. Read the table a requirement sits in, not the commit-type
+  prefix.
+
 ## [0.25.0] - 2026-09-12
 
 ### Added
