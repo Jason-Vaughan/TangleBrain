@@ -35,7 +35,7 @@
 # `core` and `test` extras, neither of which an isolated build installs. Naming it here bought a
 # requirement to resolve and a second bound to maintain, and changed nothing about what the build
 # environment contains.
-requires = ["setuptools >= 84, < 85"]
+requires = ["setuptools >= 84.2.1, < 85"]
 build-backend = "setuptools.build_meta"
 
 [project]
